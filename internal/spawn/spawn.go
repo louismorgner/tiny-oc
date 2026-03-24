@@ -66,6 +66,7 @@ func SpawnSession(cfg *agent.AgentConfig) (*SpawnResult, error) {
 		Agent:         cfg.Name,
 		CreatedAt:     time.Now(),
 		WorkspacePath: workDir,
+		Status:        session.StatusActive,
 	}); err != nil {
 		return nil, fmt.Errorf("failed to track session: %w", err)
 	}
@@ -85,6 +86,7 @@ func SpawnSession(cfg *agent.AgentConfig) (*SpawnResult, error) {
 	fmt.Println()
 
 	_ = launchClaude(workDir, cfg.Model, sessionID, false)
+	_ = session.UpdateStatus(sessionID, session.StatusCompleted)
 
 	// Post-session sync: copy matching files back to agent template
 	var syncedFiles int
@@ -136,7 +138,9 @@ func ResumeSession(s *session.Session) (*SpawnResult, error) {
 	}
 	fmt.Println()
 
+	_ = session.UpdateStatus(s.ID, session.StatusActive)
 	_ = launchClaude(s.WorkspacePath, cfg.Model, s.ID, true)
+	_ = session.UpdateStatus(s.ID, session.StatusCompleted)
 
 	var syncedFiles int
 	if len(cfg.Context) > 0 {
@@ -195,7 +199,7 @@ func printResumeCommand(agentName, sessionID string) {
 }
 
 func launchClaude(dir, model, sessionID string, resume bool) error {
-	args := []string{}
+	args := []string{"--dangerously-skip-permissions"}
 	if model != "" {
 		args = append(args, "--model", model)
 	}

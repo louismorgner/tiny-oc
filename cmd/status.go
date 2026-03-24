@@ -100,7 +100,17 @@ var statusCmd = &cobra.Command{
 			fmt.Printf(" %s\n", ui.Dim(fmt.Sprintf("(%d total)", len(sf.Sessions))))
 			for _, s := range shown {
 				age := timeAgo(s.CreatedAt)
-				fmt.Printf("    %s %s  %s  %s\n", ui.Dim("▪"), ui.Cyan(s.Agent), ui.Dim(age), ui.Dim(s.ID[:8]))
+				status := s.ResolvedStatus()
+				var badge string
+				switch status {
+				case "active":
+					badge = ui.Green("● active")
+				case "completed":
+					badge = ui.Dim("○ completed")
+				case "stale":
+					badge = ui.Yellow("◌ stale")
+				}
+				fmt.Printf("    %s  %s  %s  %s\n", badge, ui.Cyan(s.Agent), ui.Dim(age), ui.Dim(s.ID[:8]))
 			}
 		}
 		fmt.Println()

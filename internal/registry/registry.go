@@ -92,8 +92,15 @@ func FindSkill(index *SkillIndex, name string) (*SkillEntry, bool) {
 	return nil, false
 }
 
-// InstallSkill clones the toc repo and copies the skill into the local workspace.
+// InstallSkill clones the toc repo and copies the skill into the local workspace (.toc/skills/).
 func InstallSkill(name string) (*skill.SkillMeta, error) {
+	return InstallSkillTo(name, skill.Dir(name))
+}
+
+// InstallSkillTo clones the toc repo and copies the skill into the given target directory.
+// Used by both `toc skill add --registry` (installs to .toc/skills/) and spawn-time
+// resolution (installs to session .claude/skills/).
+func InstallSkillTo(name, destDir string) (*skill.SkillMeta, error) {
 	tmpDir, err := os.MkdirTemp("", "toc-registry-*")
 	if err != nil {
 		return nil, fmt.Errorf("failed to create temp directory: %w", err)
@@ -126,8 +133,6 @@ func InstallSkill(name string) (*skill.SkillMeta, error) {
 		return nil, fmt.Errorf("invalid skill in registry: %w", err)
 	}
 
-	// Copy to local workspace
-	destDir := skill.Dir(meta.Name)
 	if err := copyDir(skillSrc, destDir); err != nil {
 		return nil, fmt.Errorf("failed to install skill: %w", err)
 	}

@@ -68,7 +68,9 @@ When you run `toc agent spawn`, it:
 | `toc skill create` | Create a new local skill |
 | `toc skill list` | List available skills |
 | `toc skill add <url>` | Install a skill from a Git URL |
+| `toc skill add --registry <name>` | Install a skill from the registry |
 | `toc skill remove <name>` | Remove a skill |
+| `toc registry search [query]` | Browse skills in the registry |
 | `toc audit` | View the audit log |
 | `toc completion <shell>` | Generate shell completion script |
 

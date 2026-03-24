@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/tiny-oc/toc/internal/agent"
+	"github.com/tiny-oc/toc/internal/registry"
 	"github.com/tiny-oc/toc/internal/session"
 	"github.com/tiny-oc/toc/internal/skill"
 	tocsync "github.com/tiny-oc/toc/internal/sync"
@@ -245,8 +246,10 @@ func resolveSkills(workDir string, skills []string) []string {
 	return failed
 }
 
-// resolveNamedSkill resolves a skill by name: first checks local .toc/skills/<name>/,
-// then falls back to URL registry.
+// resolveNamedSkill resolves a skill by name:
+// 1. Local .toc/skills/<name>/
+// 2. URL reference in .toc/skills.yaml
+// 3. Remote toc registry (registry/skills/<name>/)
 func resolveNamedSkill(name string, targetDir string) error {
 	// Try local skill first
 	srcDir := skill.Dir(name)
@@ -254,13 +257,19 @@ func resolveNamedSkill(name string, targetDir string) error {
 		return copyDir(srcDir, filepath.Join(targetDir, name))
 	}
 
-	// Fall back to URL registry
+	// Try URL registry
 	ref, err := skill.FindRef(name)
-	if err != nil {
-		return fmt.Errorf("not found as local skill or URL reference")
+	if err == nil {
+		return cloneSkillToTarget(ref.URL, targetDir)
 	}
 
-	return cloneSkillToTarget(ref.URL, targetDir)
+	// Fall back to remote toc registry
+	meta, err := registry.InstallSkillTo(name, filepath.Join(targetDir, name))
+	if err != nil {
+		return fmt.Errorf("not found locally, in URL refs, or in registry")
+	}
+	_ = meta
+	return nil
 }
 
 // resolveURLSkill resolves a skill directly from a URL.

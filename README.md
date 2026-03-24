@@ -7,13 +7,23 @@ Define agents as simple YAML configs, then spawn isolated sessions instantly. Bu
 ## Install
 
 ```bash
+curl -fsSL https://raw.githubusercontent.com/tiny-oc/toc/main/get-toc.sh | bash
+```
+
+Downloads the latest prebuilt binary for your platform. Supports macOS and Linux (amd64/arm64).
+
+Requires [Claude Code](https://docs.anthropic.com/en/docs/claude-code) to spawn agent sessions.
+
+### Build from source
+
+```bash
 git clone https://github.com/tiny-oc/toc.git
 cd toc
 make build
 ./install.sh
 ```
 
-Requires [Go 1.25+](https://go.dev/dl/) and [Claude Code](https://docs.anthropic.com/en/docs/claude-code).
+Requires [Go 1.25+](https://go.dev/dl/).
 
 ## Quick start
 

@@ -30,5 +30,5 @@ changelog:
 
 release:
   github:
-    owner: tiny-oc
-    name: toc
+    owner: louismorgner
+    name: tiny-oc

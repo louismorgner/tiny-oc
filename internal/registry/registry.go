@@ -15,8 +15,8 @@ import (
 )
 
 const (
-	RepoURL  = "https://github.com/tiny-oc/toc.git"
-	IndexURL = "https://raw.githubusercontent.com/tiny-oc/toc/main/registry/skills/index.yaml"
+	RepoURL  = "https://github.com/louismorgner/tiny-oc.git"
+	IndexURL = "https://raw.githubusercontent.com/louismorgner/tiny-oc/main/registry/skills/index.yaml"
 )
 
 // SkillEntry represents a skill in the registry index.

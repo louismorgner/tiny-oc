@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"encoding/json"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -129,6 +130,69 @@ func matchActionPrefix(eventAction, prefix string) bool {
 		return false
 	}
 	return eventAction[:len(prefix)] == prefix
+}
+
+// LogFromWorkspace appends an audit event using an explicit workspace path.
+// Used by runtime commands that run from a session dir, not the workspace root.
+func LogFromWorkspace(workspacePath string, action string, details map[string]interface{}) error {
+	initIdentity()
+
+	cwd, _ := os.Getwd()
+
+	// Read workspace name from the config in the given path
+	workspace := ""
+	cfgPath := workspacePath + "/.toc/config.yaml"
+	if data, err := os.ReadFile(cfgPath); err == nil {
+		// Simple extraction — just get the name field
+		for _, line := range splitLines(data) {
+			if len(line) > 6 && string(line[:5]) == "name:" {
+				workspace = strings.TrimSpace(string(line[5:]))
+				break
+			}
+		}
+	}
+
+	event := Event{
+		Timestamp: time.Now().UTC().Format("2006-01-02T15:04:05.000Z"),
+		Action:    action,
+		Actor:     actor,
+		Hostname:  hostname,
+		Workspace: workspace,
+		Cwd:       cwd,
+		Details:   details,
+		Version:   version,
+	}
+
+	line, err := json.Marshal(event)
+	if err != nil {
+		return err
+	}
+	line = append(line, '\n')
+
+	auditPath := workspacePath + "/.toc/audit.log"
+	f, err := os.OpenFile(auditPath, os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0644)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	_, err = f.Write(line)
+	return err
+}
+
+func splitLines(data []byte) [][]byte {
+	var lines [][]byte
+	start := 0
+	for i, b := range data {
+		if b == '\n' {
+			lines = append(lines, data[start:i])
+			start = i + 1
+		}
+	}
+	if start < len(data) {
+		lines = append(lines, data[start:])
+	}
+	return lines
 }
 
 // version is set by the cmd package at init time.

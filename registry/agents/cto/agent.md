@@ -13,6 +13,19 @@ Before writing or changing any code in a new session, build a complete understan
 - When making architectural decisions, explain the trade-offs and your reasoning. State what you'd revisit if requirements change.
 - When asked for opinions, be direct. "It depends" is not an answer — state your recommendation and the conditions under which you'd change it.
 
+## Sub-agents
+
+You can delegate work to other agents in the workspace. Use this when a task is better handled by a specialist.
+
+```bash
+toc runtime list                                    # see what agents you can spawn
+toc runtime spawn <agent> --prompt "task description"  # spawn in background
+toc runtime status                                  # check all sub-agent progress
+toc runtime output <session-id>                     # read completed output
+```
+
+Delegate when the task is self-contained and has a clear deliverable. Don't delegate when you need tight back-and-forth iteration — do it yourself.
+
 ## What to avoid
 
 - Don't over-engineer. If the task is small, the solution should be small.

@@ -15,11 +15,13 @@ const (
 )
 
 type Session struct {
-	ID            string    `yaml:"id"`
-	Agent         string    `yaml:"agent"`
-	CreatedAt     time.Time `yaml:"created_at"`
-	WorkspacePath string    `yaml:"workspace_path"`
-	Status        string    `yaml:"status,omitempty"`
+	ID              string    `yaml:"id"`
+	Agent           string    `yaml:"agent"`
+	CreatedAt       time.Time `yaml:"created_at"`
+	WorkspacePath   string    `yaml:"workspace_path"`
+	Status          string    `yaml:"status,omitempty"`
+	ParentSessionID string    `yaml:"parent_session_id,omitempty"`
+	Prompt          string    `yaml:"prompt,omitempty"`
 }
 
 // ResolvedStatus returns the display status, checking workspace existence.
@@ -117,6 +119,20 @@ func RemoveByAgent(agentName string) error {
 	return Save(sf)
 }
 
+func ListByParent(parentID string) ([]Session, error) {
+	sf, err := Load()
+	if err != nil {
+		return nil, err
+	}
+	var result []Session
+	for _, s := range sf.Sessions {
+		if s.ParentSessionID == parentID {
+			result = append(result, s)
+		}
+	}
+	return result, nil
+}
+
 func FindByID(id string) (*Session, error) {
 	sf, err := Load()
 	if err != nil {
@@ -128,4 +144,89 @@ func FindByID(id string) (*Session, error) {
 		}
 	}
 	return nil, fmt.Errorf("session '%s' not found", id)
+}
+
+// FindByIDInWorkspace looks up a session by ID using a specific workspace path.
+// AddInWorkspace adds a session record using a specific workspace path.
+func AddInWorkspace(workspace string, s Session) error {
+	path := workspace + "/.toc/sessions.yaml"
+	data, err := os.ReadFile(path)
+	var sf SessionsFile
+	if err == nil {
+		_ = yaml.Unmarshal(data, &sf)
+	}
+	sf.Sessions = append(sf.Sessions, s)
+	out, err := yaml.Marshal(sf)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, out, 0644)
+}
+
+// UpdateStatusInWorkspace updates session status using a specific workspace path.
+func UpdateStatusInWorkspace(workspace, id, status string) error {
+	path := workspace + "/.toc/sessions.yaml"
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	var sf SessionsFile
+	if err := yaml.Unmarshal(data, &sf); err != nil {
+		return err
+	}
+	for i := range sf.Sessions {
+		if sf.Sessions[i].ID == id {
+			sf.Sessions[i].Status = status
+			out, err := yaml.Marshal(sf)
+			if err != nil {
+				return err
+			}
+			return os.WriteFile(path, out, 0644)
+		}
+	}
+	return fmt.Errorf("session '%s' not found", id)
+}
+
+func FindByIDInWorkspace(workspace, id string) (*Session, error) {
+	path := workspace + "/.toc/sessions.yaml"
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, fmt.Errorf("session '%s' not found", id)
+		}
+		return nil, err
+	}
+	var sf SessionsFile
+	if err := yaml.Unmarshal(data, &sf); err != nil {
+		return nil, err
+	}
+	for _, s := range sf.Sessions {
+		if s.ID == id {
+			return &s, nil
+		}
+	}
+	return nil, fmt.Errorf("session '%s' not found", id)
+}
+
+// ListByParentInWorkspace lists child sessions using a specific workspace path.
+func ListByParentInWorkspace(workspace, parentID string) ([]Session, error) {
+	path := workspace + "/.toc/sessions.yaml"
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	var sf SessionsFile
+	if err := yaml.Unmarshal(data, &sf); err != nil {
+		return nil, err
+	}
+	var result []Session
+	for _, s := range sf.Sessions {
+		if s.ParentSessionID == parentID {
+			result = append(result, s)
+		}
+	}
+	return result, nil
 }

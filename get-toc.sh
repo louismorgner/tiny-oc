@@ -69,11 +69,17 @@ tar -xzf "${TOC_TMP}/${ARCHIVE}" -C "$TOC_TMP"
 # Install binary
 chmod +x "${TOC_TMP}/${BIN_NAME}"
 
-if cp "${TOC_TMP}/${BIN_NAME}" "${INSTALL_DIR}/${BIN_NAME}" 2>/dev/null; then
+install_to() {
+  local dir="$1"
+  mkdir -p "$dir"
+  rm -f "${dir}/${BIN_NAME}"
+  cp "${TOC_TMP}/${BIN_NAME}" "${dir}/${BIN_NAME}"
+}
+
+if install_to "$INSTALL_DIR" 2>/dev/null; then
   echo "Installed to ${INSTALL_DIR}/${BIN_NAME}"
 else
-  mkdir -p "$FALLBACK_DIR"
-  cp "${TOC_TMP}/${BIN_NAME}" "${FALLBACK_DIR}/${BIN_NAME}"
+  install_to "$FALLBACK_DIR"
   echo "Installed to ${FALLBACK_DIR}/${BIN_NAME}"
   if [[ ":$PATH:" != *":$FALLBACK_DIR:"* ]]; then
     echo ""

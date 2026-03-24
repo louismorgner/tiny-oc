@@ -1,0 +1,9 @@
+bin/
+/toc
+.toc/
+.context/
+
+# Go
+*.exe
+*.test
+*.out

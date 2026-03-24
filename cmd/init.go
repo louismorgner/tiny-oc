@@ -39,7 +39,10 @@ var initCmd = &cobra.Command{
 
 		fmt.Println()
 		ui.Success("Initialized workspace %s", ui.Bold(name))
-		ui.Info("Next: run %s to create your first agent.", ui.Bold("toc agent create"))
+		fmt.Println()
+		ui.Info("Next steps:")
+		ui.Info("  %s  Create a new agent from scratch", ui.Bold("toc agent create"))
+		ui.Info("  %s  Browse agent templates from the registry", ui.Bold("toc registry search"))
 		fmt.Println()
 		return nil
 	},

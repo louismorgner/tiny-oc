@@ -54,26 +54,26 @@ echo "Version: v${VERSION}"
 ARCHIVE="toc_${VERSION}_${OS}_${ARCH}.tar.gz"
 URL="https://github.com/${REPO}/releases/download/v${VERSION}/${ARCHIVE}"
 
-TMPDIR=$(mktemp -d)
-trap 'rm -rf "$TMPDIR"' EXIT
+TOC_TMP=$(mktemp -d)
+trap 'rm -rf "$TOC_TMP"' EXIT
 
 echo "Downloading ${ARCHIVE}..."
-if ! curl -fsSL "$URL" -o "${TMPDIR}/${ARCHIVE}"; then
+if ! curl -fsSL "$URL" -o "${TOC_TMP}/${ARCHIVE}"; then
   echo "Error: failed to download ${URL}"
   echo "Check https://github.com/${REPO}/releases for available binaries."
   exit 1
 fi
 
-tar -xzf "${TMPDIR}/${ARCHIVE}" -C "$TMPDIR"
+tar -xzf "${TOC_TMP}/${ARCHIVE}" -C "$TOC_TMP"
 
 # Install binary
-chmod +x "${TMPDIR}/${BIN_NAME}"
+chmod +x "${TOC_TMP}/${BIN_NAME}"
 
-if cp "${TMPDIR}/${BIN_NAME}" "${INSTALL_DIR}/${BIN_NAME}" 2>/dev/null; then
+if cp "${TOC_TMP}/${BIN_NAME}" "${INSTALL_DIR}/${BIN_NAME}" 2>/dev/null; then
   echo "Installed to ${INSTALL_DIR}/${BIN_NAME}"
 else
   mkdir -p "$FALLBACK_DIR"
-  cp "${TMPDIR}/${BIN_NAME}" "${FALLBACK_DIR}/${BIN_NAME}"
+  cp "${TOC_TMP}/${BIN_NAME}" "${FALLBACK_DIR}/${BIN_NAME}"
   echo "Installed to ${FALLBACK_DIR}/${BIN_NAME}"
   if [[ ":$PATH:" != *":$FALLBACK_DIR:"* ]]; then
     echo ""

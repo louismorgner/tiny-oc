@@ -9,11 +9,47 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+const (
+	StatusActive    = "active"
+	StatusCompleted = "completed"
+)
+
 type Session struct {
 	ID            string    `yaml:"id"`
 	Agent         string    `yaml:"agent"`
 	CreatedAt     time.Time `yaml:"created_at"`
 	WorkspacePath string    `yaml:"workspace_path"`
+	Status        string    `yaml:"status,omitempty"`
+}
+
+// ResolvedStatus returns the display status, checking workspace existence.
+func (s *Session) ResolvedStatus() string {
+	if _, err := os.Stat(s.WorkspacePath); os.IsNotExist(err) {
+		return "stale"
+	}
+	if s.Status == StatusActive {
+		return "active"
+	}
+	if s.Status == StatusCompleted {
+		return "completed"
+	}
+	// Legacy sessions without status field
+	return "completed"
+}
+
+// UpdateStatus sets the status of a session by ID.
+func UpdateStatus(id, status string) error {
+	sf, err := Load()
+	if err != nil {
+		return err
+	}
+	for i := range sf.Sessions {
+		if sf.Sessions[i].ID == id {
+			sf.Sessions[i].Status = status
+			return Save(sf)
+		}
+	}
+	return fmt.Errorf("session '%s' not found", id)
 }
 
 type SessionsFile struct {

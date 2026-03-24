@@ -119,11 +119,17 @@ func SyncBack(sessionDir, agentDir string, patterns []string) (int, error) {
 			return err
 		}
 
-		if !MatchesAny(rel, patterns) {
+		// Map CLAUDE.md back to agent.md in the template
+		dstRel := rel
+		if rel == "CLAUDE.md" {
+			dstRel = "agent.md"
+		}
+
+		if !MatchesAny(dstRel, patterns) {
 			return nil
 		}
 
-		dst := filepath.Join(agentDir, rel)
+		dst := filepath.Join(agentDir, dstRel)
 		if err := os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
 			return err
 		}
@@ -148,11 +154,17 @@ func SyncFile(filePath, sessionDir, agentDir string, patterns []string) (bool, e
 		return false, nil
 	}
 
-	if !MatchesAny(rel, patterns) {
+	// Map CLAUDE.md back to agent.md in the template
+	dstRel := rel
+	if rel == "CLAUDE.md" {
+		dstRel = "agent.md"
+	}
+
+	if !MatchesAny(dstRel, patterns) {
 		return false, nil
 	}
 
-	dst := filepath.Join(agentDir, rel)
+	dst := filepath.Join(agentDir, dstRel)
 	if err := os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
 		return false, err
 	}
@@ -219,6 +231,12 @@ if [ "$REL_PATH" = "$FILE_PATH" ]; then
   exit 0
 fi
 
+# Map CLAUDE.md back to agent.md for the agent template
+DST_REL="$REL_PATH"
+if [ "$REL_PATH" = "CLAUDE.md" ]; then
+  DST_REL="agent.md"
+fi
+
 # Check against each pattern and sync if matched
 AGENT_DIR="%s"
 PATTERNS=(%s)
@@ -227,31 +245,31 @@ for PATTERN in "${PATTERNS[@]}"; do
   # Directory pattern
   DIR_PATTERN="${PATTERN%%/}"
   if [ "$DIR_PATTERN" != "$PATTERN" ] || [ -d "%s/$DIR_PATTERN" ] 2>/dev/null; then
-    if [[ "$REL_PATH" == "$DIR_PATTERN"/* ]] || [ "$REL_PATH" = "$DIR_PATTERN" ]; then
-      mkdir -p "$(dirname "$AGENT_DIR/$REL_PATH")"
-      cp "$FILE_PATH" "$AGENT_DIR/$REL_PATH"
+    if [[ "$DST_REL" == "$DIR_PATTERN"/* ]] || [ "$DST_REL" = "$DIR_PATTERN" ]; then
+      mkdir -p "$(dirname "$AGENT_DIR/$DST_REL")"
+      cp "$FILE_PATH" "$AGENT_DIR/$DST_REL"
       exit 0
     fi
   fi
 
   # Glob pattern — use bash built-in matching
   # shellcheck disable=SC2254
-  case "$REL_PATH" in
+  case "$DST_REL" in
     $PATTERN)
-      mkdir -p "$(dirname "$AGENT_DIR/$REL_PATH")"
-      cp "$FILE_PATH" "$AGENT_DIR/$REL_PATH"
+      mkdir -p "$(dirname "$AGENT_DIR/$DST_REL")"
+      cp "$FILE_PATH" "$AGENT_DIR/$DST_REL"
       exit 0
       ;;
   esac
 
   # Also match just the filename for non-path patterns
-  BASENAME=$(basename "$REL_PATH")
+  BASENAME=$(basename "$DST_REL")
   if [[ "$PATTERN" != */* ]]; then
     # shellcheck disable=SC2254
     case "$BASENAME" in
       $PATTERN)
-        mkdir -p "$(dirname "$AGENT_DIR/$REL_PATH")"
-        cp "$FILE_PATH" "$AGENT_DIR/$REL_PATH"
+        mkdir -p "$(dirname "$AGENT_DIR/$DST_REL")"
+        cp "$FILE_PATH" "$AGENT_DIR/$DST_REL"
         exit 0
         ;;
     esac

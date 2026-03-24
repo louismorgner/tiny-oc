@@ -9,6 +9,7 @@ import (
 	"github.com/tiny-oc/toc/internal/agent"
 	"github.com/tiny-oc/toc/internal/config"
 	"github.com/tiny-oc/toc/internal/session"
+	"github.com/tiny-oc/toc/internal/skill"
 	"github.com/tiny-oc/toc/internal/ui"
 )
 
@@ -58,6 +59,31 @@ var statusCmd = &cobra.Command{
 				} else {
 					fmt.Printf("    %s %s %s\n", ui.Red("✗"), ui.Cyan(a.Name), ui.Red(strings.Join(problems, ", ")))
 				}
+				if len(a.Skills) > 0 {
+					fmt.Printf("      %s %s\n", ui.Dim("skills:"), ui.Dim(strings.Join(a.Skills, ", ")))
+				}
+			}
+		}
+		fmt.Println()
+
+		// Skills
+		locals, _ := skill.ListLocal()
+		reg, _ := skill.LoadRegistry()
+		totalSkills := len(locals) + len(reg.Skills)
+		fmt.Printf("  %s", ui.Bold("Skills"))
+		if totalSkills == 0 {
+			fmt.Printf("  %s\n", ui.Dim("none"))
+		} else {
+			fmt.Printf(" %s\n", ui.Dim(fmt.Sprintf("(%d)", totalSkills)))
+			for _, s := range locals {
+				desc := s.Description
+				if len(desc) > 50 {
+					desc = desc[:47] + "..."
+				}
+				fmt.Printf("    %s %s %s\n", ui.Dim("▪"), ui.Cyan(s.Name), ui.Dim(desc))
+			}
+			for _, r := range reg.Skills {
+				fmt.Printf("    %s %s %s\n", ui.Dim("▪"), ui.Cyan(r.Name), ui.Dim(r.URL))
 			}
 		}
 		fmt.Println()

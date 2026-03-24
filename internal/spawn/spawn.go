@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/tiny-oc/toc/internal/agent"
 	"github.com/tiny-oc/toc/internal/session"
+	"github.com/tiny-oc/toc/internal/skill"
 	tocsync "github.com/tiny-oc/toc/internal/sync"
 	"github.com/tiny-oc/toc/internal/ui"
 )
@@ -19,8 +20,9 @@ const sessionsDir = "/tmp/toc-sessions"
 
 // SpawnResult contains metadata from a completed spawn for audit logging.
 type SpawnResult struct {
-	SessionID   string
-	SyncedFiles int
+	SessionID    string
+	SyncedFiles  int
+	FailedSkills []string
 }
 
 func SpawnSession(cfg *agent.AgentConfig) (*SpawnResult, error) {
@@ -39,6 +41,17 @@ func SpawnSession(cfg *agent.AgentConfig) (*SpawnResult, error) {
 
 	if err := copyDir(srcDir, workDir); err != nil {
 		return nil, fmt.Errorf("failed to copy agent template: %w", err)
+	}
+
+	// Convert agent.md into CLAUDE.md so Claude Code picks it up as instructions
+	if err := provisionClaudeMD(workDir); err != nil {
+		return nil, fmt.Errorf("failed to provision CLAUDE.md: %w", err)
+	}
+
+	// Resolve skills into session .claude/skills/
+	var failedSkills []string
+	if len(cfg.Skills) > 0 {
+		failedSkills = resolveSkills(workDir, cfg.Skills)
 	}
 
 	if len(cfg.Context) > 0 {
@@ -61,6 +74,10 @@ func SpawnSession(cfg *agent.AgentConfig) (*SpawnResult, error) {
 	ui.Info("Model: %s", ui.Bold(cfg.Model))
 	ui.Info("Session: %s", ui.Cyan(sessionID))
 	ui.Info("Workspace: %s", ui.Dim(workDir))
+	if len(cfg.Skills) > 0 {
+		resolved := len(cfg.Skills) - len(failedSkills)
+		ui.Info("Skills: %s", ui.Dim(fmt.Sprintf("%d/%d resolved", resolved, len(cfg.Skills))))
+	}
 	if len(cfg.Context) > 0 {
 		ui.Info("Context sync: %s", ui.Dim(fmt.Sprintf("%d pattern(s)", len(cfg.Context))))
 	}
@@ -74,9 +91,10 @@ func SpawnSession(cfg *agent.AgentConfig) (*SpawnResult, error) {
 		syncedFiles = runPostSessionSync(workDir, srcDir, cfg.Context)
 	}
 
+	printFailedSkills(failedSkills)
 	printResumeCommand(cfg.Name, sessionID)
 
-	return &SpawnResult{SessionID: sessionID, SyncedFiles: syncedFiles}, nil
+	return &SpawnResult{SessionID: sessionID, SyncedFiles: syncedFiles, FailedSkills: failedSkills}, nil
 }
 
 func ResumeSession(s *session.Session) (*SpawnResult, error) {
@@ -94,6 +112,12 @@ func ResumeSession(s *session.Session) (*SpawnResult, error) {
 		return nil, fmt.Errorf("failed to resolve agent directory: %w", err)
 	}
 
+	// Re-resolve skills in case they were cleaned up or updated
+	var failedSkills []string
+	if len(cfg.Skills) > 0 {
+		failedSkills = resolveSkills(s.WorkspacePath, cfg.Skills)
+	}
+
 	// Re-setup hooks in case they were cleaned up
 	if len(cfg.Context) > 0 {
 		if err := setupContextHooks(s.WorkspacePath, srcDir, cfg.Context); err != nil {
@@ -105,6 +129,10 @@ func ResumeSession(s *session.Session) (*SpawnResult, error) {
 	ui.Info("Resuming agent: %s", ui.Bold(s.Agent))
 	ui.Info("Session: %s", ui.Cyan(s.ID))
 	ui.Info("Workspace: %s", ui.Dim(s.WorkspacePath))
+	if len(cfg.Skills) > 0 {
+		resolved := len(cfg.Skills) - len(failedSkills)
+		ui.Info("Skills: %s", ui.Dim(fmt.Sprintf("%d/%d resolved", resolved, len(cfg.Skills))))
+	}
 	fmt.Println()
 
 	_ = launchClaude(s.WorkspacePath, cfg.Model, s.ID, true)
@@ -114,9 +142,10 @@ func ResumeSession(s *session.Session) (*SpawnResult, error) {
 		syncedFiles = runPostSessionSync(s.WorkspacePath, srcDir, cfg.Context)
 	}
 
+	printFailedSkills(failedSkills)
 	printResumeCommand(s.Agent, s.ID)
 
-	return &SpawnResult{SessionID: s.ID, SyncedFiles: syncedFiles}, nil
+	return &SpawnResult{SessionID: s.ID, SyncedFiles: syncedFiles, FailedSkills: failedSkills}, nil
 }
 
 func setupContextHooks(workDir, agentDir string, patterns []string) error {
@@ -188,6 +217,109 @@ func launchClaude(dir, model, sessionID string, resume bool) error {
 		return fmt.Errorf("failed to launch claude: %w", err)
 	}
 	return nil
+}
+
+// resolveSkills resolves all skill references and copies them into the session's
+// .claude/skills/ directory. Returns a list of skill entries that failed to resolve.
+func resolveSkills(workDir string, skills []string) []string {
+	skillsTarget := filepath.Join(workDir, ".claude", "skills")
+	if err := os.MkdirAll(skillsTarget, 0755); err != nil {
+		ui.Warn("Failed to create skills directory: %s", err)
+		return skills
+	}
+
+	var failed []string
+	for _, entry := range skills {
+		if skill.IsURL(entry) {
+			if err := resolveURLSkill(entry, skillsTarget); err != nil {
+				ui.Warn("Skill '%s': %s", entry, err)
+				failed = append(failed, entry)
+			}
+		} else {
+			if err := resolveNamedSkill(entry, skillsTarget); err != nil {
+				ui.Warn("Skill '%s': %s", entry, err)
+				failed = append(failed, entry)
+			}
+		}
+	}
+	return failed
+}
+
+// resolveNamedSkill resolves a skill by name: first checks local .toc/skills/<name>/,
+// then falls back to URL registry.
+func resolveNamedSkill(name string, targetDir string) error {
+	// Try local skill first
+	srcDir := skill.Dir(name)
+	if _, err := os.Stat(srcDir); err == nil {
+		return copyDir(srcDir, filepath.Join(targetDir, name))
+	}
+
+	// Fall back to URL registry
+	ref, err := skill.FindRef(name)
+	if err != nil {
+		return fmt.Errorf("not found as local skill or URL reference")
+	}
+
+	return cloneSkillToTarget(ref.URL, targetDir)
+}
+
+// resolveURLSkill resolves a skill directly from a URL.
+func resolveURLSkill(url string, targetDir string) error {
+	return cloneSkillToTarget(url, targetDir)
+}
+
+// cloneSkillToTarget clones a git repo, finds the SKILL.md, and copies the skill
+// directory into the target.
+func cloneSkillToTarget(url string, targetDir string) error {
+	tmpDir, err := os.MkdirTemp("", "toc-skill-*")
+	if err != nil {
+		return fmt.Errorf("failed to create temp directory: %w", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	gitCmd := exec.Command("git", "clone", "--depth", "1", url, tmpDir)
+	gitCmd.Stdout = io.Discard
+	gitCmd.Stderr = io.Discard
+	if err := gitCmd.Run(); err != nil {
+		return fmt.Errorf("failed to clone %s", url)
+	}
+
+	skillDir, err := skill.FindSkillMDInDir(tmpDir)
+	if err != nil {
+		return err
+	}
+
+	meta, err := skill.ValidateSkillDir(skillDir)
+	if err != nil {
+		return err
+	}
+
+	return copyDir(skillDir, filepath.Join(targetDir, meta.Name))
+}
+
+func printFailedSkills(failed []string) {
+	if len(failed) == 0 {
+		return
+	}
+	fmt.Println()
+	ui.Warn("Some skills failed to resolve:")
+	for _, s := range failed {
+		fmt.Printf("  %s %s\n", ui.Red("✗"), s)
+	}
+	ui.Info("Consider removing or updating these skill references.")
+}
+
+// provisionClaudeMD renames agent.md to CLAUDE.md in the session workspace
+// so that Claude Code loads it as its project instructions.
+func provisionClaudeMD(workDir string) error {
+	agentMD := filepath.Join(workDir, "agent.md")
+	claudeMD := filepath.Join(workDir, "CLAUDE.md")
+
+	if _, err := os.Stat(agentMD); os.IsNotExist(err) {
+		return nil // no agent.md, nothing to do
+	}
+
+	return os.Rename(agentMD, claudeMD)
 }
 
 func copyDir(src, dst string) error {

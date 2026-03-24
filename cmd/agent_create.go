@@ -27,7 +27,7 @@ var agentCreateCmd = &cobra.Command{
 		ui.Header("Create a new agent")
 
 		var name, desc, model string
-		var contextRaw, instructions string
+		var contextRaw, skillsRaw, instructions string
 
 		basics := huh.NewForm(
 			huh.NewGroup(
@@ -65,6 +65,11 @@ var agentCreateCmd = &cobra.Command{
 
 			huh.NewGroup(
 				huh.NewText().
+					Title("Skills").
+					Description("skill names or URLs — one per line (optional, press enter to skip).\nuse 'toc skill list' to see available skills.").
+					Value(&skillsRaw),
+
+				huh.NewText().
 					Title("Context sync patterns").
 					Description("files matching these patterns sync back from sessions to the agent template.\none per line, e.g. context/*.md, docs/, notes.txt (optional, press enter to skip)").
 					Value(&contextRaw),
@@ -80,7 +85,7 @@ var agentCreateCmd = &cobra.Command{
 			return err
 		}
 
-		// Parse context patterns from multiline input
+		// Parse multiline inputs
 		var contextPatterns []string
 		if contextRaw != "" {
 			for _, line := range strings.Split(contextRaw, "\n") {
@@ -91,12 +96,23 @@ var agentCreateCmd = &cobra.Command{
 			}
 		}
 
+		var skills []string
+		if skillsRaw != "" {
+			for _, line := range strings.Split(skillsRaw, "\n") {
+				line = strings.TrimSpace(line)
+				if line != "" {
+					skills = append(skills, line)
+				}
+			}
+		}
+
 		cfg := agent.AgentConfig{
 			Runtime:     "claude-code",
 			Name:        name,
 			Description: desc,
 			Model:       model,
 			Context:     contextPatterns,
+			Skills:      skills,
 		}
 
 		agentMD := ""
@@ -117,6 +133,9 @@ var agentCreateCmd = &cobra.Command{
 		fmt.Println()
 		ui.Success("Created agent %s", ui.Bold(name))
 		ui.Info("Config: %s", ui.Dim(agent.Dir(name)+"/oc-agent.yaml"))
+		if len(skills) > 0 {
+			ui.Info("Skills: %s", ui.Dim(fmt.Sprintf("%d skill(s)", len(skills))))
+		}
 		if len(contextPatterns) > 0 {
 			ui.Info("Context sync: %s", ui.Dim(fmt.Sprintf("%d pattern(s)", len(contextPatterns))))
 		}

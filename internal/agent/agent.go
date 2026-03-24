@@ -18,6 +18,7 @@ type AgentConfig struct {
 	Description string   `yaml:"description,omitempty"`
 	Model       string   `yaml:"model"`
 	Context     []string `yaml:"context,omitempty"`
+	Skills      []string `yaml:"skills,omitempty"`
 }
 
 func ValidateName(name string) error {
@@ -70,6 +71,14 @@ func Load(name string) (*AgentConfig, error) {
 		return nil, fmt.Errorf("failed to parse agent config: %w", err)
 	}
 	return &cfg, nil
+}
+
+func Save(cfg *AgentConfig) error {
+	data, err := yaml.Marshal(cfg)
+	if err != nil {
+		return fmt.Errorf("failed to marshal agent config: %w", err)
+	}
+	return os.WriteFile(filepath.Join(Dir(cfg.Name), "oc-agent.yaml"), data, 0644)
 }
 
 func Create(cfg AgentConfig) error {

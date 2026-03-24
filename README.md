@@ -46,61 +46,12 @@ When you run `toc agent spawn`, it:
 3. Syncs context files back to the agent template in real-time (if configured)
 4. Tracks the session so you can resume it later
 
-## Agent config
+## Documentation
 
-Each agent is defined by an `oc-agent.yaml` file:
-
-```yaml
-runtime: claude-code
-name: pr-reviewer
-description: Reviews pull requests for code quality
-model: sonnet
-context:
-  - context/*.md
-  - docs/
-```
-
-**Fields:**
-- `runtime` — agent runtime, currently `claude-code` only
-- `name` — lowercase alphanumeric with hyphens
-- `description` — optional, shown in `toc agent list` and tab completion
-- `model` — `sonnet`, `opus`, or `haiku`
-- `context` — optional list of glob patterns for files that sync back from sessions to the agent template
-
-## Context sync
-
-Files matching `context:` patterns are synced back from the temp session directory to the agent template automatically:
-
-- **Real-time**: Claude Code's PostToolUse hook fires on every file write and copies matching files back immediately
-- **Post-session**: a final sync pass runs when the session ends as a safety net
-
-Patterns support standard globs (`*.md`), directory matching (`docs/`), and recursive matching (`context/**/*.md`).
-
-## Audit log
-
-Every action is logged to `.toc/audit.log` as append-only JSON Lines — one JSON object per line with timestamp, action, actor, hostname, and details. No secrets or file contents are logged.
-
-```bash
-toc audit                    # show last 20 events
-toc audit --tail 50          # show last 50 events
-toc audit --action agent     # filter by action prefix
-toc audit --json             # raw JSON Lines output (pipe to jq)
-```
-
-## Shell completion
-
-```bash
-# zsh (add to ~/.zshrc)
-source <(toc completion zsh)
-
-# bash (add to ~/.bashrc)
-source <(toc completion bash)
-
-# fish (run once)
-toc completion fish > ~/.config/fish/completions/toc.fish
-```
-
-Tab-completes agent names, session IDs, and shell types.
+- [Getting started](docs/getting-started.md) — install, create your first agent, spawn a session
+- [Configuration reference](docs/configuration.md) — all config fields, context sync patterns, audit log format
+- [Skills guide](docs/skills.md) — create, install, and attach reusable capabilities
+- [Architecture](docs/architecture.md) — project structure and design decisions
 
 ## Commands
 
@@ -113,6 +64,13 @@ Tab-completes agent names, session IDs, and shell types.
 | `toc agent spawn <name>` | Spawn a new agent session |
 | `toc agent spawn <name> --resume <id>` | Resume an existing session |
 | `toc agent remove <name>` | Remove an agent and its sessions |
+| `toc agent skills <name>` | Manage skills for an agent |
+| `toc skill create` | Create a new local skill |
+| `toc skill list` | List available skills |
+| `toc skill add <url>` | Install a skill from a Git URL |
+| `toc skill add --registry <name>` | Install a skill from the registry |
+| `toc skill remove <name>` | Remove a skill |
+| `toc registry search [query]` | Browse skills in the registry |
 | `toc audit` | View the audit log |
 | `toc completion <shell>` | Generate shell completion script |
 
@@ -121,11 +79,13 @@ Tab-completes agent names, session IDs, and shell types.
 - [x] Agent creation and isolated session spawning via Claude Code
 - [x] Context sync — persist session outputs back to agent templates
 - [x] Audit log — append-only JSON Lines log for compliance and traceability
-- [ ] Skills — reusable, shareable agent capabilities
-- [ ] **v1 beta release**
+- [x] Skills — reusable, shareable agent capabilities
+- [ ] Skills registry — browsable catalog of installable skills
+- [ ] Agent registry — browsable catalog of agent templates
 - [ ] Sub-agents — agents that spawn and coordinate other agents
 - [ ] Cost controls — per-agent and per-session spending limits
 - [ ] Integrations and permissions — connect agents to external tools with scoped access
+- [ ] **v1 release**
 
 ## Contributing
 

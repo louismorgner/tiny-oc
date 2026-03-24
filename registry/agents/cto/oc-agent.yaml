@@ -1,0 +1,6 @@
+runtime: claude-code
+name: cto
+description: Technical leadership agent — code quality, architecture, and open-source standards
+model: sonnet
+skills:
+  - open-source-cto

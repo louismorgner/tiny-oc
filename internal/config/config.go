@@ -27,6 +27,14 @@ func AgentsDir() string {
 	return filepath.Join(tocDir, "agents")
 }
 
+func SkillsDir() string {
+	return filepath.Join(tocDir, "skills")
+}
+
+func SkillsRegistryPath() string {
+	return filepath.Join(tocDir, "skills.yaml")
+}
+
 func SessionsPath() string {
 	return filepath.Join(tocDir, "sessions.yaml")
 }
@@ -73,6 +81,9 @@ func Init(name string) error {
 	}
 	if err := os.MkdirAll(AgentsDir(), 0755); err != nil {
 		return fmt.Errorf("failed to create agents directory: %w", err)
+	}
+	if err := os.MkdirAll(SkillsDir(), 0755); err != nil {
+		return fmt.Errorf("failed to create skills directory: %w", err)
 	}
 	return Save(&WorkspaceConfig{Name: name})
 }

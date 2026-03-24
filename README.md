@@ -78,9 +78,9 @@ When you run `toc agent spawn`, it:
 | `toc skill create` | Create a new local skill |
 | `toc skill list` | List available skills |
 | `toc skill add <url>` | Install a skill from a Git URL |
-| `toc skill add --registry <name>` | Install a skill from the registry |
 | `toc skill remove <name>` | Remove a skill |
-| `toc registry search [query]` | Browse skills in the registry |
+| `toc registry search [query]` | Browse skills and agent templates |
+| `toc registry install <name>` | Install a skill or agent from the registry |
 | `toc audit` | View the audit log |
 | `toc completion <shell>` | Generate shell completion script |
 
@@ -90,8 +90,7 @@ When you run `toc agent spawn`, it:
 - [x] Context sync — persist session outputs back to agent templates
 - [x] Audit log — append-only JSON Lines log for compliance and traceability
 - [x] Skills — reusable, shareable agent capabilities
-- [ ] Skills registry — browsable catalog of installable skills
-- [ ] Agent registry — browsable catalog of agent templates
+- [x] Registry — unified catalog of skills and agent templates with search and install
 - [ ] Sub-agents — agents that spawn and coordinate other agents
 - [ ] Cost controls — per-agent and per-session spending limits
 - [ ] Integrations and permissions — connect agents to external tools with scoped access

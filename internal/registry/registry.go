@@ -10,64 +10,102 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/tiny-oc/toc/internal/agent"
 	"github.com/tiny-oc/toc/internal/skill"
 	"gopkg.in/yaml.v3"
 )
 
 const (
-	RepoURL  = "https://github.com/louismorgner/tiny-oc.git"
-	IndexURL = "https://raw.githubusercontent.com/louismorgner/tiny-oc/main/registry/skills/index.yaml"
+	RepoURL        = "https://github.com/louismorgner/tiny-oc.git"
+	rawBase        = "https://raw.githubusercontent.com/louismorgner/tiny-oc/main/registry"
+	SkillIndexURL  = rawBase + "/skills/index.yaml"
+	AgentIndexURL  = rawBase + "/agents/index.yaml"
 )
 
-// SkillEntry represents a skill in the registry index.
-type SkillEntry struct {
+// Entry represents any item in the registry — skill or agent.
+type Entry struct {
 	Name        string   `yaml:"name" json:"name"`
 	Description string   `yaml:"description" json:"description"`
+	Type        string   `yaml:"-" json:"type"` // "skill" or "agent"
 	Tags        []string `yaml:"tags,omitempty" json:"tags,omitempty"`
+	Model       string   `yaml:"model,omitempty" json:"model,omitempty"`
+	Skills      []string `yaml:"skills,omitempty" json:"skills,omitempty"`
 }
 
-// SkillIndex is the top-level registry index.
-type SkillIndex struct {
-	Skills []SkillEntry `yaml:"skills" json:"skills"`
+type skillIndex struct {
+	Skills []Entry `yaml:"skills"`
 }
 
-// FetchIndex downloads and parses the skills registry index from GitHub.
-func FetchIndex() (*SkillIndex, error) {
-	resp, err := http.Get(IndexURL)
+type agentIndex struct {
+	Agents []Entry `yaml:"agents"`
+}
+
+// Index holds all registry entries.
+type Index struct {
+	Entries []Entry
+}
+
+// FetchIndex downloads both skill and agent indexes and merges them.
+func FetchIndex() (*Index, error) {
+	index := &Index{}
+
+	skills, err := fetchYAML[skillIndex](SkillIndexURL)
 	if err != nil {
-		return nil, fmt.Errorf("failed to fetch registry index: %w", err)
+		return nil, fmt.Errorf("failed to fetch skills index: %w", err)
+	}
+	for _, s := range skills.Skills {
+		s.Type = "skill"
+		index.Entries = append(index.Entries, s)
+	}
+
+	agents, err := fetchYAML[agentIndex](AgentIndexURL)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch agents index: %w", err)
+	}
+	for _, a := range agents.Agents {
+		a.Type = "agent"
+		index.Entries = append(index.Entries, a)
+	}
+
+	return index, nil
+}
+
+func fetchYAML[T any](url string) (*T, error) {
+	resp, err := http.Get(url)
+	if err != nil {
+		return nil, err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("failed to fetch registry index: HTTP %d", resp.StatusCode)
+		return nil, fmt.Errorf("HTTP %d from %s", resp.StatusCode, url)
 	}
 
 	data, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read registry index: %w", err)
+		return nil, err
 	}
 
-	var index SkillIndex
-	if err := yaml.Unmarshal(data, &index); err != nil {
-		return nil, fmt.Errorf("failed to parse registry index: %w", err)
+	var result T
+	if err := yaml.Unmarshal(data, &result); err != nil {
+		return nil, err
 	}
-
-	return &index, nil
+	return &result, nil
 }
 
-// Search filters the index by a query string, matching against name, description, and tags.
-func Search(index *SkillIndex, query string) []SkillEntry {
+// Search filters entries by query, matching name, description, tags, and type.
+func Search(index *Index, query string) []Entry {
 	if query == "" {
-		return index.Skills
+		return index.Entries
 	}
 	q := strings.ToLower(query)
-	var results []SkillEntry
-	for _, s := range index.Skills {
-		if strings.Contains(strings.ToLower(s.Name), q) ||
-			strings.Contains(strings.ToLower(s.Description), q) ||
-			matchTags(s.Tags, q) {
-			results = append(results, s)
+	var results []Entry
+	for _, e := range index.Entries {
+		if strings.Contains(strings.ToLower(e.Name), q) ||
+			strings.Contains(strings.ToLower(e.Description), q) ||
+			strings.Contains(e.Type, q) ||
+			matchTags(e.Tags, q) {
+			results = append(results, e)
 		}
 	}
 	return results
@@ -82,66 +120,118 @@ func matchTags(tags []string, query string) bool {
 	return false
 }
 
-// FindSkill looks up a skill by exact name in the index.
-func FindSkill(index *SkillIndex, name string) (*SkillEntry, bool) {
-	for _, s := range index.Skills {
-		if s.Name == name {
-			return &s, true
+// Find looks up an entry by exact name.
+func Find(index *Index, name string) (*Entry, bool) {
+	for _, e := range index.Entries {
+		if e.Name == name {
+			return &e, true
 		}
 	}
 	return nil, false
 }
 
-// InstallSkill clones the toc repo and copies the skill into the local workspace (.toc/skills/).
-func InstallSkill(name string) (*skill.SkillMeta, error) {
-	return InstallSkillTo(name, skill.Dir(name))
+// FindSkill looks up a skill by exact name (for backward compat with spawn resolution).
+func FindSkill(index *Index, name string) (*Entry, bool) {
+	for _, e := range index.Entries {
+		if e.Name == name && e.Type == "skill" {
+			return &e, true
+		}
+	}
+	return nil, false
 }
 
-// InstallSkillTo clones the toc repo and copies the skill into the given target directory.
-// Used by both `toc skill add --registry` (installs to .toc/skills/) and spawn-time
-// resolution (installs to session .claude/skills/).
+// Install installs a registry entry into the local workspace.
+// For skills: copies to .toc/skills/<name>/
+// For agents: copies to .toc/agents/<name>/ and installs referenced skills
+func Install(entry *Entry) error {
+	switch entry.Type {
+	case "skill":
+		return installSkill(entry.Name)
+	case "agent":
+		return installAgent(entry)
+	default:
+		return fmt.Errorf("unknown registry entry type: %s", entry.Type)
+	}
+}
+
+func installSkill(name string) error {
+	if skill.Exists(name) {
+		return fmt.Errorf("skill '%s' already exists locally", name)
+	}
+	_, err := InstallSkillTo(name, skill.Dir(name))
+	return err
+}
+
+func installAgent(entry *Entry) error {
+	if agent.Exists(entry.Name) {
+		return fmt.Errorf("agent '%s' already exists locally", entry.Name)
+	}
+
+	destDir := agent.Dir(entry.Name)
+	if err := cloneRegistryDir("agents/"+entry.Name, destDir); err != nil {
+		return err
+	}
+
+	// Install referenced skills that aren't already local
+	for _, s := range entry.Skills {
+		if skill.Exists(s) {
+			continue
+		}
+		if _, err := InstallSkillTo(s, skill.Dir(s)); err != nil {
+			return fmt.Errorf("failed to install skill '%s' referenced by agent: %w", s, err)
+		}
+	}
+
+	return nil
+}
+
+// InstallSkillTo clones a skill from the registry into the given directory.
 func InstallSkillTo(name, destDir string) (*skill.SkillMeta, error) {
-	tmpDir, err := os.MkdirTemp("", "toc-registry-*")
+	if err := cloneRegistryDir("skills/"+name, destDir); err != nil {
+		return nil, err
+	}
+
+	meta, err := skill.ValidateSkillDir(destDir)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create temp directory: %w", err)
-	}
-	defer os.RemoveAll(tmpDir)
-
-	// Sparse clone — only fetch the specific skill directory
-	gitCmd := exec.Command("git", "clone", "--depth", "1", "--filter=blob:none", "--sparse", RepoURL, tmpDir)
-	gitCmd.Stdout = io.Discard
-	gitCmd.Stderr = io.Discard
-	if err := gitCmd.Run(); err != nil {
-		return nil, fmt.Errorf("failed to clone registry repository")
-	}
-
-	sparseCmd := exec.Command("git", "-C", tmpDir, "sparse-checkout", "set", fmt.Sprintf("registry/skills/%s", name))
-	sparseCmd.Stdout = io.Discard
-	sparseCmd.Stderr = io.Discard
-	if err := sparseCmd.Run(); err != nil {
-		return nil, fmt.Errorf("failed to configure sparse checkout")
-	}
-
-	// Validate the skill
-	skillSrc := filepath.Join(tmpDir, "registry", "skills", name)
-	if _, err := os.Stat(skillSrc); os.IsNotExist(err) {
-		return nil, fmt.Errorf("skill '%s' not found in registry", name)
-	}
-
-	meta, err := skill.ValidateSkillDir(skillSrc)
-	if err != nil {
+		os.RemoveAll(destDir)
 		return nil, fmt.Errorf("invalid skill in registry: %w", err)
-	}
-
-	if err := copyDir(skillSrc, destDir); err != nil {
-		return nil, fmt.Errorf("failed to install skill: %w", err)
 	}
 
 	return meta, nil
 }
 
-// FormatJSON returns the index as formatted JSON (for --json flag).
-func FormatJSON(entries []SkillEntry) (string, error) {
+// cloneRegistryDir does a sparse clone of a specific directory from the registry.
+func cloneRegistryDir(registryPath, destDir string) error {
+	tmpDir, err := os.MkdirTemp("", "toc-registry-*")
+	if err != nil {
+		return fmt.Errorf("failed to create temp directory: %w", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	gitCmd := exec.Command("git", "clone", "--depth", "1", "--filter=blob:none", "--sparse", RepoURL, tmpDir)
+	gitCmd.Stdout = io.Discard
+	gitCmd.Stderr = io.Discard
+	if err := gitCmd.Run(); err != nil {
+		return fmt.Errorf("failed to clone registry repository")
+	}
+
+	sparseCmd := exec.Command("git", "-C", tmpDir, "sparse-checkout", "set", "registry/"+registryPath)
+	sparseCmd.Stdout = io.Discard
+	sparseCmd.Stderr = io.Discard
+	if err := sparseCmd.Run(); err != nil {
+		return fmt.Errorf("failed to configure sparse checkout")
+	}
+
+	srcDir := filepath.Join(tmpDir, "registry", registryPath)
+	if _, err := os.Stat(srcDir); os.IsNotExist(err) {
+		return fmt.Errorf("'%s' not found in registry", registryPath)
+	}
+
+	return copyDir(srcDir, destDir)
+}
+
+// FormatJSON returns entries as formatted JSON.
+func FormatJSON(entries []Entry) (string, error) {
 	data, err := json.MarshalIndent(entries, "", "  ")
 	if err != nil {
 		return "", err

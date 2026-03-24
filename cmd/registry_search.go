@@ -18,10 +18,10 @@ func init() {
 
 var registrySearchCmd = &cobra.Command{
 	Use:   "search [query]",
-	Short: "Search for skills in the registry",
+	Short: "Browse skills and agent templates in the registry",
 	Args:  cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		ui.Info("Fetching registry index...")
+		ui.Info("Fetching registry...")
 
 		index, err := registry.FetchIndex()
 		if err != nil {
@@ -45,28 +45,36 @@ var registrySearchCmd = &cobra.Command{
 		}
 
 		if len(results) == 0 {
-			ui.Warn("No skills found matching '%s'", query)
+			if query != "" {
+				ui.Warn("No results for '%s'", query)
+			} else {
+				ui.Warn("Registry is empty")
+			}
 			return nil
 		}
 
 		fmt.Println()
-		fmt.Printf("  %-20s %-12s %s\n", ui.Bold("NAME"), ui.Bold("TAGS"), ui.Bold("DESCRIPTION"))
-		fmt.Printf("  %-20s %-12s %s\n", ui.Dim("────────────────────"), ui.Dim("────────────"), ui.Dim("───────────────────────────────"))
+		fmt.Printf("  %-20s %-8s %s\n", ui.Bold("NAME"), ui.Bold("TYPE"), ui.Bold("DESCRIPTION"))
+		fmt.Printf("  %-20s %-8s %s\n", ui.Dim("────────────────────"), ui.Dim("────────"), ui.Dim("───────────────────────────────────────"))
 
-		for _, s := range results {
-			tags := ""
-			if len(s.Tags) > 0 {
-				tags = strings.Join(s.Tags, ", ")
-			}
-			desc := s.Description
+		for _, e := range results {
+			desc := e.Description
 			if len(desc) > 50 {
 				desc = desc[:47] + "..."
 			}
-			fmt.Printf("  %-20s %-12s %s\n", ui.Cyan(s.Name), ui.Dim(tags), desc)
+			typeBadge := ui.Dim(e.Type)
+			if e.Type == "agent" {
+				extra := []string{e.Model}
+				if len(e.Skills) > 0 {
+					extra = append(extra, fmt.Sprintf("%d skill(s)", len(e.Skills)))
+				}
+				desc = fmt.Sprintf("%s %s", desc, ui.Dim("["+strings.Join(extra, ", ")+"]"))
+			}
+			fmt.Printf("  %-20s %-8s %s\n", ui.Cyan(e.Name), typeBadge, desc)
 		}
 
 		fmt.Println()
-		ui.Info("Install with: %s", ui.Bold("toc skill add --registry <name>"))
+		ui.Info("Install with: %s", ui.Bold("toc registry install <name>"))
 		fmt.Println()
 		return nil
 	},

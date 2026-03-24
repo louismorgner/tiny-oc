@@ -87,7 +87,7 @@ func Save(sf *SessionsFile) error {
 	if err != nil {
 		return fmt.Errorf("failed to marshal sessions: %w", err)
 	}
-	return os.WriteFile(config.SessionsPath(), data, 0644)
+	return os.WriteFile(config.SessionsPath(), data, 0600)
 }
 
 func Add(s Session) error {

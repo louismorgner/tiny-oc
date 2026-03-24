@@ -5,7 +5,6 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/tiny-oc/toc/internal/agent"
-	"github.com/tiny-oc/toc/internal/audit"
 	"github.com/tiny-oc/toc/internal/config"
 	"github.com/tiny-oc/toc/internal/session"
 	"github.com/tiny-oc/toc/internal/spawn"
@@ -48,7 +47,7 @@ var agentSpawnCmd = &cobra.Command{
 				if result.SyncedFiles > 0 {
 					details["files_synced"] = result.SyncedFiles
 				}
-				_ = audit.Log("session.resume", details)
+				auditLog("session.resume", details)
 			}
 			return err
 		}
@@ -67,7 +66,7 @@ var agentSpawnCmd = &cobra.Command{
 			if result.SyncedFiles > 0 {
 				details["files_synced"] = result.SyncedFiles
 			}
-			_ = audit.Log("session.spawn", details)
+			auditLog("session.spawn", details)
 		}
 		return err
 	},

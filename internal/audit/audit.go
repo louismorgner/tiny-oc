@@ -80,7 +80,7 @@ func Log(action string, details map[string]interface{}) error {
 	}
 	line = append(line, '\n')
 
-	f, err := os.OpenFile(config.AuditLogPath(), os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0644)
+	f, err := os.OpenFile(config.AuditLogPath(), os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0600)
 	if err != nil {
 		return err
 	}

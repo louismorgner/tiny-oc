@@ -3,10 +3,11 @@ package sync
 import (
 	"encoding/json"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/tiny-oc/toc/internal/fileutil"
 )
 
 // MatchesAny checks if a relative file path matches any of the context patterns.
@@ -133,7 +134,7 @@ func SyncBack(sessionDir, agentDir string, patterns []string) (int, error) {
 		if err := os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
 			return err
 		}
-		if err := copyFile(path, dst); err != nil {
+		if err := fileutil.CopyFile(path, dst); err != nil {
 			return err
 		}
 		count++
@@ -168,7 +169,7 @@ func SyncFile(filePath, sessionDir, agentDir string, patterns []string) (bool, e
 	if err := os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
 		return false, err
 	}
-	return true, copyFile(filePath, dst)
+	return true, fileutil.CopyFile(filePath, dst)
 }
 
 // HookSettings generates the .claude/settings.json content for hooks.
@@ -315,19 +316,3 @@ done
 `, sessionDir, sessionDir, agentDir, strings.Join(patternArgs, " "), sessionDir)
 }
 
-func copyFile(src, dst string) error {
-	in, err := os.Open(src)
-	if err != nil {
-		return err
-	}
-	defer in.Close()
-
-	out, err := os.Create(dst)
-	if err != nil {
-		return err
-	}
-	defer out.Close()
-
-	_, err = io.Copy(out, in)
-	return err
-}

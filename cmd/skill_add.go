@@ -2,13 +2,11 @@ package cmd
 
 import (
 	"fmt"
-	"io"
 	"os"
-	"os/exec"
 
 	"github.com/spf13/cobra"
-	"github.com/tiny-oc/toc/internal/audit"
 	"github.com/tiny-oc/toc/internal/config"
+	"github.com/tiny-oc/toc/internal/gitutil"
 	"github.com/tiny-oc/toc/internal/registry"
 	"github.com/tiny-oc/toc/internal/skill"
 	"github.com/tiny-oc/toc/internal/ui"
@@ -61,7 +59,7 @@ func addFromRegistry(name string) error {
 		return err
 	}
 
-	_ = audit.Log("skill.add", map[string]interface{}{
+	auditLog("skill.add", map[string]interface{}{
 		"skill":  entry.Name,
 		"source": "registry",
 	})
@@ -74,6 +72,10 @@ func addFromRegistry(name string) error {
 }
 
 func addFromURL(url string) error {
+	if err := gitutil.ValidateURL(url); err != nil {
+		return fmt.Errorf("expected an HTTPS URL (https://...)\n\nTo install from the registry: toc skill add <name>")
+	}
+
 	ui.Info("Validating skill at %s...", ui.Dim(url))
 
 	tmpDir, err := os.MkdirTemp("", "toc-skill-*")
@@ -82,10 +84,7 @@ func addFromURL(url string) error {
 	}
 	defer os.RemoveAll(tmpDir)
 
-	gitCmd := exec.Command("git", "clone", "--depth", "1", url, tmpDir)
-	gitCmd.Stdout = io.Discard
-	gitCmd.Stderr = io.Discard
-	if err := gitCmd.Run(); err != nil {
+	if err := gitutil.SafeClone(url, tmpDir); err != nil {
 		return fmt.Errorf("failed to clone repository — is the URL correct and public?")
 	}
 
@@ -107,7 +106,7 @@ func addFromURL(url string) error {
 		return err
 	}
 
-	_ = audit.Log("skill.add", map[string]interface{}{
+	auditLog("skill.add", map[string]interface{}{
 		"skill": meta.Name,
 		"url":   url,
 	})

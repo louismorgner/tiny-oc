@@ -7,7 +7,6 @@ import (
 	"charm.land/huh/v2"
 	"github.com/spf13/cobra"
 	"github.com/tiny-oc/toc/internal/agent"
-	"github.com/tiny-oc/toc/internal/audit"
 	"github.com/tiny-oc/toc/internal/config"
 	"github.com/tiny-oc/toc/internal/skill"
 	"github.com/tiny-oc/toc/internal/ui"
@@ -83,7 +82,7 @@ var agentSkillsCmd = &cobra.Command{
 			return err
 		}
 
-		_ = audit.Log("agent.skills.update", map[string]interface{}{
+		auditLog("agent.skills.update", map[string]interface{}{
 			"agent":  name,
 			"skills": strings.Join(selected, ", "),
 		})
@@ -100,8 +99,9 @@ var agentSkillsCmd = &cobra.Command{
 }
 
 func truncate(s string, max int) string {
-	if len(s) <= max {
+	r := []rune(s)
+	if len(r) <= max {
 		return s
 	}
-	return s[:max-3] + "..."
+	return string(r[:max-3]) + "..."
 }

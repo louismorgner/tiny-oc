@@ -7,7 +7,6 @@ import (
 	"charm.land/huh/v2"
 	"github.com/spf13/cobra"
 	"github.com/tiny-oc/toc/internal/agent"
-	"github.com/tiny-oc/toc/internal/audit"
 	"github.com/tiny-oc/toc/internal/config"
 	"github.com/tiny-oc/toc/internal/ui"
 )
@@ -124,7 +123,7 @@ var agentCreateCmd = &cobra.Command{
 			return err
 		}
 
-		_ = audit.Log("agent.create", map[string]interface{}{
+		auditLog("agent.create", map[string]interface{}{
 			"agent":   name,
 			"model":   model,
 			"runtime": "claude-code",

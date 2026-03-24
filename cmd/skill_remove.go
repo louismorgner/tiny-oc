@@ -4,7 +4,6 @@ import (
 	"fmt"
 
 	"github.com/spf13/cobra"
-	"github.com/tiny-oc/toc/internal/audit"
 	"github.com/tiny-oc/toc/internal/config"
 	"github.com/tiny-oc/toc/internal/skill"
 	"github.com/tiny-oc/toc/internal/ui"
@@ -60,7 +59,7 @@ var skillRemoveCmd = &cobra.Command{
 			}
 		}
 
-		_ = audit.Log("skill.remove", map[string]interface{}{
+		auditLog("skill.remove", map[string]interface{}{
 			"skill": name,
 			"type":  skillType,
 		})

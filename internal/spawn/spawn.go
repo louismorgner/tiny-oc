@@ -2,7 +2,6 @@ package spawn
 
 import (
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -11,14 +10,14 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/tiny-oc/toc/internal/agent"
+	"github.com/tiny-oc/toc/internal/fileutil"
+	"github.com/tiny-oc/toc/internal/gitutil"
 	"github.com/tiny-oc/toc/internal/registry"
 	"github.com/tiny-oc/toc/internal/session"
 	"github.com/tiny-oc/toc/internal/skill"
 	tocsync "github.com/tiny-oc/toc/internal/sync"
 	"github.com/tiny-oc/toc/internal/ui"
 )
-
-const sessionsDir = "/tmp/toc-sessions"
 
 // SpawnResult contains metadata from a completed spawn for audit logging.
 type SpawnResult struct {
@@ -29,10 +28,14 @@ type SpawnResult struct {
 
 func SpawnSession(cfg *agent.AgentConfig) (*SpawnResult, error) {
 	sessionID := uuid.New().String()
-	timestamp := time.Now().Unix()
-	workDir := filepath.Join(sessionsDir, fmt.Sprintf("%s-%d", cfg.Name, timestamp))
 
-	if err := os.MkdirAll(workDir, 0755); err != nil {
+	// Use os.MkdirTemp for unpredictable, safe session directories
+	baseDir := filepath.Join(os.TempDir(), "toc-sessions")
+	if err := os.MkdirAll(baseDir, 0700); err != nil {
+		return nil, fmt.Errorf("failed to create sessions base directory: %w", err)
+	}
+	workDir, err := os.MkdirTemp(baseDir, cfg.Name+"-")
+	if err != nil {
 		return nil, fmt.Errorf("failed to create session directory: %w", err)
 	}
 
@@ -41,7 +44,7 @@ func SpawnSession(cfg *agent.AgentConfig) (*SpawnResult, error) {
 		return nil, fmt.Errorf("failed to resolve agent directory: %w", err)
 	}
 
-	if err := copyDir(srcDir, workDir); err != nil {
+	if err := fileutil.CopyDir(srcDir, workDir); err != nil {
 		return nil, fmt.Errorf("failed to copy agent template: %w", err)
 	}
 
@@ -388,7 +391,7 @@ func resolveNamedSkill(name string, targetDir string) error {
 	// Try local skill first
 	srcDir := skill.Dir(name)
 	if _, err := os.Stat(srcDir); err == nil {
-		return copyDir(srcDir, filepath.Join(targetDir, name))
+		return fileutil.CopyDir(srcDir, filepath.Join(targetDir, name))
 	}
 
 	// Try URL registry
@@ -420,11 +423,8 @@ func cloneSkillToTarget(url string, targetDir string) error {
 	}
 	defer os.RemoveAll(tmpDir)
 
-	gitCmd := exec.Command("git", "clone", "--depth", "1", url, tmpDir)
-	gitCmd.Stdout = io.Discard
-	gitCmd.Stderr = io.Discard
-	if err := gitCmd.Run(); err != nil {
-		return fmt.Errorf("failed to clone %s", url)
+	if err := gitutil.SafeClone(url, tmpDir); err != nil {
+		return err
 	}
 
 	skillDir, err := skill.FindSkillMDInDir(tmpDir)
@@ -437,7 +437,7 @@ func cloneSkillToTarget(url string, targetDir string) error {
 		return err
 	}
 
-	return copyDir(skillDir, filepath.Join(targetDir, meta.Name))
+	return fileutil.CopyDir(skillDir, filepath.Join(targetDir, meta.Name))
 }
 
 func printFailedSkills(failed []string) {
@@ -492,39 +492,3 @@ func provisionClaudeMD(workDir string, cfg *agent.AgentConfig, sessionID string)
 	return os.WriteFile(claudeMD, []byte(content+"\n"), 0644)
 }
 
-func copyDir(src, dst string) error {
-	return filepath.Walk(src, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
-
-		rel, err := filepath.Rel(src, path)
-		if err != nil {
-			return err
-		}
-		target := filepath.Join(dst, rel)
-
-		if info.IsDir() {
-			return os.MkdirAll(target, info.Mode())
-		}
-
-		return copyFile(path, target)
-	})
-}
-
-func copyFile(src, dst string) error {
-	in, err := os.Open(src)
-	if err != nil {
-		return err
-	}
-	defer in.Close()
-
-	out, err := os.Create(dst)
-	if err != nil {
-		return err
-	}
-	defer out.Close()
-
-	_, err = io.Copy(out, in)
-	return err
-}

@@ -179,16 +179,20 @@ type SubSpawnOpts struct {
 // The sub-agent runs with `claude --print` and output is captured to toc-output.txt.
 func SpawnSubSession(cfg *agent.AgentConfig, opts SubSpawnOpts) (*SpawnResult, error) {
 	sessionID := uuid.New().String()
-	timestamp := time.Now().Unix()
-	workDir := filepath.Join(sessionsDir, fmt.Sprintf("%s-%d", cfg.Name, timestamp))
 
-	if err := os.MkdirAll(workDir, 0755); err != nil {
+	// Use os.MkdirTemp for unpredictable, safe session directories
+	baseDir := filepath.Join(os.TempDir(), "toc-sessions")
+	if err := os.MkdirAll(baseDir, 0700); err != nil {
+		return nil, fmt.Errorf("failed to create sessions base directory: %w", err)
+	}
+	workDir, err := os.MkdirTemp(baseDir, cfg.Name+"-")
+	if err != nil {
 		return nil, fmt.Errorf("failed to create session directory: %w", err)
 	}
 
 	// Use workspace-relative agent dir
 	agentDir := filepath.Join(opts.WorkspaceDir, ".toc", "agents", cfg.Name)
-	if err := copyDir(agentDir, workDir); err != nil {
+	if err := fileutil.CopyDir(agentDir, workDir); err != nil {
 		return nil, fmt.Errorf("failed to copy agent template: %w", err)
 	}
 

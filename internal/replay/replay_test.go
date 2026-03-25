@@ -66,7 +66,7 @@ func TestParseSessionJSONL(t *testing.T) {
 			"type": "user",
 			"message": map[string]interface{}{
 				"role": "user",
-				"content": "some user message — should be ignored",
+				"content": "some user message",
 			},
 		},
 	}
@@ -86,8 +86,8 @@ func TestParseSessionJSONL(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if len(steps) != 6 {
-		t.Fatalf("got %d steps, want 6", len(steps))
+	if len(steps) != 7 {
+		t.Fatalf("got %d steps, want 7", len(steps))
 	}
 
 	// thinking
@@ -121,6 +121,11 @@ func TestParseSessionJSONL(t *testing.T) {
 	// Skill
 	if steps[5].Type != "skill" || steps[5].Skill != "open-source-cto" {
 		t.Errorf("step 5 = %+v, want skill open-source-cto", steps[5])
+	}
+
+	// User message
+	if steps[6].Type != "user" || steps[6].Content != "some user message" {
+		t.Errorf("step 6 = %+v, want user 'some user message'", steps[6])
 	}
 }
 
@@ -160,13 +165,14 @@ func TestParseJSONLLine(t *testing.T) {
 		t.Errorf("ParseJSONLLine(assistant) = %+v, want [Read main.go]", steps)
 	}
 
-	// User message — should return nil
+	// User message — should return a user step
 	userLine, _ := json.Marshal(map[string]interface{}{
 		"type":    "user",
 		"message": map[string]interface{}{"role": "user", "content": "hello"},
 	})
-	if steps := ParseJSONLLine(userLine); steps != nil {
-		t.Errorf("ParseJSONLLine(user) = %+v, want nil", steps)
+	userSteps := ParseJSONLLine(userLine)
+	if len(userSteps) != 1 || userSteps[0].Type != "user" || userSteps[0].Content != "hello" {
+		t.Errorf("ParseJSONLLine(user) = %+v, want [user 'hello']", userSteps)
 	}
 
 	// Invalid JSON — should return nil

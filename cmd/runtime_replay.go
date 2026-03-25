@@ -133,6 +133,13 @@ type printOpts struct {
 
 func printStep(step replay.Step, opts printOpts) {
 	switch step.Type {
+	case "user":
+		if opts.FullContent {
+			printMultiLine("[user]     ", step.Content, nil)
+		} else {
+			text := replay.TruncateThinking(step.Content, 120)
+			fmt.Printf("  %s %s\n", ui.Green("[user]     "), text)
+		}
 	case "thinking":
 		if opts.FullContent {
 			printMultiLine("[think]    ", step.Content, ui.Dim)

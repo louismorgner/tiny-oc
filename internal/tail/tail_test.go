@@ -107,7 +107,7 @@ func TestReadNewLines_PrependPartialBuffer(t *testing.T) {
 	}
 }
 
-func TestReadNewLines_SkipsNonAssistant(t *testing.T) {
+func TestReadNewLines_IncludesUserMessage(t *testing.T) {
 	path := tempJSONLPath(t)
 
 	userLine := marshalJSON(map[string]interface{}{
@@ -119,8 +119,31 @@ func TestReadNewLines_SkipsNonAssistant(t *testing.T) {
 	os.WriteFile(path, []byte(userLine+"\n"+assistLine+"\n"), 0644)
 
 	steps, _, _ := readNewLines(path, 0, nil)
+	if len(steps) != 2 {
+		t.Fatalf("got %d steps, want 2", len(steps))
+	}
+	if steps[0].Type != "user" || steps[0].Content != "hello" {
+		t.Errorf("step 0 = %+v, want user 'hello'", steps[0])
+	}
+	if steps[1].Tool != "Read" {
+		t.Errorf("step 1 = %+v, want Read", steps[1])
+	}
+}
+
+func TestReadNewLines_SkipsNonMessageTypes(t *testing.T) {
+	path := tempJSONLPath(t)
+
+	systemLine := marshalJSON(map[string]interface{}{
+		"type":    "system",
+		"message": map[string]interface{}{"role": "system", "content": "system prompt"},
+	})
+	assistLine := marshalJSON(assistantMsg("Read", map[string]string{"file_path": "x.go"}))
+
+	os.WriteFile(path, []byte(systemLine+"\n"+assistLine+"\n"), 0644)
+
+	steps, _, _ := readNewLines(path, 0, nil)
 	if len(steps) != 1 {
-		t.Fatalf("got %d steps, want 1 (user message should be skipped)", len(steps))
+		t.Fatalf("got %d steps, want 1 (system message should be skipped)", len(steps))
 	}
 	if steps[0].Tool != "Read" {
 		t.Errorf("step 0 = %+v, want Read", steps[0])

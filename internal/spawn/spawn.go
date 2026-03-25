@@ -359,6 +359,9 @@ func buildDetachedScript(opts detachedOpts, promptPath string) string {
 	if opts.Model != "" {
 		args += fmt.Sprintf(" --model %s", opts.Model)
 	}
+	if opts.SessionID != "" {
+		args += fmt.Sprintf(" --session-id %s", opts.SessionID)
+	}
 
 	// We write to a .tmp file first, then atomically rename to the final path.
 	// This prevents a race: shell `>` creates the file immediately (empty),

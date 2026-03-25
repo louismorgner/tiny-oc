@@ -15,6 +15,7 @@ import (
 )
 
 func init() {
+	integrateAddCmd.Flags().Bool("manual", false, "Manually paste the authorization code instead of using a local callback server")
 	integrateCmd.AddCommand(integrateAddCmd)
 }
 
@@ -79,8 +80,9 @@ var integrateAddCmd = &cobra.Command{
 			cred = &integration.Credential{AccessToken: token}
 
 		case "oauth2":
+			manual, _ := cmd.Flags().GetBool("manual")
 			var err error
-			cred, err = runOAuth2Flow(name, def)
+			cred, err = runOAuth2Flow(name, def, manual)
 			if err != nil {
 				return err
 			}
@@ -107,7 +109,7 @@ var integrateAddCmd = &cobra.Command{
 	},
 }
 
-func runOAuth2Flow(name string, def *integration.Definition) (*integration.Credential, error) {
+func runOAuth2Flow(name string, def *integration.Definition, manual bool) (*integration.Credential, error) {
 	ui.Info("This integration uses OAuth2. You'll need your app's Client ID and Client Secret.")
 	if def.Auth.SetupURL != "" {
 		ui.Info("Create an app at: %s", ui.Cyan(def.Auth.SetupURL))
@@ -143,24 +145,23 @@ func runOAuth2Flow(name string, def *integration.Definition) (*integration.Crede
 		return &integration.Credential{AccessToken: token}, nil
 	}
 
-	oauth2Cfg := integration.SlackOAuth2Config(clientID, clientSecret, def.Auth.RequiredScopes)
+	oauth2Cfg := integration.SlackOAuth2Config(clientID, clientSecret, def.Auth.RequiredScopes, def.Auth.UserScopes)
 
 	authURL := oauth2Cfg.AuthorizationURL()
 	fmt.Println()
-	ui.Info("Opening browser for authorization...")
-	ui.Info("If the browser doesn't open, visit: %s", ui.Cyan(authURL))
-	fmt.Println()
 
-	// Open browser
-	openBrowser(authURL)
+	// Store client credentials for future token refresh
+	clientCfg := &integration.OAuth2ClientConfig{
+		ClientID:     clientID,
+		ClientSecret: clientSecret,
+	}
 
-	// Start callback server with 5-minute timeout
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	defer cancel()
-
-	ui.Info("Waiting for OAuth callback on localhost:%d...", oauth2Cfg.RedirectPort)
-
-	code, err := oauth2Cfg.RunCallbackServer(ctx)
+	var code string
+	if manual {
+		code, err = runManualOAuth2Flow(authURL)
+	} else {
+		code, err = runAutoOAuth2Flow(oauth2Cfg, authURL)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("OAuth2 authorization failed: %w", err)
 	}
@@ -172,16 +173,47 @@ func runOAuth2Flow(name string, def *integration.Definition) (*integration.Crede
 		return nil, fmt.Errorf("token exchange failed: %w", err)
 	}
 
-	// Store client credentials separately for future token refresh
-	clientCfg := &integration.OAuth2ClientConfig{
-		ClientID:     clientID,
-		ClientSecret: clientSecret,
-	}
 	if err := integration.StoreOAuth2ClientConfig(name, clientCfg); err != nil {
 		ui.Warn("Could not store client info for token refresh: %s", err)
 	}
 
 	return cred, nil
+}
+
+// runAutoOAuth2Flow opens the browser and waits for the localhost callback.
+func runAutoOAuth2Flow(oauth2Cfg *integration.OAuth2Config, authURL string) (string, error) {
+	ui.Info("Opening browser for authorization...")
+	ui.Info("If the browser doesn't open, visit: %s", ui.Cyan(authURL))
+	fmt.Println()
+	ui.Info("Tip: If localhost callback fails (e.g. remote/SSH session), re-run with %s", ui.Bold("--manual"))
+	fmt.Println()
+
+	openBrowser(authURL)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+
+	ui.Info("Waiting for OAuth callback on localhost:%d...", oauth2Cfg.RedirectPort)
+
+	return oauth2Cfg.RunCallbackServer(ctx)
+}
+
+// runManualOAuth2Flow displays the auth URL and prompts the user to paste the callback URL or code.
+func runManualOAuth2Flow(authURL string) (string, error) {
+	ui.Info("Open this URL in your browser to authorize:")
+	fmt.Println()
+	fmt.Println("  " + authURL)
+	fmt.Println()
+	ui.Info("After authorizing, Slack will redirect to a localhost URL.")
+	ui.Info("Copy the full URL from the browser address bar (or just the code) and paste it below.")
+	fmt.Println()
+
+	raw, err := ui.Prompt("Paste callback URL or authorization code", "")
+	if err != nil {
+		return "", err
+	}
+
+	return integration.ParseCodeFromURL(raw)
 }
 
 func openBrowser(url string) {

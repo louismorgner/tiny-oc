@@ -1,24 +1,25 @@
 name: slack
-description: Slack API — messaging, channels, and reactions
+description: Slack API — messaging, channels, reactions, and search (user token)
 auth:
-  method: token
+  method: oauth2
   setup_url: https://api.slack.com/apps
-  required_scopes:
+  user_scopes:
     - channels:read
     - channels:history
     - chat:write
     - reactions:write
+    - search:read
   setup_instructions: |
     1. Go to https://api.slack.com/apps and sign in
     2. Click "Create New App" → "From scratch" (or select an existing app)
     3. Go to "OAuth & Permissions" in the sidebar
-    4. Under "Bot Token Scopes", add: channels:read, channels:history, chat:write, reactions:write
-    5. Click "Install to Workspace" and authorize the app
-    6. Copy the "Bot User OAuth Token" (starts with xoxb-)
+    4. Under "Redirect URLs", add: http://localhost:8976/callback
+    5. Note your Client ID and Client Secret from "Basic Information"
+    6. Run `toc integrate add slack` and paste them when prompted
 
 actions:
   send_message:
-    description: Send a message to a channel or DM
+    description: Send a message to a channel or DM (posted as you, not a bot)
     scopes:
       "*": any channel or DM
       dm: direct messages only
@@ -64,6 +65,37 @@ actions:
       - messages[].user
       - messages[].ts
       - messages[].type
+
+  search_messages:
+    description: Search messages across all channels the user has access to
+    scopes:
+      "*": all accessible channels
+    params:
+      - name: query
+        required: true
+      - name: count
+        required: false
+        default: "20"
+      - name: sort
+        required: false
+        default: timestamp
+      - name: sort_dir
+        required: false
+        default: desc
+    method: GET
+    endpoint: https://slack.com/api/search.messages
+    auth_header: "Bearer {{token}}"
+    body_format: query
+    rate_limit:
+      max: 20
+      window: 60s
+    returns:
+      - ok
+      - messages.total
+      - messages.matches[].text
+      - messages.matches[].username
+      - messages.matches[].ts
+      - messages.matches[].channel.name
 
   list_channels:
     description: List public channels in the workspace

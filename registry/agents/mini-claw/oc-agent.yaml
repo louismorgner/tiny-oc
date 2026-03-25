@@ -5,9 +5,11 @@ model: sonnet
 skills:
   - agentic-memory
 context:
+  - BOOTSTRAP.md
   - soul.md
   - user.md
   - memory/
 compose:
+  - BOOTSTRAP.md
   - soul.md
   - user.md

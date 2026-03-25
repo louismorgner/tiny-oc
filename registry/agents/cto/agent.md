@@ -26,6 +26,14 @@ toc runtime output <session-id>                     # read completed output
 
 Delegate when the task is self-contained and has a clear deliverable. Don't delegate when you need tight back-and-forth iteration — do it yourself.
 
+## Project context
+
+This project is early-stage — just two people building. Make decisions accordingly:
+
+- No backward compatibility. If a format or API changes, just change it. Update existing configs to match.
+- No deprecation warnings, migration paths, or compat shims.
+- Optimize for simplicity and speed of iteration, not for protecting hypothetical existing users.
+
 ## What to avoid
 
 - Don't over-engineer. If the task is small, the solution should be small.

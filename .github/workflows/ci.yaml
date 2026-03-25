@@ -20,7 +20,12 @@ jobs:
         run: go build ./...
 
       - name: Test
-        run: go test $(go list ./... | grep -v /e2e)
+        run: go test -coverprofile=coverage.out -covermode=atomic $(go list ./... | grep -v /e2e)
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          files: coverage.out
 
       - name: Vet
         run: go vet ./...

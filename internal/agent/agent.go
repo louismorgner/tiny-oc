@@ -199,6 +199,19 @@ func Load(name string) (*AgentConfig, error) {
 	return &cfg, nil
 }
 
+// LoadFrom loads an agent config from a specific directory path.
+func LoadFrom(dir string) (*AgentConfig, error) {
+	data, err := os.ReadFile(filepath.Join(dir, "oc-agent.yaml"))
+	if err != nil {
+		return nil, fmt.Errorf("agent config not found in %s: %w", dir, err)
+	}
+	var cfg AgentConfig
+	if err := yaml.Unmarshal(data, &cfg); err != nil {
+		return nil, fmt.Errorf("failed to parse agent config: %w", err)
+	}
+	return &cfg, nil
+}
+
 func Save(cfg *AgentConfig) error {
 	data, err := yaml.Marshal(cfg)
 	if err != nil {

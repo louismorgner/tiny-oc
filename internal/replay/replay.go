@@ -260,11 +260,41 @@ func parseSessionJSONLFull(path string) (*parsedJSONL, error) {
 		}
 
 		switch entry.Type {
+		case "user":
+			result.Steps = append(result.Steps, parseUserMessage(entry.Message)...)
 		case "assistant":
 			result.Steps = append(result.Steps, parseAssistantMessage(entry.Message)...)
 		}
 	}
 	return result, nil
+}
+
+func parseUserMessage(raw json.RawMessage) []Step {
+	var msg messageEnvelope
+	if err := json.Unmarshal(raw, &msg); err != nil {
+		return nil
+	}
+	if msg.Role != "user" {
+		return nil
+	}
+
+	// Content can be a string or array of blocks
+	var text string
+	if err := json.Unmarshal(msg.Content, &text); err == nil && text != "" {
+		return []Step{{Type: "user", Content: text}}
+	}
+
+	// Array form: extract text blocks
+	var blocks []contentBlock
+	if err := json.Unmarshal(msg.Content, &blocks); err == nil {
+		for _, b := range blocks {
+			if b.Type == "text" && b.Text != "" {
+				return []Step{{Type: "user", Content: b.Text}}
+			}
+		}
+	}
+
+	return nil
 }
 
 func parseAssistantMessage(raw json.RawMessage) []Step {
@@ -369,10 +399,14 @@ func ParseJSONLLine(line []byte) []Step {
 	if err := json.Unmarshal(line, &entry); err != nil {
 		return nil
 	}
-	if entry.Type != "assistant" {
+	switch entry.Type {
+	case "user":
+		return parseUserMessage(entry.Message)
+	case "assistant":
+		return parseAssistantMessage(entry.Message)
+	default:
 		return nil
 	}
-	return parseAssistantMessage(entry.Message)
 }
 
 // TruncateThinking truncates thinking text to maxLen chars for display.

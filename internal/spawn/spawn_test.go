@@ -7,64 +7,59 @@ import (
 	"testing"
 )
 
-func TestLaunchClaudeDetached_ScriptContainsPIDTracking(t *testing.T) {
+func TestBuildDetachedScript_PIDTracking(t *testing.T) {
 	dir := t.TempDir()
-	outputPath := filepath.Join(dir, "toc-output.txt")
-
-	// launchClaudeDetached will fail because 'claude' isn't installed,
-	// but we can inspect the generated script before that.
-	// We'll call the script generation inline.
-	prompt := "test prompt with \"quotes\" and $vars"
 	promptPath := filepath.Join(dir, "toc-prompt.txt")
-	if err := os.WriteFile(promptPath, []byte(prompt), 0644); err != nil {
-		t.Fatal(err)
-	}
+	os.WriteFile(promptPath, []byte("test prompt"), 0644)
 
-	// Simulate what launchClaudeDetached generates
-	pidPath := filepath.Join(dir, "toc-pid.txt")
-	exitCodePath := filepath.Join(dir, "toc-exit-code.txt")
-	tmpOutputPath := outputPath + ".tmp"
+	script := buildDetachedScript(detachedOpts{
+		Dir: dir, Workspace: "/workspace", AgentName: "agent",
+		SessionID: "session-123", OutputPath: filepath.Join(dir, "toc-output.txt"),
+	}, promptPath)
 
-	script := generateTestScript(pidPath, dir, "/workspace", "agent", "session-123", promptPath, "", tmpOutputPath, exitCodePath, outputPath)
-
-	// Verify script contains PID tracking
 	if !strings.Contains(script, "echo $$ >") {
 		t.Error("script does not write PID file")
 	}
-	if !strings.Contains(script, pidPath) {
-		t.Errorf("script does not reference PID path %s", pidPath)
+	if !strings.Contains(script, filepath.Join(dir, "toc-pid.txt")) {
+		t.Error("script does not reference PID path")
 	}
+}
 
-	// Verify script captures exit code
+func TestBuildDetachedScript_ExitCodeCapture(t *testing.T) {
+	dir := t.TempDir()
+	promptPath := filepath.Join(dir, "toc-prompt.txt")
+	os.WriteFile(promptPath, []byte("test"), 0644)
+
+	script := buildDetachedScript(detachedOpts{
+		Dir: dir, Workspace: "/ws", AgentName: "agent",
+		SessionID: "sess", OutputPath: filepath.Join(dir, "toc-output.txt"),
+	}, promptPath)
+
 	if !strings.Contains(script, "TOC_EXIT=$?") {
 		t.Error("script does not capture exit code")
 	}
-	if !strings.Contains(script, exitCodePath) {
-		t.Errorf("script does not reference exit code path %s", exitCodePath)
+	if !strings.Contains(script, filepath.Join(dir, "toc-exit-code.txt")) {
+		t.Error("script does not reference exit code path")
 	}
 
-	// Verify script does atomic rename
-	if !strings.Contains(script, "mv") {
-		t.Error("script does not do atomic rename")
-	}
-
-	// Verify exit code is written before the mv (so zombie detection works if mv fails)
-	exitCodeIdx := strings.Index(script, "TOC_EXIT=$?")
+	// Exit code must be captured before the atomic rename
+	exitIdx := strings.Index(script, "TOC_EXIT=$?")
 	mvIdx := strings.Index(script, "mv ")
-	if exitCodeIdx > mvIdx {
+	if exitIdx > mvIdx {
 		t.Error("exit code should be captured before atomic rename")
 	}
 }
 
-func TestLaunchClaudeDetached_ScriptSetsEnvVars(t *testing.T) {
+func TestBuildDetachedScript_EnvVars(t *testing.T) {
 	dir := t.TempDir()
-	outputPath := filepath.Join(dir, "toc-output.txt")
-	pidPath := filepath.Join(dir, "toc-pid.txt")
-	exitCodePath := filepath.Join(dir, "toc-exit-code.txt")
 	promptPath := filepath.Join(dir, "toc-prompt.txt")
-	tmpOutputPath := outputPath + ".tmp"
+	os.WriteFile(promptPath, []byte("test"), 0644)
 
-	script := generateTestScript(pidPath, dir, "/my/workspace", "test-agent", "sess-456", promptPath, "sonnet", tmpOutputPath, exitCodePath, outputPath)
+	script := buildDetachedScript(detachedOpts{
+		Dir: dir, Model: "sonnet", Workspace: "/my/workspace",
+		AgentName: "test-agent", SessionID: "sess-456",
+		OutputPath: filepath.Join(dir, "toc-output.txt"),
+	}, promptPath)
 
 	if !strings.Contains(script, `export TOC_WORKSPACE="/my/workspace"`) {
 		t.Error("script missing TOC_WORKSPACE export")
@@ -77,49 +72,46 @@ func TestLaunchClaudeDetached_ScriptSetsEnvVars(t *testing.T) {
 	}
 }
 
-func TestLaunchClaudeDetached_ScriptWithModel(t *testing.T) {
+func TestBuildDetachedScript_WithModel(t *testing.T) {
 	dir := t.TempDir()
-	outputPath := filepath.Join(dir, "toc-output.txt")
-	pidPath := filepath.Join(dir, "toc-pid.txt")
-	exitCodePath := filepath.Join(dir, "toc-exit-code.txt")
 	promptPath := filepath.Join(dir, "toc-prompt.txt")
-	tmpOutputPath := outputPath + ".tmp"
+	os.WriteFile(promptPath, []byte("test"), 0644)
 
-	script := generateTestScript(pidPath, dir, "/ws", "agent", "sess", promptPath, "opus", tmpOutputPath, exitCodePath, outputPath)
+	script := buildDetachedScript(detachedOpts{
+		Dir: dir, Model: "opus", Workspace: "/ws", AgentName: "agent",
+		SessionID: "sess", OutputPath: filepath.Join(dir, "toc-output.txt"),
+	}, promptPath)
 
 	if !strings.Contains(script, "--model opus") {
 		t.Error("script missing model flag")
 	}
 }
 
-func TestLaunchClaudeDetached_ScriptWithoutModel(t *testing.T) {
+func TestBuildDetachedScript_WithoutModel(t *testing.T) {
 	dir := t.TempDir()
-	outputPath := filepath.Join(dir, "toc-output.txt")
-	pidPath := filepath.Join(dir, "toc-pid.txt")
-	exitCodePath := filepath.Join(dir, "toc-exit-code.txt")
 	promptPath := filepath.Join(dir, "toc-prompt.txt")
-	tmpOutputPath := outputPath + ".tmp"
+	os.WriteFile(promptPath, []byte("test"), 0644)
 
-	script := generateTestScript(pidPath, dir, "/ws", "agent", "sess", promptPath, "", tmpOutputPath, exitCodePath, outputPath)
+	script := buildDetachedScript(detachedOpts{
+		Dir: dir, Workspace: "/ws", AgentName: "agent",
+		SessionID: "sess", OutputPath: filepath.Join(dir, "toc-output.txt"),
+	}, promptPath)
 
 	if strings.Contains(script, "--model") {
 		t.Error("script should not contain --model when model is empty")
 	}
 }
 
-func TestResumeScript_UsesContineFlag(t *testing.T) {
+func TestBuildDetachedScript_Resume_UsesContinueFlag(t *testing.T) {
 	dir := t.TempDir()
 	promptPath := filepath.Join(dir, "toc-prompt.txt")
-	if err := os.WriteFile(promptPath, []byte("resume prompt"), 0644); err != nil {
-		t.Fatal(err)
-	}
+	os.WriteFile(promptPath, []byte("resume prompt"), 0644)
 
-	outputPath := filepath.Join(dir, "toc-output.txt")
-	pidPath := filepath.Join(dir, "toc-pid.txt")
-	exitCodePath := filepath.Join(dir, "toc-exit-code.txt")
-	tmpOutputPath := outputPath + ".tmp"
-
-	script := generateResumeTestScript(pidPath, dir, "/ws", "agent", "sess-789", promptPath, "", tmpOutputPath, exitCodePath, outputPath)
+	script := buildDetachedScript(detachedOpts{
+		Dir: dir, Workspace: "/ws", AgentName: "agent",
+		SessionID: "sess-789", OutputPath: filepath.Join(dir, "toc-output.txt"),
+		Resume: true,
+	}, promptPath)
 
 	if !strings.Contains(script, "--continue") {
 		t.Error("resume script should use --continue flag")
@@ -132,41 +124,37 @@ func TestResumeScript_UsesContineFlag(t *testing.T) {
 	}
 }
 
-// generateTestScript produces the same script content as launchClaudeDetached
-// without actually starting a process. This allows testing the script format.
-func generateTestScript(pidPath, dir, workspace, agentName, sessionID, promptPath, model, tmpOutputPath, exitCodePath, outputPath string) string {
-	args := `claude --dangerously-skip-permissions -p "$(cat ` + `"` + promptPath + `"` + `)"`
-	if model != "" {
-		args += " --model " + model
-	}
+func TestBuildDetachedScript_NoResume_NoContinueFlag(t *testing.T) {
+	dir := t.TempDir()
+	promptPath := filepath.Join(dir, "toc-prompt.txt")
+	os.WriteFile(promptPath, []byte("test"), 0644)
 
-	return "#!/bin/sh\n" +
-		"echo $$ > " + `"` + pidPath + `"` + "\n" +
-		"cd " + `"` + dir + `"` + "\n" +
-		`export TOC_WORKSPACE="` + workspace + `"` + "\n" +
-		`export TOC_AGENT="` + agentName + `"` + "\n" +
-		`export TOC_SESSION_ID="` + sessionID + `"` + "\n" +
-		args + ` < /dev/null > "` + tmpOutputPath + `" 2>&1` + "\n" +
-		"TOC_EXIT=$?\n" +
-		`echo $TOC_EXIT > "` + exitCodePath + `"` + "\n" +
-		`mv "` + tmpOutputPath + `" "` + outputPath + `"` + "\n"
+	script := buildDetachedScript(detachedOpts{
+		Dir: dir, Workspace: "/ws", AgentName: "agent",
+		SessionID: "sess", OutputPath: filepath.Join(dir, "toc-output.txt"),
+		Resume: false,
+	}, promptPath)
+
+	if strings.Contains(script, "--continue") {
+		t.Error("non-resume script should not contain --continue flag")
+	}
 }
 
-// generateResumeTestScript produces the resume script variant.
-func generateResumeTestScript(pidPath, dir, workspace, agentName, sessionID, promptPath, model, tmpOutputPath, exitCodePath, outputPath string) string {
-	args := `claude --dangerously-skip-permissions --continue -p "$(cat ` + `"` + promptPath + `"` + `)"`
-	if model != "" {
-		args += " --model " + model
-	}
+func TestBuildDetachedScript_AtomicRename(t *testing.T) {
+	dir := t.TempDir()
+	promptPath := filepath.Join(dir, "toc-prompt.txt")
+	os.WriteFile(promptPath, []byte("test"), 0644)
+	outputPath := filepath.Join(dir, "toc-output.txt")
 
-	return "#!/bin/sh\n" +
-		"echo $$ > " + `"` + pidPath + `"` + "\n" +
-		"cd " + `"` + dir + `"` + "\n" +
-		`export TOC_WORKSPACE="` + workspace + `"` + "\n" +
-		`export TOC_AGENT="` + agentName + `"` + "\n" +
-		`export TOC_SESSION_ID="` + sessionID + `"` + "\n" +
-		args + ` < /dev/null > "` + tmpOutputPath + `" 2>&1` + "\n" +
-		"TOC_EXIT=$?\n" +
-		`echo $TOC_EXIT > "` + exitCodePath + `"` + "\n" +
-		`mv "` + tmpOutputPath + `" "` + outputPath + `"` + "\n"
+	script := buildDetachedScript(detachedOpts{
+		Dir: dir, Workspace: "/ws", AgentName: "agent",
+		SessionID: "sess", OutputPath: outputPath,
+	}, promptPath)
+
+	if !strings.Contains(script, "mv") {
+		t.Error("script does not do atomic rename")
+	}
+	if !strings.Contains(script, outputPath+".tmp") {
+		t.Error("script does not use .tmp file for output")
+	}
 }

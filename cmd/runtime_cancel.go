@@ -69,9 +69,14 @@ var runtimeCancelCmd = &cobra.Command{
 			killed = true
 		}
 
-		// Write cancellation marker so ResolvedStatus returns "cancelled"
-		markerPath := filepath.Join(s.WorkspacePath, "toc-cancelled.txt")
-		_ = os.WriteFile(markerPath, []byte(fmt.Sprintf("cancelled by parent session %s\n", ctx.SessionID)), 0644)
+		// Write cancellation marker so ResolvedStatus returns "cancelled".
+		// Only write if the session hasn't already completed (race: process may
+		// have finished between our status check and the kill signal).
+		outputPath := filepath.Join(s.WorkspacePath, "toc-output.txt")
+		if _, err := os.Stat(outputPath); os.IsNotExist(err) {
+			markerPath := filepath.Join(s.WorkspacePath, "toc-cancelled.txt")
+			_ = os.WriteFile(markerPath, []byte(fmt.Sprintf("cancelled by parent session %s\n", ctx.SessionID)), 0644)
+		}
 
 		_ = audit.LogFromWorkspace(ctx.Workspace, "runtime.cancel", map[string]interface{}{
 			"parent_session": ctx.SessionID,

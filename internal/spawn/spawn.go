@@ -231,30 +231,72 @@ func SpawnSubSession(cfg *agent.AgentConfig, opts SubSpawnOpts) (*SpawnResult, e
 	return &SpawnResult{SessionID: sessionID, FailedSkills: failedSkills}, nil
 }
 
+// detachedOpts contains options for launching a detached claude process.
+type detachedOpts struct {
+	Dir, Model, Prompt, Workspace, AgentName, SessionID, OutputPath string
+	Resume                                                          bool
+}
+
 // launchClaudeDetached starts claude in a detached process via a wrapper script
 // so the sub-agent outlives the parent toc process.
 func launchClaudeDetached(dir, model, prompt, workspace, agentName, sessionID, outputPath string) error {
+	return launchDetached(detachedOpts{
+		Dir: dir, Model: model, Prompt: prompt, Workspace: workspace,
+		AgentName: agentName, SessionID: sessionID, OutputPath: outputPath,
+	})
+}
+
+// launchDetached is the shared implementation for starting a detached claude process.
+// When Resume is true, it uses --continue to resume a previous conversation.
+func launchDetached(opts detachedOpts) error {
 	// Write the prompt to a file to avoid shell injection via interpolation.
-	promptPath := filepath.Join(dir, "toc-prompt.txt")
-	if err := os.WriteFile(promptPath, []byte(prompt), 0644); err != nil {
+	promptPath := filepath.Join(opts.Dir, "toc-prompt.txt")
+	if err := os.WriteFile(promptPath, []byte(opts.Prompt), 0644); err != nil {
 		return err
 	}
 
-	// Build claude command that reads prompt from the file.
-	args := fmt.Sprintf("claude --dangerously-skip-permissions -p \"$(cat %q)\"", promptPath)
-	if model != "" {
-		args += fmt.Sprintf(" --model %s", model)
+	scriptContent := buildDetachedScript(opts, promptPath)
+
+	scriptPath := filepath.Join(opts.Dir, "toc-run.sh")
+	if err := os.WriteFile(scriptPath, []byte(scriptContent), 0755); err != nil {
+		return err
 	}
 
-	// Write a wrapper script that runs claude and captures output.
+	cmd := exec.Command("sh", scriptPath)
+	cmd.Dir = opts.Dir
+	cmd.Stdout = nil
+	cmd.Stderr = nil
+	cmd.Stdin = nil
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+
+	return cmd.Process.Release()
+}
+
+// buildDetachedScript generates the shell script content for a detached claude process.
+// Separated from launchDetached so it can be tested without starting a process.
+func buildDetachedScript(opts detachedOpts, promptPath string) string {
+	// Build claude command that reads prompt from the file.
+	args := "claude --dangerously-skip-permissions"
+	if opts.Resume {
+		args += " --continue"
+	}
+	args += fmt.Sprintf(" -p \"$(cat %q)\"", promptPath)
+	if opts.Model != "" {
+		args += fmt.Sprintf(" --model %s", opts.Model)
+	}
+
 	// We write to a .tmp file first, then atomically rename to the final path.
 	// This prevents a race: shell `>` creates the file immediately (empty),
 	// but ResolvedStatus checks for toc-output.txt existence as the completion signal.
-	// Without the rename, the parent sees "completed" before claude even starts.
-	tmpOutputPath := outputPath + ".tmp"
-	pidPath := filepath.Join(dir, "toc-pid.txt")
-	exitCodePath := filepath.Join(dir, "toc-exit-code.txt")
-	scriptContent := fmt.Sprintf(`#!/bin/sh
+	tmpOutputPath := opts.OutputPath + ".tmp"
+	pidPath := filepath.Join(opts.Dir, "toc-pid.txt")
+	exitCodePath := filepath.Join(opts.Dir, "toc-exit-code.txt")
+
+	return fmt.Sprintf(`#!/bin/sh
 echo $$ > %q
 cd %q
 export TOC_WORKSPACE=%q
@@ -264,27 +306,7 @@ export TOC_SESSION_ID=%q
 TOC_EXIT=$?
 echo $TOC_EXIT > %q
 mv %q %q
-`, pidPath, dir, workspace, agentName, sessionID, args, tmpOutputPath, exitCodePath, tmpOutputPath, outputPath)
-
-	scriptPath := filepath.Join(dir, "toc-run.sh")
-	if err := os.WriteFile(scriptPath, []byte(scriptContent), 0755); err != nil {
-		return err
-	}
-
-	cmd := exec.Command("sh", scriptPath)
-	cmd.Dir = dir
-	cmd.Stdout = nil
-	cmd.Stderr = nil
-	cmd.Stdin = nil
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-
-	// Start the process detached
-	if err := cmd.Start(); err != nil {
-		return err
-	}
-
-	// Release the process so it's not waited on
-	return cmd.Process.Release()
+`, pidPath, opts.Dir, opts.Workspace, opts.AgentName, opts.SessionID, args, tmpOutputPath, exitCodePath, tmpOutputPath, opts.OutputPath)
 }
 
 // ResumeSubSession resumes a failed or cancelled sub-agent session.
@@ -325,63 +347,17 @@ func ResumeSubSession(s *session.Session, opts SubSpawnOpts) (*SpawnResult, erro
 		resumePrompt = opts.Prompt
 	}
 
-	// Launch claude detached with --resume flag
+	// Launch claude detached with --continue to resume the previous conversation
 	outputPath := filepath.Join(s.WorkspacePath, "toc-output.txt")
-	if err := launchClaudeDetachedResume(s.WorkspacePath, cfg.Model, resumePrompt, opts.WorkspaceDir, s.Agent, s.ID, outputPath); err != nil {
+	if err := launchDetached(detachedOpts{
+		Dir: s.WorkspacePath, Model: cfg.Model, Prompt: resumePrompt,
+		Workspace: opts.WorkspaceDir, AgentName: s.Agent, SessionID: s.ID,
+		OutputPath: outputPath, Resume: true,
+	}); err != nil {
 		return nil, fmt.Errorf("failed to launch resumed sub-agent: %w", err)
 	}
 
 	return &SpawnResult{SessionID: s.ID, FailedSkills: failedSkills}, nil
-}
-
-// launchClaudeDetachedResume starts claude in a detached process with --resume,
-// continuing a previous conversation.
-func launchClaudeDetachedResume(dir, model, prompt, workspace, agentName, sessionID, outputPath string) error {
-	// Write the prompt to a file to avoid shell injection.
-	promptPath := filepath.Join(dir, "toc-prompt.txt")
-	if err := os.WriteFile(promptPath, []byte(prompt), 0644); err != nil {
-		return err
-	}
-
-	// Build claude command with --resume and a continuation prompt.
-	// We use --continue with -p to resume the conversation with new instructions.
-	args := fmt.Sprintf("claude --dangerously-skip-permissions --continue -p \"$(cat %q)\"", promptPath)
-	if model != "" {
-		args += fmt.Sprintf(" --model %s", model)
-	}
-
-	tmpOutputPath := outputPath + ".tmp"
-	pidPath := filepath.Join(dir, "toc-pid.txt")
-	exitCodePath := filepath.Join(dir, "toc-exit-code.txt")
-	scriptContent := fmt.Sprintf(`#!/bin/sh
-echo $$ > %q
-cd %q
-export TOC_WORKSPACE=%q
-export TOC_AGENT=%q
-export TOC_SESSION_ID=%q
-%s < /dev/null > %q 2>&1
-TOC_EXIT=$?
-echo $TOC_EXIT > %q
-mv %q %q
-`, pidPath, dir, workspace, agentName, sessionID, args, tmpOutputPath, exitCodePath, tmpOutputPath, outputPath)
-
-	scriptPath := filepath.Join(dir, "toc-run.sh")
-	if err := os.WriteFile(scriptPath, []byte(scriptContent), 0755); err != nil {
-		return err
-	}
-
-	cmd := exec.Command("sh", scriptPath)
-	cmd.Dir = dir
-	cmd.Stdout = nil
-	cmd.Stderr = nil
-	cmd.Stdin = nil
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-
-	if err := cmd.Start(); err != nil {
-		return err
-	}
-
-	return cmd.Process.Release()
 }
 
 // setupHooks generates .claude/settings.json with all hooks: context sync,

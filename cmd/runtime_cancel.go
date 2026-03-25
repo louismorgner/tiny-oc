@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -73,12 +74,17 @@ var runtimeCancelCmd = &cobra.Command{
 		// Write cancellation marker so ResolvedStatus returns "cancelled".
 		// Only write if the session hasn't already completed (race: process may
 		// have finished between our status check and the kill signal).
+		var persistErrors []error
 		outputPath := filepath.Join(s.WorkspacePath, "toc-output.txt")
 		if _, err := os.Stat(outputPath); os.IsNotExist(err) {
 			markerPath := filepath.Join(s.WorkspacePath, "toc-cancelled.txt")
-			_ = os.WriteFile(markerPath, []byte(fmt.Sprintf("cancelled by parent session %s\n", ctx.SessionID)), 0644)
+			if err := os.WriteFile(markerPath, []byte(fmt.Sprintf("cancelled by parent session %s\n", ctx.SessionID)), 0644); err != nil {
+				persistErrors = append(persistErrors, fmt.Errorf("write cancellation marker: %w", err))
+			}
 		}
-		_ = session.UpdateStatusInWorkspace(ctx.Workspace, s.ID, session.StatusCancelled)
+		if err := session.UpdateStatusInWorkspace(ctx.Workspace, s.ID, session.StatusCancelled); err != nil {
+			persistErrors = append(persistErrors, fmt.Errorf("update session status: %w", err))
+		}
 		state, err := runtime.LoadState(s)
 		if err != nil && os.IsNotExist(err) {
 			state = &runtime.State{
@@ -94,15 +100,19 @@ var runtimeCancelCmd = &cobra.Command{
 		if err == nil && state != nil {
 			state.Status = session.StatusCancelled
 			state.LastError = fmt.Sprintf("session cancelled by parent session %s", ctx.SessionID)
-			_ = runtime.SaveState(s, state)
+			if err := runtime.SaveState(s, state); err != nil {
+				persistErrors = append(persistErrors, fmt.Errorf("save state: %w", err))
+			}
 		}
-		_ = runtime.AppendEvent(s, runtime.Event{
+		if err := runtime.AppendEvent(s, runtime.Event{
 			Timestamp: time.Now().UTC(),
 			Step: runtime.Step{
 				Type:    "error",
 				Content: fmt.Sprintf("session cancelled by parent session %s", ctx.SessionID),
 			},
-		})
+		}); err != nil {
+			persistErrors = append(persistErrors, fmt.Errorf("append event: %w", err))
+		}
 
 		_ = audit.LogFromWorkspace(ctx.Workspace, "runtime.cancel", map[string]interface{}{
 			"parent_session": ctx.SessionID,
@@ -113,6 +123,9 @@ var runtimeCancelCmd = &cobra.Command{
 		})
 
 		ui.Success("Cancelled sub-agent %s (session %s)", ui.Bold(s.Agent), ui.Dim(sessionID[:8]))
+		if len(persistErrors) > 0 {
+			return fmt.Errorf("session cancelled but state persistence had errors: %w", errors.Join(persistErrors...))
+		}
 		return nil
 	},
 }

@@ -28,7 +28,7 @@ var runtimeListCmd = &cobra.Command{
 
 		if !parentCfg.CanSpawnAny() {
 			ui.Warn("Agent '%s' has no sub-agent permissions configured.", ctx.Agent)
-			ui.Info("Add a %s field to oc-agent.yaml to enable sub-agent spawning.", ui.Bold("sub-agents"))
+			ui.Info("Add a %s block to oc-agent.yaml to enable sub-agent spawning.", ui.Bold("permissions.sub-agents"))
 			return nil
 		}
 

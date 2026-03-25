@@ -72,8 +72,11 @@ var agentShowCmd = &cobra.Command{
 			fmt.Println()
 		}
 
-		if len(cfg.SubAgentsCompat) > 0 {
-			fmt.Printf("  %s %s\n", ui.Bold("Sub-agents:"), strings.Join(cfg.SubAgentsCompat, ", "))
+		if cfg.Perms != nil && len(cfg.Perms.SubAgents) > 0 {
+			fmt.Printf("  %s\n", ui.Bold("Sub-agents:"))
+			for name, level := range cfg.Perms.SubAgents {
+				fmt.Printf("    %s %s: %s\n", ui.Dim("▪"), name, level)
+			}
 			fmt.Println()
 		}
 

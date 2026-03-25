@@ -33,8 +33,9 @@ on_end: >
 compose:
   - soul.md
   - user.md
-sub-agents:
-  - "*"
+permissions:
+  sub-agents:
+    "*": "on"
 ```
 
 ### Fields
@@ -49,7 +50,7 @@ sub-agents:
 | `skills` | list | no | — | Skill names (local) or Git URLs (remote) |
 | `on_end` | string | no | — | Prompt run as a Claude Code `SessionEnd` hook (see below) |
 | `compose` | list | no | — | Files to append after `agent.md` when building `CLAUDE.md` (see below) |
-| `sub-agents` | list | no | — | Agent names this agent can spawn as sub-agents. Use `["*"]` for all agents |
+| `permissions` | object | no | — | Unified permission spec (see below) |
 
 ### Agent instructions
 
@@ -76,19 +77,21 @@ Both `agent.md` and compose files support template variables that are replaced a
 
 ## Sub-agents
 
-The `sub-agents` field controls which other agents this agent is allowed to spawn as background tasks during a session. Agents without this field cannot spawn sub-agents.
+The `permissions.sub-agents` map controls which other agents this agent is allowed to spawn as background tasks during a session. Agents without this field cannot spawn sub-agents. Each entry maps an agent name to a permission level (`on`, `ask`, or `off`).
 
 ```yaml
-sub-agents:
-  - "*"              # allow spawning any agent in the workspace
+permissions:
+  sub-agents:
+    "*": "on"          # allow spawning any agent in the workspace
 ```
 
 Or restrict to specific agents:
 
 ```yaml
-sub-agents:
-  - researcher
-  - test-writer
+permissions:
+  sub-agents:
+    researcher: "on"
+    test-writer: "on"
 ```
 
 During a session, agents use `toc runtime` commands to manage sub-agents:

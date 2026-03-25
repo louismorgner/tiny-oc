@@ -42,15 +42,13 @@ type AgentConfig struct {
 	Model       string   `yaml:"model"`
 	Context     []string `yaml:"context,omitempty"`
 	Skills      []string `yaml:"skills,omitempty"`
-	SubAgentsCompat []string `yaml:"sub-agents,omitempty"`
 	Perms       *Permissions `yaml:"permissions,omitempty"`
 	OnEnd       string   `yaml:"on_end,omitempty"`
 	Compose     []string `yaml:"compose,omitempty"`
 }
 
-// EffectivePermissions returns the resolved permission spec, merging the
-// legacy sub-agents field into the unified model. If no permissions block
-// exists, returns permissive defaults (backward compat).
+// EffectivePermissions returns the resolved permission spec. If no permissions
+// block exists, returns permissive defaults.
 func (cfg *AgentConfig) EffectivePermissions() Permissions {
 	p := Permissions{
 		Filesystem: FilesystemPermissions{
@@ -62,7 +60,6 @@ func (cfg *AgentConfig) EffectivePermissions() Permissions {
 		SubAgents:    make(map[string]PermissionLevel),
 	}
 
-	// If explicit permissions block exists, use it as the base
 	if cfg.Perms != nil {
 		if cfg.Perms.Filesystem.Read != "" {
 			p.Filesystem.Read = cfg.Perms.Filesystem.Read
@@ -78,14 +75,6 @@ func (cfg *AgentConfig) EffectivePermissions() Permissions {
 		}
 		for k, v := range cfg.Perms.SubAgents {
 			p.SubAgents[k] = v
-		}
-	}
-
-	// Backward compat: legacy sub-agents list becomes permissions.sub-agents
-	// Only applied if no explicit permissions.sub-agents are set
-	if len(cfg.SubAgentsCompat) > 0 && cfg.Perms == nil {
-		for _, entry := range cfg.SubAgentsCompat {
-			p.SubAgents[entry] = PermOn
 		}
 	}
 
@@ -184,11 +173,6 @@ func (cfg *AgentConfig) Validate() []string {
 				problems = append(problems, fmt.Sprintf("invalid permission level for sub-agents.%s: %s", name, level))
 			}
 		}
-	}
-
-	// Warn if both legacy sub-agents and permissions.sub-agents are set
-	if len(cfg.SubAgentsCompat) > 0 && cfg.Perms != nil && len(cfg.Perms.SubAgents) > 0 {
-		problems = append(problems, "both 'sub-agents' and 'permissions.sub-agents' are set; use only permissions.sub-agents")
 	}
 
 	return problems

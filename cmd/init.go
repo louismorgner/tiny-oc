@@ -9,6 +9,7 @@ import (
 )
 
 func init() {
+	initCmd.Flags().String("name", "", "workspace name (skip interactive prompt)")
 	rootCmd.AddCommand(initCmd)
 }
 
@@ -20,12 +21,18 @@ var initCmd = &cobra.Command{
 			return fmt.Errorf("workspace already initialized in this directory")
 		}
 
-		ui.Header("Initialize workspace")
+		name, _ := cmd.Flags().GetString("name")
 
-		name, err := ui.Prompt("Workspace name", "")
-		if err != nil {
-			return err
+		if name == "" {
+			ui.Header("Initialize workspace")
+
+			var err error
+			name, err = ui.Prompt("Workspace name", "")
+			if err != nil {
+				return err
+			}
 		}
+
 		if name == "" {
 			return fmt.Errorf("workspace name cannot be empty")
 		}

@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"encoding/json"
 	"fmt"
 
 	"github.com/spf13/cobra"
@@ -9,6 +10,7 @@ import (
 )
 
 func init() {
+	runtimeListCmd.Flags().Bool("json", false, "Output structured JSON")
 	runtimeCmd.AddCommand(runtimeListCmd)
 }
 
@@ -46,7 +48,36 @@ var runtimeListCmd = &cobra.Command{
 		}
 
 		if len(targets) == 0 {
+			jsonFlag, _ := cmd.Flags().GetBool("json")
+			if jsonFlag {
+				fmt.Println("[]")
+				return nil
+			}
 			ui.Warn("No other agents found in the workspace.")
+			return nil
+		}
+
+		jsonFlag, _ := cmd.Flags().GetBool("json")
+		if jsonFlag {
+			type agentInfo struct {
+				Name        string `json:"name"`
+				Model       string `json:"model,omitempty"`
+				Description string `json:"description,omitempty"`
+			}
+			var result []agentInfo
+			for _, name := range targets {
+				info := agentInfo{Name: name}
+				if targetCfg, err := ctx.LoadTargetAgent(name); err == nil {
+					info.Model = targetCfg.Model
+					info.Description = targetCfg.Description
+				}
+				result = append(result, info)
+			}
+			data, err := json.Marshal(result)
+			if err != nil {
+				return err
+			}
+			fmt.Println(string(data))
 			return nil
 		}
 

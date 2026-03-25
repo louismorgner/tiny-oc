@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"encoding/json"
 	"fmt"
 
 	"github.com/spf13/cobra"
@@ -10,6 +11,7 @@ import (
 )
 
 func init() {
+	runtimeStatusCmd.Flags().Bool("json", false, "Output structured JSON")
 	runtimeCmd.AddCommand(runtimeStatusCmd)
 }
 
@@ -24,12 +26,70 @@ var runtimeStatusCmd = &cobra.Command{
 			return err
 		}
 
+		jsonFlag, _ := cmd.Flags().GetBool("json")
+
 		if len(args) > 0 {
+			if jsonFlag {
+				return showSubAgentStatusJSON(ctx, args[0])
+			}
 			return showSubAgentStatus(ctx, args[0])
 		}
 
+		if jsonFlag {
+			return listSubAgentStatusesJSON(ctx)
+		}
 		return listSubAgentStatuses(ctx)
 	},
+}
+
+type statusJSON struct {
+	ID     string `json:"id"`
+	Agent  string `json:"agent"`
+	Status string `json:"status"`
+	Prompt string `json:"prompt,omitempty"`
+}
+
+func showSubAgentStatusJSON(ctx *runtime.Context, sessionID string) error {
+	s, err := session.FindByIDInWorkspace(ctx.Workspace, sessionID)
+	if err != nil {
+		return err
+	}
+	if s.ParentSessionID != ctx.SessionID {
+		return fmt.Errorf("session '%s' is not a sub-agent of this session", sessionID)
+	}
+	data, err := json.Marshal(statusJSON{
+		ID:     s.ID,
+		Agent:  s.Agent,
+		Status: s.ResolvedStatus(),
+		Prompt: s.Prompt,
+	})
+	if err != nil {
+		return err
+	}
+	fmt.Println(string(data))
+	return nil
+}
+
+func listSubAgentStatusesJSON(ctx *runtime.Context) error {
+	children, err := session.ListByParentInWorkspace(ctx.Workspace, ctx.SessionID)
+	if err != nil {
+		return err
+	}
+	var result []statusJSON
+	for _, s := range children {
+		result = append(result, statusJSON{
+			ID:     s.ID,
+			Agent:  s.Agent,
+			Status: s.ResolvedStatus(),
+			Prompt: s.Prompt,
+		})
+	}
+	data, err := json.Marshal(result)
+	if err != nil {
+		return err
+	}
+	fmt.Println(string(data))
+	return nil
 }
 
 func showSubAgentStatus(ctx *runtime.Context, sessionID string) error {

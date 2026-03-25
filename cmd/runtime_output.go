@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -12,6 +13,7 @@ import (
 )
 
 func init() {
+	runtimeOutputCmd.Flags().Bool("json", false, "Output structured JSON")
 	runtimeCmd.AddCommand(runtimeOutputCmd)
 }
 
@@ -42,12 +44,29 @@ var runtimeOutputCmd = &cobra.Command{
 			if os.IsNotExist(err) {
 				status := s.ResolvedStatus()
 				if status == "active" {
+					jsonFlag, _ := cmd.Flags().GetBool("json")
+					if jsonFlag {
+						out, _ := json.Marshal(map[string]string{"status": "running", "output": ""})
+						fmt.Println(string(out))
+						return nil
+					}
 					ui.Info("Sub-agent is still running. Output will be available when it completes.")
 					return nil
 				}
 				return fmt.Errorf("no output found for session '%s'", sessionID)
 			}
 			return err
+		}
+
+		jsonFlag, _ := cmd.Flags().GetBool("json")
+		if jsonFlag {
+			out, _ := json.Marshal(map[string]string{
+				"session_id": sessionID,
+				"status":     s.ResolvedStatus(),
+				"output":     string(data),
+			})
+			fmt.Println(string(out))
+			return nil
 		}
 
 		fmt.Println(string(data))

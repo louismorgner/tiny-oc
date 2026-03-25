@@ -20,7 +20,8 @@ type OAuth2Config struct {
 	TokenURL     string
 	Scopes       []string // bot scopes — sent as "scope" param
 	UserScopes   []string // user scopes — sent as "user_scope" param (Slack user tokens)
-	RedirectPort int
+	RedirectPort int      // used only for localhost callback fallback
+	RedirectURL  string   // if set, overrides the localhost redirect URI
 }
 
 // OAuth2TokenResponse represents the response from a token exchange.
@@ -41,6 +42,10 @@ type OAuth2TokenResponse struct {
 	} `json:"authed_user,omitempty"`
 }
 
+// SlackOAuthCallbackURL is the hosted HTTPS endpoint that receives Slack OAuth
+// callbacks and displays the authorization code for the user to copy.
+const SlackOAuthCallbackURL = "https://auth.opencompany.cloud/slack/callback"
+
 // SlackOAuth2Config returns a pre-configured OAuth2Config for Slack.
 // When userScopes is non-empty, the flow requests user tokens (xoxp) via user_scope.
 // When scopes is non-empty, bot tokens (xoxb) are also requested via scope.
@@ -53,11 +58,16 @@ func SlackOAuth2Config(clientID, clientSecret string, scopes, userScopes []strin
 		Scopes:       scopes,
 		UserScopes:   userScopes,
 		RedirectPort: 8976,
+		RedirectURL:  SlackOAuthCallbackURL,
 	}
 }
 
-// RedirectURI returns the localhost callback URI for this config.
+// RedirectURI returns the callback URI for this config.
+// If RedirectURL is set, it is used directly. Otherwise falls back to localhost.
 func (c *OAuth2Config) RedirectURI() string {
+	if c.RedirectURL != "" {
+		return c.RedirectURL
+	}
 	return fmt.Sprintf("http://localhost:%d/callback", c.RedirectPort)
 }
 

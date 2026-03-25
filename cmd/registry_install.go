@@ -56,9 +56,11 @@ var registryInstallCmd = &cobra.Command{
 				ui.Info("Skills installed: %s", ui.Dim(strings.Join(entry.Skills, ", ")))
 			}
 			ui.Info("Spawn with: %s", ui.Bold(fmt.Sprintf("toc agent spawn %s", entry.Name)))
+			ui.Info("Tip: you can also use %s", ui.Bold(fmt.Sprintf("toc agent add %s", entry.Name)))
 		case "skill":
 			ui.Success("Installed skill %s", ui.Bold(entry.Name))
 			ui.Info("Assign to an agent with: %s", ui.Bold("toc agent skills <agent-name>"))
+			ui.Info("Tip: you can also use %s", ui.Bold(fmt.Sprintf("toc skill add %s", entry.Name)))
 		}
 		fmt.Println()
 		return nil

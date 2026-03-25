@@ -130,10 +130,20 @@ func Find(index *Index, name string) (*Entry, bool) {
 	return nil, false
 }
 
-// FindSkill looks up a skill by exact name (for backward compat with spawn resolution).
+// FindSkill looks up a skill by exact name.
 func FindSkill(index *Index, name string) (*Entry, bool) {
 	for _, e := range index.Entries {
 		if e.Name == name && e.Type == "skill" {
+			return &e, true
+		}
+	}
+	return nil, false
+}
+
+// FindAgent looks up an agent by exact name.
+func FindAgent(index *Index, name string) (*Entry, bool) {
+	for _, e := range index.Entries {
+		if e.Name == name && e.Type == "agent" {
 			return &e, true
 		}
 	}

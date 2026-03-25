@@ -112,8 +112,13 @@ func CheckPermission(permissions []*Permission, actionName string, target string
 
 // matchesAction checks if a permission entry matches the requested resource.action.
 func matchesAction(perm *Permission, resource, action string) bool {
-	// Check resource match
-	if perm.Resource != "" && perm.Resource != "*" && perm.Resource != resource {
+	// Resource matching must be explicit:
+	// - perm.Resource == "*" matches any resource (including empty)
+	// - perm.Resource == "" only matches actions with no resource component
+	// - perm.Resource == "foo" only matches resource "foo"
+	if perm.Resource == "*" {
+		// wildcard resource — matches anything
+	} else if perm.Resource != resource {
 		return false
 	}
 

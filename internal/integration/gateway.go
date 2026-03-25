@@ -7,30 +7,33 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"sync"
 	"time"
 )
 
-// RateLimiter tracks per-session per-action call counts.
+// rateBucketJSON is the on-disk representation of a rate limit bucket.
+type rateBucketJSON struct {
+	Count   int       `json:"count"`
+	ResetAt time.Time `json:"reset_at"`
+}
+
+// RateLimiter tracks per-session per-action call counts, persisted to disk
+// so that state survives across separate process invocations.
 type RateLimiter struct {
-	mu       sync.Mutex
-	counters map[string]*rateBucket
+	mu   sync.Mutex
+	path string // path to rate_limits.json
 }
 
-type rateBucket struct {
-	count    int
-	resetAt  time.Time
-}
-
-// NewRateLimiter creates a new in-memory rate limiter.
-func NewRateLimiter() *RateLimiter {
-	return &RateLimiter{
-		counters: make(map[string]*rateBucket),
-	}
+// NewRateLimiter creates a file-backed rate limiter.
+// path should be e.g. .toc/sessions/<id>/rate_limits.json.
+func NewRateLimiter(path string) *RateLimiter {
+	return &RateLimiter{path: path}
 }
 
 // Allow checks if an action is within rate limits. Returns true if allowed.
+// Loads state from disk, checks/increments, and writes back atomically.
 func (rl *RateLimiter) Allow(sessionID, actionKey string, limit *RateLimit) bool {
 	if limit == nil || limit.Max <= 0 {
 		return true
@@ -39,24 +42,52 @@ func (rl *RateLimiter) Allow(sessionID, actionKey string, limit *RateLimit) bool
 	rl.mu.Lock()
 	defer rl.mu.Unlock()
 
+	counters := rl.load()
+
 	key := sessionID + ":" + actionKey
-	bucket, ok := rl.counters[key]
+	bucket, ok := counters[key]
 	now := time.Now()
 
-	if !ok || now.After(bucket.resetAt) {
-		rl.counters[key] = &rateBucket{
-			count:   1,
-			resetAt: now.Add(limit.Window),
+	if !ok || now.After(bucket.ResetAt) {
+		counters[key] = &rateBucketJSON{
+			Count:   1,
+			ResetAt: now.Add(limit.Window),
 		}
+		rl.save(counters)
 		return true
 	}
 
-	if bucket.count >= limit.Max {
+	if bucket.Count >= limit.Max {
 		return false
 	}
 
-	bucket.count++
+	bucket.Count++
+	rl.save(counters)
 	return true
+}
+
+func (rl *RateLimiter) load() map[string]*rateBucketJSON {
+	counters := make(map[string]*rateBucketJSON)
+	if rl.path == "" {
+		return counters
+	}
+	data, err := os.ReadFile(rl.path)
+	if err != nil {
+		return counters
+	}
+	_ = json.Unmarshal(data, &counters)
+	return counters
+}
+
+func (rl *RateLimiter) save(counters map[string]*rateBucketJSON) {
+	if rl.path == "" {
+		return
+	}
+	data, err := json.Marshal(counters)
+	if err != nil {
+		return
+	}
+	_ = os.WriteFile(rl.path, data, 0600)
 }
 
 // InvokeRequest contains everything needed to make a gateway call.
@@ -71,9 +102,9 @@ type InvokeRequest struct {
 
 // InvokeResponse contains the filtered response from the gateway.
 type InvokeResponse struct {
-	StatusCode int                    `json:"status_code"`
-	Data       map[string]interface{} `json:"data,omitempty"`
-	Error      string                 `json:"error,omitempty"`
+	StatusCode int         `json:"status_code"`
+	Data       interface{} `json:"data,omitempty"`
+	Error      string      `json:"error,omitempty"`
 }
 
 // Invoke executes an API call through the generic HTTP adapter.
@@ -125,8 +156,8 @@ func Invoke(req *InvokeRequest) (*InvokeResponse, error) {
 		return nil, fmt.Errorf("failed to read response: %w", err)
 	}
 
-	// Parse response
-	var rawResponse map[string]interface{}
+	// Parse response — could be a JSON object or a JSON array
+	var rawResponse interface{}
 	if err := json.Unmarshal(body, &rawResponse); err != nil {
 		// Non-JSON response
 		return &InvokeResponse{
@@ -136,7 +167,7 @@ func Invoke(req *InvokeRequest) (*InvokeResponse, error) {
 	}
 
 	// Filter through field whitelist
-	filtered := filterResponse(rawResponse, actionDef.Returns)
+	filtered := filterAnyResponse(rawResponse, actionDef.Returns)
 
 	return &InvokeResponse{
 		StatusCode: resp.StatusCode,
@@ -147,9 +178,14 @@ func Invoke(req *InvokeRequest) (*InvokeResponse, error) {
 func buildHTTPRequest(action *Action, cred *Credential, params map[string]string) (*http.Request, error) {
 	endpoint := action.Endpoint
 
-	// Replace template variables in endpoint
+	// Replace template variables in endpoint and track which params were used
+	templateParams := make(map[string]bool)
 	for k, v := range params {
-		endpoint = strings.ReplaceAll(endpoint, "{{"+k+"}}", v)
+		placeholder := "{{" + k + "}}"
+		if strings.Contains(endpoint, placeholder) {
+			endpoint = strings.ReplaceAll(endpoint, placeholder, v)
+			templateParams[k] = true
+		}
 	}
 
 	var bodyReader io.Reader
@@ -157,7 +193,9 @@ func buildHTTPRequest(action *Action, cred *Credential, params map[string]string
 	case "json":
 		bodyMap := make(map[string]interface{})
 		for k, v := range params {
-			bodyMap[k] = v
+			if !templateParams[k] {
+				bodyMap[k] = v
+			}
 		}
 		data, err := json.Marshal(bodyMap)
 		if err != nil {
@@ -172,7 +210,9 @@ func buildHTTPRequest(action *Action, cred *Credential, params map[string]string
 		}
 		q := u.Query()
 		for k, v := range params {
-			q.Set(k, v)
+			if !templateParams[k] {
+				q.Set(k, v)
+			}
 		}
 		u.RawQuery = q.Encode()
 		endpoint = u.String()
@@ -198,6 +238,56 @@ func buildHTTPRequest(action *Action, cred *Credential, params map[string]string
 	req.Header.Set("User-Agent", "toc/1.0")
 
 	return req, nil
+}
+
+// filterAnyResponse filters either a map or array response through the whitelist.
+// If no whitelist is defined, returns the raw response unchanged.
+func filterAnyResponse(raw interface{}, whitelist []string) interface{} {
+	if len(whitelist) == 0 {
+		return raw
+	}
+
+	switch v := raw.(type) {
+	case map[string]interface{}:
+		return filterResponse(v, whitelist)
+	case []interface{}:
+		return filterArrayResponse(v, whitelist)
+	default:
+		return raw
+	}
+}
+
+// filterArrayResponse handles top-level JSON array responses with [].field notation.
+// Returns a slice of maps containing only the whitelisted fields from each element.
+func filterArrayResponse(arr []interface{}, whitelist []string) []interface{} {
+	// Strip leading "[]." prefix from whitelist entries
+	fields := make([]string, 0, len(whitelist))
+	for _, w := range whitelist {
+		if strings.HasPrefix(w, "[].") {
+			fields = append(fields, w[3:])
+		} else {
+			fields = append(fields, w)
+		}
+	}
+
+	result := make([]interface{}, 0, len(arr))
+	for _, elem := range arr {
+		m, ok := elem.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		filtered := make(map[string]interface{})
+		for _, field := range fields {
+			val := extractField(m, field)
+			if val != nil {
+				setField(filtered, field, val)
+			}
+		}
+		if len(filtered) > 0 {
+			result = append(result, filtered)
+		}
+	}
+	return result
 }
 
 // filterResponse returns only the whitelisted fields from the raw response.

@@ -13,7 +13,8 @@ import (
 	"github.com/tiny-oc/toc/internal/runtime"
 )
 
-var invokeRateLimiter = integration.NewRateLimiter()
+// invokeRateLimiter is initialized per-invocation with the session path.
+var invokeRateLimiter *integration.RateLimiter
 
 func init() {
 	runtimeCmd.AddCommand(runtimeInvokeCmd)
@@ -38,6 +39,10 @@ Examples:
 		if err != nil {
 			return err
 		}
+
+		// Initialize file-backed rate limiter for this session
+		rateLimitPath := filepath.Join(ctx.Workspace, ".toc", "sessions", ctx.SessionID, "rate_limits.json")
+		invokeRateLimiter = integration.NewRateLimiter(rateLimitPath)
 
 		integrationName := args[0]
 		actionName := args[1]

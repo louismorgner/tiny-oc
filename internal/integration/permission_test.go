@@ -151,6 +151,20 @@ func TestCheckPermission(t *testing.T) {
 			target:      "any",
 			want:        false,
 		},
+		{
+			name:        "empty-resource permission does not match resource-prefixed action",
+			permissions: []string{"send_message:*"},
+			action:      "issues.send_message",
+			target:      "any-repo",
+			want:        false,
+		},
+		{
+			name:        "resource-prefixed permission does not match action-only request",
+			permissions: []string{"issues.read:*"},
+			action:      "read",
+			target:      "any",
+			want:        false,
+		},
 	}
 
 	for _, tt := range tests {
@@ -212,6 +226,79 @@ func TestFilterResponse(t *testing.T) {
 		filtered := filterResponse(raw, nil)
 		if _, ok := filtered["secret"]; !ok {
 			t.Error("without whitelist, all fields should be returned")
+		}
+	})
+}
+
+func TestFilterArrayResponse(t *testing.T) {
+	raw := []interface{}{
+		map[string]interface{}{"number": 1.0, "title": "Bug", "state": "open", "secret": "x"},
+		map[string]interface{}{"number": 2.0, "title": "Feature", "state": "closed", "secret": "y"},
+	}
+
+	t.Run("top-level array with [].field notation", func(t *testing.T) {
+		result := filterArrayResponse(raw, []string{"[].number", "[].title", "[].state"})
+		if len(result) != 2 {
+			t.Fatalf("expected 2 elements, got %d", len(result))
+		}
+		first, ok := result[0].(map[string]interface{})
+		if !ok {
+			t.Fatal("element should be a map")
+		}
+		if first["number"] != 1.0 {
+			t.Errorf("number = %v, want 1", first["number"])
+		}
+		if first["title"] != "Bug" {
+			t.Errorf("title = %v, want Bug", first["title"])
+		}
+		if _, ok := first["secret"]; ok {
+			t.Error("secret field should be filtered out")
+		}
+	})
+
+	t.Run("nested field in array elements", func(t *testing.T) {
+		nested := []interface{}{
+			map[string]interface{}{
+				"number": 1.0,
+				"user":   map[string]interface{}{"login": "alice", "id": 42.0},
+			},
+		}
+		result := filterArrayResponse(nested, []string{"[].number", "[].user.login"})
+		if len(result) != 1 {
+			t.Fatalf("expected 1 element, got %d", len(result))
+		}
+		elem := result[0].(map[string]interface{})
+		if elem["number"] != 1.0 {
+			t.Errorf("number = %v, want 1", elem["number"])
+		}
+		user, ok := elem["user"].(map[string]interface{})
+		if !ok {
+			t.Fatal("user should be a map")
+		}
+		if user["login"] != "alice" {
+			t.Errorf("user.login = %v, want alice", user["login"])
+		}
+	})
+
+	t.Run("filterAnyResponse dispatches to array handler", func(t *testing.T) {
+		result := filterAnyResponse(raw, []string{"[].number", "[].title"})
+		arr, ok := result.([]interface{})
+		if !ok {
+			t.Fatal("filterAnyResponse should return []interface{} for array input")
+		}
+		if len(arr) != 2 {
+			t.Fatalf("expected 2 elements, got %d", len(arr))
+		}
+	})
+
+	t.Run("filterAnyResponse with no whitelist returns raw", func(t *testing.T) {
+		result := filterAnyResponse(raw, nil)
+		arr, ok := result.([]interface{})
+		if !ok {
+			t.Fatal("should return original array")
+		}
+		if len(arr) != 2 {
+			t.Fatalf("expected 2 elements, got %d", len(arr))
 		}
 	})
 }

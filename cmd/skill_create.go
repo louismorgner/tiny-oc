@@ -70,6 +70,7 @@ var skillCreateCmd = &cobra.Command{
 			),
 		)
 
+		form.WithProgramOptions(ui.FormOptions()...)
 		if err := form.Run(); err != nil {
 			return err
 		}

@@ -98,6 +98,7 @@ var agentCreateCmd = &cobra.Command{
 			),
 		)
 
+		basics.WithProgramOptions(ui.FormOptions()...)
 		if err := basics.Run(); err != nil {
 			return err
 		}

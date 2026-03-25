@@ -270,14 +270,18 @@ func runNativePrompt(client *openRouterClient, state *State, toolSpecs []NativeT
 		state.Status = "failed"
 		state.LastError = err.Error()
 		state.PendingTurn = nil
-		_ = SaveStateInWorkspace(state.Workspace, state.SessionID, state)
-		_ = AppendEvent(sess, Event{
+		if saveErr := SaveStateInWorkspace(state.Workspace, state.SessionID, state); saveErr != nil {
+			err = fmt.Errorf("%w (additionally, failed to persist state: %v)", err, saveErr)
+		}
+		if eventErr := AppendEvent(sess, Event{
 			Timestamp: time.Now().UTC(),
 			Step: Step{
 				Type:    "error",
 				Content: err.Error(),
 			},
-		})
+		}); eventErr != nil {
+			err = fmt.Errorf("%w (additionally, failed to append error event: %v)", err, eventErr)
+		}
 		return err
 	}
 
@@ -290,8 +294,13 @@ func runNativePrompt(client *openRouterClient, state *State, toolSpecs []NativeT
 	return SaveStateInWorkspace(state.Workspace, state.SessionID, state)
 }
 
+const defaultMaxIterations = 24
+
 func runNativeLoop(client *openRouterClient, state *State, toolSpecs []NativeToolSpec, profile runtimeinfo.NativeModelProfile, toolCtx nativeToolContext, sess *session.Session, stdout io.Writer) error {
-	const maxIterations = 24
+	maxIterations := defaultMaxIterations
+	if toolCtx.Config != nil && toolCtx.Config.RuntimeConfig.MaxIterations > 0 {
+		maxIterations = toolCtx.Config.RuntimeConfig.MaxIterations
+	}
 	for i := 0; i < maxIterations; i++ {
 		compacted, err := maybeCompactState(state, sess, toolCtx.Config)
 		if err != nil {

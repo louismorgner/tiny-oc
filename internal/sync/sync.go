@@ -96,13 +96,14 @@ func isDir(pattern string) bool {
 }
 
 // SyncBack copies files matching context patterns from the session dir
-// back to the agent template dir.
-func SyncBack(sessionDir, agentDir string, patterns []string) (int, error) {
+// back to the agent template dir. Returns the list of synced file paths
+// (relative to the agent dir).
+func SyncBack(sessionDir, agentDir string, patterns []string) ([]string, error) {
 	if len(patterns) == 0 {
-		return 0, nil
+		return nil, nil
 	}
 
-	count := 0
+	var synced []string
 	err := filepath.Walk(sessionDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
@@ -137,10 +138,10 @@ func SyncBack(sessionDir, agentDir string, patterns []string) (int, error) {
 		if err := fileutil.CopyFile(path, dst); err != nil {
 			return err
 		}
-		count++
+		synced = append(synced, dstRel)
 		return nil
 	})
-	return count, err
+	return synced, err
 }
 
 // SyncFile copies a single file from session dir to agent dir if it matches

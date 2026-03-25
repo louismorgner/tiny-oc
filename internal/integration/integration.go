@@ -2,12 +2,16 @@ package integration
 
 import (
 	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"time"
 
 	"gopkg.in/yaml.v3"
 )
+
+const remoteIntegrationBase = "https://raw.githubusercontent.com/louismorgner/tiny-oc/main/registry/integrations"
 
 // Definition represents an integration definition loaded from YAML.
 type Definition struct {
@@ -88,7 +92,42 @@ func LoadFromRegistry(name string) (*Definition, error) {
 		}
 	}
 
+	// Try fetching from remote registry
+	if def, err := fetchFromRemoteRegistry(name); err == nil {
+		return def, nil
+	}
+
 	return nil, fmt.Errorf("integration '%s' not found in registry", name)
+}
+
+var httpClient = &http.Client{Timeout: 30 * time.Second}
+
+// fetchFromRemoteRegistry downloads an integration definition from the remote registry on GitHub.
+func fetchFromRemoteRegistry(name string) (*Definition, error) {
+	url := fmt.Sprintf("%s/%s/integration.yaml", remoteIntegrationBase, name)
+	resp, err := httpClient.Get(url)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("HTTP %d from %s", resp.StatusCode, url)
+	}
+
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	var def Definition
+	if err := yaml.Unmarshal(data, &def); err != nil {
+		return nil, fmt.Errorf("failed to parse remote integration definition: %w", err)
+	}
+	if err := def.Validate(); err != nil {
+		return nil, err
+	}
+	return &def, nil
 }
 
 // Validate checks the definition for errors.

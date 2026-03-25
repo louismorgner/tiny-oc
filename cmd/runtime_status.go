@@ -103,15 +103,7 @@ func showSubAgentStatus(ctx *runtime.Context, sessionID string) error {
 	}
 
 	status := s.ResolvedStatus()
-	var badge string
-	switch status {
-	case "active":
-		badge = ui.Green("● active")
-	case "completed":
-		badge = ui.Green("● completed")
-	case "stale":
-		badge = ui.Yellow("◌ stale")
-	}
+	badge := statusBadge(status)
 
 	fmt.Println()
 	fmt.Printf("  %s %s\n", ui.Bold("Agent:"), ui.Cyan(s.Agent))
@@ -128,6 +120,10 @@ func showSubAgentStatus(ctx *runtime.Context, sessionID string) error {
 
 	if status == "completed" {
 		ui.Info("Read output: %s", ui.Bold(fmt.Sprintf("toc runtime output %s", sessionID)))
+		fmt.Println()
+	}
+	if status == "failed" {
+		ui.Info("Resume with: %s", ui.Bold(fmt.Sprintf("toc runtime spawn %s --resume %s", s.Agent, sessionID)))
 		fmt.Println()
 	}
 
@@ -151,15 +147,7 @@ func listSubAgentStatuses(ctx *runtime.Context) error {
 
 	for _, s := range children {
 		status := s.ResolvedStatus()
-		var badge string
-		switch status {
-		case "active":
-			badge = ui.Green("● active")
-		case "completed":
-			badge = ui.Green("● completed")
-		case "stale":
-			badge = ui.Yellow("◌ stale")
-		}
+		badge := statusBadge(status)
 
 		prompt := s.Prompt
 		if len(prompt) > 40 {
@@ -171,4 +159,19 @@ func listSubAgentStatuses(ctx *runtime.Context) error {
 
 	fmt.Println()
 	return nil
+}
+
+func statusBadge(status string) string {
+	switch status {
+	case "active":
+		return ui.Green("● active")
+	case "completed":
+		return ui.Green("● completed")
+	case "failed":
+		return ui.Red("✗ failed")
+	case "stale":
+		return ui.Yellow("◌ stale")
+	default:
+		return ui.Dim(status)
+	}
 }

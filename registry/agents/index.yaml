@@ -1,13 +1,13 @@
 agents:
   - name: cto
     description: Technical leadership agent — code quality, architecture, and open-source standards
-    model: sonnet
+    model: opus
     skills: [open-source-cto]
   - name: content-creator-buddy
     description: Persistent creator strategist for positioning, scripts, storytelling, and content systems
-    model: sonnet
+    model: opus
     skills: [agentic-memory]
   - name: mini-claw
     description: Persistent agent with identity, memory, and session awareness — inspired by OpenClaw
-    model: sonnet
+    model: opus
     skills: [agentic-memory]

@@ -1,7 +1,6 @@
 # toc — tiny open company
 
 [![CI](https://github.com/louismorgner/tiny-oc/actions/workflows/ci.yaml/badge.svg)](https://github.com/louismorgner/tiny-oc/actions/workflows/ci.yaml)
-[![codecov](https://codecov.io/gh/louismorgner/tiny-oc/branch/main/graph/badge.svg)](https://codecov.io/gh/louismorgner/tiny-oc)
 
 A local CLI tool for managing and spawning AI agent sessions from reusable templates.
 

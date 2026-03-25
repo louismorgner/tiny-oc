@@ -3,6 +3,7 @@ package session
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/tiny-oc/toc/internal/config"
@@ -15,17 +16,27 @@ const (
 )
 
 type Session struct {
-	ID            string    `yaml:"id"`
-	Agent         string    `yaml:"agent"`
-	CreatedAt     time.Time `yaml:"created_at"`
-	WorkspacePath string    `yaml:"workspace_path"`
-	Status        string    `yaml:"status,omitempty"`
+	ID              string    `yaml:"id"`
+	Agent           string    `yaml:"agent"`
+	CreatedAt       time.Time `yaml:"created_at"`
+	WorkspacePath   string    `yaml:"workspace_path"`
+	Status          string    `yaml:"status,omitempty"`
+	ParentSessionID string    `yaml:"parent_session_id,omitempty"`
+	Prompt          string    `yaml:"prompt,omitempty"`
 }
 
 // ResolvedStatus returns the display status, checking workspace existence.
+// For sub-agent sessions (ParentSessionID set), it also checks for toc-output.txt
+// as a completion signal since the background process can't update sessions.yaml.
 func (s *Session) ResolvedStatus() string {
 	if _, err := os.Stat(s.WorkspacePath); os.IsNotExist(err) {
 		return "stale"
+	}
+	if s.Status == StatusActive && s.ParentSessionID != "" {
+		// Sub-agent: check if output file exists (means claude --print finished)
+		if _, err := os.Stat(filepath.Join(s.WorkspacePath, "toc-output.txt")); err == nil {
+			return "completed"
+		}
 	}
 	if s.Status == StatusActive {
 		return "active"
@@ -117,6 +128,20 @@ func RemoveByAgent(agentName string) error {
 	return Save(sf)
 }
 
+func ListByParent(parentID string) ([]Session, error) {
+	sf, err := Load()
+	if err != nil {
+		return nil, err
+	}
+	var result []Session
+	for _, s := range sf.Sessions {
+		if s.ParentSessionID == parentID {
+			result = append(result, s)
+		}
+	}
+	return result, nil
+}
+
 func FindByID(id string) (*Session, error) {
 	sf, err := Load()
 	if err != nil {
@@ -128,4 +153,89 @@ func FindByID(id string) (*Session, error) {
 		}
 	}
 	return nil, fmt.Errorf("session '%s' not found", id)
+}
+
+// FindByIDInWorkspace looks up a session by ID using a specific workspace path.
+// AddInWorkspace adds a session record using a specific workspace path.
+func AddInWorkspace(workspace string, s Session) error {
+	path := workspace + "/.toc/sessions.yaml"
+	data, err := os.ReadFile(path)
+	var sf SessionsFile
+	if err == nil {
+		_ = yaml.Unmarshal(data, &sf)
+	}
+	sf.Sessions = append(sf.Sessions, s)
+	out, err := yaml.Marshal(sf)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, out, 0644)
+}
+
+// UpdateStatusInWorkspace updates session status using a specific workspace path.
+func UpdateStatusInWorkspace(workspace, id, status string) error {
+	path := workspace + "/.toc/sessions.yaml"
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	var sf SessionsFile
+	if err := yaml.Unmarshal(data, &sf); err != nil {
+		return err
+	}
+	for i := range sf.Sessions {
+		if sf.Sessions[i].ID == id {
+			sf.Sessions[i].Status = status
+			out, err := yaml.Marshal(sf)
+			if err != nil {
+				return err
+			}
+			return os.WriteFile(path, out, 0644)
+		}
+	}
+	return fmt.Errorf("session '%s' not found", id)
+}
+
+func FindByIDInWorkspace(workspace, id string) (*Session, error) {
+	path := workspace + "/.toc/sessions.yaml"
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, fmt.Errorf("session '%s' not found", id)
+		}
+		return nil, err
+	}
+	var sf SessionsFile
+	if err := yaml.Unmarshal(data, &sf); err != nil {
+		return nil, err
+	}
+	for _, s := range sf.Sessions {
+		if s.ID == id {
+			return &s, nil
+		}
+	}
+	return nil, fmt.Errorf("session '%s' not found", id)
+}
+
+// ListByParentInWorkspace lists child sessions using a specific workspace path.
+func ListByParentInWorkspace(workspace, parentID string) ([]Session, error) {
+	path := workspace + "/.toc/sessions.yaml"
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	var sf SessionsFile
+	if err := yaml.Unmarshal(data, &sf); err != nil {
+		return nil, err
+	}
+	var result []Session
+	for _, s := range sf.Sessions {
+		if s.ParentSessionID == parentID {
+			result = append(result, s)
+		}
+	}
+	return result, nil
 }

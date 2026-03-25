@@ -19,6 +19,22 @@ type AgentConfig struct {
 	Model       string   `yaml:"model"`
 	Context     []string `yaml:"context,omitempty"`
 	Skills      []string `yaml:"skills,omitempty"`
+	SubAgents   []string `yaml:"sub-agents,omitempty"`
+}
+
+// CanSpawn checks if this agent is allowed to spawn the given target agent.
+func (cfg *AgentConfig) CanSpawn(target string) bool {
+	for _, entry := range cfg.SubAgents {
+		if entry == "*" || entry == target {
+			return true
+		}
+	}
+	return false
+}
+
+// CanSpawnAny returns true if the agent has any sub-agent permissions.
+func (cfg *AgentConfig) CanSpawnAny() bool {
+	return len(cfg.SubAgents) > 0
 }
 
 func ValidateName(name string) error {

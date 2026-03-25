@@ -4,3 +4,5 @@ description: Technical leadership agent — code quality, architecture, and open
 model: sonnet
 skills:
   - open-source-cto
+sub-agents:
+  - "*"

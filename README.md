@@ -84,6 +84,15 @@ When you run `toc agent spawn`, it:
 | `toc audit` | View the audit log |
 | `toc completion <shell>` | Generate shell completion script |
 
+### Runtime commands (for agents during sessions)
+
+| Command | Description |
+|---|---|
+| `toc runtime list` | List agents available to spawn as sub-agents |
+| `toc runtime spawn <name> -p "..."` | Spawn a sub-agent in the background |
+| `toc runtime status [session-id]` | Check status of sub-agent sessions |
+| `toc runtime output <session-id>` | Read the output of a completed sub-agent |
+
 ## Roadmap
 
 - [x] Agent creation and isolated session spawning via Claude Code
@@ -91,7 +100,8 @@ When you run `toc agent spawn`, it:
 - [x] Audit log — append-only JSON Lines log for compliance and traceability
 - [x] Skills — reusable, shareable agent capabilities
 - [x] Registry — unified catalog of skills and agent templates with search and install
-- [ ] Sub-agents — agents that spawn and coordinate other agents
+- [x] Sub-agents — agents that spawn and coordinate other agents
+- [ ] Session sandbox — unforgeable identity and permissions ([#12](https://github.com/louismorgner/tiny-oc/issues/12))
 - [ ] Cost controls — per-agent and per-session spending limits
 - [ ] Integrations and permissions — connect agents to external tools with scoped access
 - [ ] **v1 release**

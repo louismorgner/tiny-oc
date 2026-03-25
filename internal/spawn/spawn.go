@@ -85,7 +85,7 @@ func SpawnSession(cfg *agent.AgentConfig) (*SpawnResult, error) {
 	}
 	fmt.Println()
 
-	_ = launchClaude(workDir, cfg.Model, sessionID, false)
+	_ = launchClaude(workDir, cfg.Model, sessionID, cfg.Name, false)
 	_ = session.UpdateStatus(sessionID, session.StatusCompleted)
 
 	// Post-session sync: copy matching files back to agent template
@@ -139,7 +139,7 @@ func ResumeSession(s *session.Session) (*SpawnResult, error) {
 	fmt.Println()
 
 	_ = session.UpdateStatus(s.ID, session.StatusActive)
-	_ = launchClaude(s.WorkspacePath, cfg.Model, s.ID, true)
+	_ = launchClaude(s.WorkspacePath, cfg.Model, s.ID, s.Agent, true)
 	_ = session.UpdateStatus(s.ID, session.StatusCompleted)
 
 	var syncedFiles int
@@ -151,6 +151,105 @@ func ResumeSession(s *session.Session) (*SpawnResult, error) {
 	printResumeCommand(s.Agent, s.ID)
 
 	return &SpawnResult{SessionID: s.ID, SyncedFiles: syncedFiles, FailedSkills: failedSkills}, nil
+}
+
+// SubSpawnOpts contains options for spawning a sub-agent session.
+type SubSpawnOpts struct {
+	ParentSessionID string
+	Prompt          string
+	WorkspaceDir    string // absolute path to the toc workspace
+}
+
+// SpawnSubSession spawns a non-interactive sub-agent session in the background.
+// The sub-agent runs with `claude --print` and output is captured to toc-output.txt.
+func SpawnSubSession(cfg *agent.AgentConfig, opts SubSpawnOpts) (*SpawnResult, error) {
+	sessionID := uuid.New().String()
+	timestamp := time.Now().Unix()
+	workDir := filepath.Join(sessionsDir, fmt.Sprintf("%s-%d", cfg.Name, timestamp))
+
+	if err := os.MkdirAll(workDir, 0755); err != nil {
+		return nil, fmt.Errorf("failed to create session directory: %w", err)
+	}
+
+	// Use workspace-relative agent dir
+	agentDir := filepath.Join(opts.WorkspaceDir, ".toc", "agents", cfg.Name)
+	if err := copyDir(agentDir, workDir); err != nil {
+		return nil, fmt.Errorf("failed to copy agent template: %w", err)
+	}
+
+	if err := provisionClaudeMD(workDir); err != nil {
+		return nil, fmt.Errorf("failed to provision CLAUDE.md: %w", err)
+	}
+
+	var failedSkills []string
+	if len(cfg.Skills) > 0 {
+		failedSkills = resolveSkills(workDir, cfg.Skills)
+	}
+
+	if err := session.AddInWorkspace(opts.WorkspaceDir, session.Session{
+		ID:              sessionID,
+		Agent:           cfg.Name,
+		CreatedAt:       time.Now(),
+		WorkspacePath:   workDir,
+		Status:          session.StatusActive,
+		ParentSessionID: opts.ParentSessionID,
+		Prompt:          opts.Prompt,
+	}); err != nil {
+		return nil, fmt.Errorf("failed to track session: %w", err)
+	}
+
+	// Launch claude as a detached background process so it survives after toc exits
+	outputPath := filepath.Join(workDir, "toc-output.txt")
+	if err := launchClaudeDetached(workDir, cfg.Model, opts.Prompt, opts.WorkspaceDir, cfg.Name, sessionID, outputPath); err != nil {
+		return nil, fmt.Errorf("failed to launch sub-agent: %w", err)
+	}
+
+	return &SpawnResult{SessionID: sessionID, FailedSkills: failedSkills}, nil
+}
+
+// launchClaudeDetached starts claude in a detached process via a wrapper script
+// so the sub-agent outlives the parent toc process.
+func launchClaudeDetached(dir, model, prompt, workspace, agentName, sessionID, outputPath string) error {
+	// Write the prompt to a file to avoid shell injection via interpolation.
+	promptPath := filepath.Join(dir, "toc-prompt.txt")
+	if err := os.WriteFile(promptPath, []byte(prompt), 0644); err != nil {
+		return err
+	}
+
+	// Build claude command that reads prompt from the file.
+	args := fmt.Sprintf("claude --dangerously-skip-permissions --print -p \"$(cat %q)\"", promptPath)
+	if model != "" {
+		args += fmt.Sprintf(" --model %s", model)
+	}
+
+	// Write a wrapper script that runs claude and captures output.
+	// The existence of toc-output.txt signals completion (checked by ResolvedStatus).
+	scriptContent := fmt.Sprintf(`#!/bin/sh
+cd %q
+export TOC_WORKSPACE=%q
+export TOC_AGENT=%q
+export TOC_SESSION_ID=%q
+%s > %q 2>&1
+`, dir, workspace, agentName, sessionID, args, outputPath)
+
+	scriptPath := filepath.Join(dir, "toc-run.sh")
+	if err := os.WriteFile(scriptPath, []byte(scriptContent), 0755); err != nil {
+		return err
+	}
+
+	cmd := exec.Command("sh", scriptPath)
+	cmd.Dir = dir
+	cmd.Stdout = nil
+	cmd.Stderr = nil
+	cmd.Stdin = nil
+
+	// Start the process detached
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+
+	// Release the process so it's not waited on
+	return cmd.Process.Release()
 }
 
 func setupContextHooks(workDir, agentDir string, patterns []string) error {
@@ -198,7 +297,7 @@ func printResumeCommand(agentName, sessionID string) {
 	fmt.Println()
 }
 
-func launchClaude(dir, model, sessionID string, resume bool) error {
+func launchClaude(dir, model, sessionID, agentName string, resume bool) error {
 	args := []string{"--dangerously-skip-permissions"}
 	if model != "" {
 		args = append(args, "--model", model)
@@ -209,11 +308,18 @@ func launchClaude(dir, model, sessionID string, resume bool) error {
 		args = append(args, "--session-id", sessionID)
 	}
 
+	workspace, _ := filepath.Abs(".")
+
 	cmd := exec.Command("claude", args...)
 	cmd.Dir = dir
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
+	cmd.Env = append(os.Environ(),
+		"TOC_WORKSPACE="+workspace,
+		"TOC_AGENT="+agentName,
+		"TOC_SESSION_ID="+sessionID,
+	)
 
 	if err := cmd.Run(); err != nil {
 		if _, ok := err.(*exec.ExitError); ok {

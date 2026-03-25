@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os/exec"
 	"runtime"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -55,7 +56,20 @@ var integrateAddCmd = &cobra.Command{
 
 		switch def.Auth.Method {
 		case "token", "api_key":
-			token, err := ui.Prompt("Enter access token (PAT)", "")
+			// Print setup instructions if available
+			if def.Auth.SetupInstructions != "" {
+				ui.Header("Setup instructions")
+				for _, line := range strings.Split(strings.TrimSpace(def.Auth.SetupInstructions), "\n") {
+					fmt.Println("  " + line)
+				}
+				fmt.Println()
+			}
+			if len(def.Auth.RequiredScopes) > 0 {
+				ui.Info("Required scopes: %s", ui.Bold(strings.Join(def.Auth.RequiredScopes, ", ")))
+				fmt.Println()
+			}
+
+			token, err := ui.Prompt("Paste your access token", "")
 			if err != nil {
 				return err
 			}

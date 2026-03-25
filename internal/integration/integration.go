@@ -23,9 +23,10 @@ type Definition struct {
 
 // AuthConfig describes how authentication works for this integration.
 type AuthConfig struct {
-	Method         string   `yaml:"method"` // oauth2, api_key, token
-	SetupURL       string   `yaml:"setup_url,omitempty"`
-	RequiredScopes []string `yaml:"required_scopes,omitempty"`
+	Method            string   `yaml:"method"` // oauth2, api_key, token
+	SetupURL          string   `yaml:"setup_url,omitempty"`
+	RequiredScopes    []string `yaml:"required_scopes,omitempty"`
+	SetupInstructions string   `yaml:"setup_instructions,omitempty"`
 }
 
 // Action describes a single API action an agent can invoke.

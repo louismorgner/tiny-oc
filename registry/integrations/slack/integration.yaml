@@ -1,13 +1,20 @@
 name: slack
 description: Slack API — messaging, channels, and reactions
 auth:
-  method: oauth2
+  method: token
   setup_url: https://api.slack.com/apps
   required_scopes:
     - channels:read
     - channels:history
     - chat:write
     - reactions:write
+  setup_instructions: |
+    1. Go to https://api.slack.com/apps and sign in
+    2. Click "Create New App" → "From scratch" (or select an existing app)
+    3. Go to "OAuth & Permissions" in the sidebar
+    4. Under "Bot Token Scopes", add: channels:read, channels:history, chat:write, reactions:write
+    5. Click "Install to Workspace" and authorize the app
+    6. Copy the "Bot User OAuth Token" (starts with xoxb-)
 
 actions:
   send_message:

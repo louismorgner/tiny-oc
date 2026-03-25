@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -120,9 +121,13 @@ var statusCmd = &cobra.Command{
 		if len(sf.Sessions) == 0 {
 			fmt.Printf("  %s\n", ui.Dim("none"))
 		} else {
-			shown := sf.Sessions
+			shown := make([]session.Session, len(sf.Sessions))
+			copy(shown, sf.Sessions)
+			sort.Slice(shown, func(i, j int) bool {
+				return shown[i].CreatedAt.After(shown[j].CreatedAt)
+			})
 			if len(shown) > 5 {
-				shown = shown[len(shown)-5:]
+				shown = shown[:5]
 			}
 			fmt.Printf(" %s\n", ui.Dim(fmt.Sprintf("(%d total)", len(sf.Sessions))))
 			for _, s := range shown {

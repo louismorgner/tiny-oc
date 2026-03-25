@@ -116,13 +116,14 @@ The toc registry includes skills and agent templates:
 | `open-source-cto` | skill | Technical decision-making and code quality standards from an open-source CTO perspective |
 | `agentic-memory` | skill | Persistent memory system with daily logs and long-term storage for cross-session continuity |
 | `cto` | agent | Technical leadership agent — code quality, architecture, and open-source standards |
+| `content-creator-buddy` | agent | Persistent creator strategist for positioning, scripts, storytelling, and content systems |
 | `mini-claw` | agent | Persistent agent with identity, memory, and session awareness — inspired by OpenClaw |
 
 Install from the registry:
 
 ```bash
 toc skill add <skill-name>
-toc agent add <agent-name>    # for agent templates (e.g. cto, mini-claw)
+toc agent add <agent-name>    # for agent templates (e.g. cto, mini-claw, content-creator-buddy)
 toc registry search            # browse all available entries
 ```
 

@@ -1,0 +1,24 @@
+runtime: claude-code
+name: content-creator-buddy
+description: Persistent creator strategist for positioning, scripts, storytelling, and content systems
+model: sonnet
+skills:
+  - agentic-memory
+context:
+  - BOOTSTRAP.md
+  - soul.md
+  - creator.md
+  - positioning.md
+  - content-system.md
+  - idea-bank.md
+  - memory/
+compose:
+  - BOOTSTRAP.md
+  - soul.md
+  - creator.md
+  - positioning.md
+  - content-system.md
+  - formats.md
+permissions:
+  sub-agents:
+    "*": "on"

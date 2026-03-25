@@ -28,8 +28,9 @@ toc agent spawn pr-reviewer
         │
         ▼
 ┌─────────────────┐
-│  Provision       │  Rename agent.md → CLAUDE.md
-│  session         │  Resolve skills → .claude/skills/
+│  Provision       │  Build CLAUDE.md from agent.md + compose files
+│  session         │  Apply template variables ({{.AgentName}}, {{.Date}}, etc.)
+│                  │  Resolve skills → .claude/skills/
 │                  │  Generate sync hooks → .claude/toc-sync.sh + settings.json
 └───────┬─────────┘
         │
@@ -89,7 +90,8 @@ toc agent spawn pr-reviewer
 │   ├── spawn/                 # Session orchestration
 │   ├── sync/                  # Context sync: patterns, hooks, file copy
 │   └── ui/                    # Terminal output helpers (colors, prompts)
-├── registry/                  # Built-in skill definitions
+├── registry/                  # Built-in skills and agent templates
+│   ├── agents/
 │   └── skills/
 ├── Makefile                   # build, test, lint targets
 └── install.sh                 # Build + symlink to PATH
@@ -103,7 +105,7 @@ Manages workspace state. `config.Exists()` checks if `.toc/` is initialized. All
 
 ### Spawn (`internal/spawn/`)
 
-Orchestrates session creation. This is the core flow — copies the agent template, provisions CLAUDE.md, resolves skills, sets up sync hooks, and execs the `claude` CLI as a subprocess.
+Orchestrates session creation. This is the core flow — copies the agent template, builds CLAUDE.md from agent.md + compose files with template variable substitution, resolves skills, sets up sync hooks, and execs the `claude` CLI as a subprocess.
 
 ### Sync (`internal/sync/`)
 

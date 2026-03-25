@@ -1,0 +1,13 @@
+runtime: claude-code
+name: mini-claw
+description: Persistent agent with identity, memory, and session awareness — inspired by OpenClaw
+model: sonnet
+skills:
+  - agentic-memory
+context:
+  - soul.md
+  - user.md
+  - memory/
+compose:
+  - soul.md
+  - user.md

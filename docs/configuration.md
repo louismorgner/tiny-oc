@@ -30,6 +30,9 @@ skills:
 on_end: >
   Save a concise summary of decisions made, open questions, and
   key learnings from this session to context/session-notes.md.
+compose:
+  - soul.md
+  - user.md
 ```
 
 ### Fields
@@ -43,12 +46,30 @@ on_end: >
 | `context` | list | no | — | Glob patterns for context sync (see below) |
 | `skills` | list | no | — | Skill names (local) or Git URLs (remote) |
 | `on_end` | string | no | — | Prompt run as a Claude Code `SessionEnd` hook (see below) |
+| `compose` | list | no | — | Files to append after `agent.md` when building `CLAUDE.md` (see below) |
 
 ### Agent instructions
 
 Each agent also has an `agent.md` file in the same directory. This is loaded as `CLAUDE.md` when a session is spawned, serving as the agent's system instructions.
 
 You can put anything in `agent.md` that you'd put in a `CLAUDE.md` — task descriptions, constraints, output format requirements, tool usage rules, etc.
+
+### Compose
+
+The `compose` field lists additional files to append to `agent.md` when building `CLAUDE.md` at spawn time. Files are appended in order, separated by `---`. The `agent.md` content is always first.
+
+This is useful for separating concerns — e.g. keeping identity (`soul.md`) and user profile (`user.md`) as standalone files that get composed into the final instructions.
+
+### Template variables
+
+Both `agent.md` and compose files support template variables that are replaced at spawn time:
+
+| Variable | Description |
+|---|---|
+| `{{.AgentName}}` | The agent's name from config |
+| `{{.SessionID}}` | Unique session UUID |
+| `{{.Date}}` | Today's date (`YYYY-MM-DD`) |
+| `{{.Model}}` | The model being used |
 
 ## Context sync patterns
 
@@ -149,7 +170,9 @@ No secrets or file contents are logged.
 ├── agents/
 │   └── pr-reviewer/
 │       ├── oc-agent.yaml    # Agent config
-│       └── agent.md         # Agent instructions
+│       ├── agent.md         # Agent instructions (always first in CLAUDE.md)
+│       ├── soul.md          # (optional) Identity file, listed in compose
+│       └── user.md          # (optional) User profile, listed in compose
 ├── skills/
 │   └── code-review/
 │       └── SKILL.md         # Local skill definition

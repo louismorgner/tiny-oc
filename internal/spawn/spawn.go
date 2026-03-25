@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -44,8 +45,8 @@ func SpawnSession(cfg *agent.AgentConfig) (*SpawnResult, error) {
 		return nil, fmt.Errorf("failed to copy agent template: %w", err)
 	}
 
-	// Convert agent.md into CLAUDE.md so Claude Code picks it up as instructions
-	if err := provisionClaudeMD(workDir); err != nil {
+	// Convert agent.md (+ compose files) into CLAUDE.md so Claude Code picks it up as instructions
+	if err := provisionClaudeMD(workDir, cfg, sessionID); err != nil {
 		return nil, fmt.Errorf("failed to provision CLAUDE.md: %w", err)
 	}
 
@@ -188,7 +189,7 @@ func SpawnSubSession(cfg *agent.AgentConfig, opts SubSpawnOpts) (*SpawnResult, e
 		return nil, fmt.Errorf("failed to copy agent template: %w", err)
 	}
 
-	if err := provisionClaudeMD(workDir); err != nil {
+	if err := provisionClaudeMD(workDir, cfg, sessionID); err != nil {
 		return nil, fmt.Errorf("failed to provision CLAUDE.md: %w", err)
 	}
 
@@ -451,17 +452,44 @@ func printFailedSkills(failed []string) {
 	ui.Info("Consider removing or updating these skill references.")
 }
 
-// provisionClaudeMD renames agent.md to CLAUDE.md in the session workspace
-// so that Claude Code loads it as its project instructions.
-func provisionClaudeMD(workDir string) error {
+// provisionClaudeMD builds CLAUDE.md from agent.md + any compose files,
+// then applies template variables (agent name, session ID, date).
+func provisionClaudeMD(workDir string, cfg *agent.AgentConfig, sessionID string) error {
 	agentMD := filepath.Join(workDir, "agent.md")
 	claudeMD := filepath.Join(workDir, "CLAUDE.md")
 
-	if _, err := os.Stat(agentMD); os.IsNotExist(err) {
-		return nil // no agent.md, nothing to do
+	// Start with agent.md content (always first)
+	var parts []string
+	if data, err := os.ReadFile(agentMD); err == nil {
+		parts = append(parts, strings.TrimSpace(string(data)))
+		os.Remove(agentMD)
 	}
 
-	return os.Rename(agentMD, claudeMD)
+	// Append compose files in order
+	for _, file := range cfg.Compose {
+		path := filepath.Join(workDir, file)
+		if data, err := os.ReadFile(path); err == nil {
+			parts = append(parts, strings.TrimSpace(string(data)))
+		}
+	}
+
+	if len(parts) == 0 {
+		return nil // nothing to provision
+	}
+
+	content := strings.Join(parts, "\n\n---\n\n")
+
+	// Apply template variables
+	now := time.Now()
+	replacer := strings.NewReplacer(
+		"{{.AgentName}}", cfg.Name,
+		"{{.SessionID}}", sessionID,
+		"{{.Date}}", now.Format("2006-01-02"),
+		"{{.Model}}", cfg.Model,
+	)
+	content = replacer.Replace(content)
+
+	return os.WriteFile(claudeMD, []byte(content+"\n"), 0644)
 }
 
 func copyDir(src, dst string) error {

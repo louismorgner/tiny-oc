@@ -21,6 +21,7 @@ type AgentConfig struct {
 	Skills      []string `yaml:"skills,omitempty"`
 	SubAgents   []string `yaml:"sub-agents,omitempty"`
 	OnEnd       string   `yaml:"on_end,omitempty"`
+	Compose     []string `yaml:"compose,omitempty"`
 }
 
 // CanSpawn checks if this agent is allowed to spawn the given target agent.

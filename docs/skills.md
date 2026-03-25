@@ -112,8 +112,16 @@ The toc registry includes starter skills:
 
 | Skill | Description |
 |---|---|
+| `agentic-memory` | Two-tier memory system — daily logs and long-term memory for persistent agents |
 | `code-review` | Reviews code changes for quality, bugs, and style issues |
 | `commit-msg` | Generates conventional commit messages from staged changes |
+| `open-source-cto` | Strategic technical leadership for open-source projects |
 | `test-writer` | Generates unit tests for functions and methods |
+
+Install from the registry:
+
+```bash
+toc registry install <skill-name>
+```
 
 These are available from the [toc registry](https://github.com/tiny-oc/toc/tree/main/registry/skills).

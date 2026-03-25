@@ -37,9 +37,10 @@ internal/
 ## Key data structures
 
 **AgentConfig** (`internal/agent/agent.go`):
-- Fields: Runtime, Name, Description, Model, Context (glob patterns), OnEnd (session end prompt)
+- Fields: Runtime, Name, Description, Model, Context (glob patterns), Skills, SubAgents, OnEnd, Compose
 - Stored as `.toc/agents/<name>/oc-agent.yaml`
 - Validate() checks runtime (claude-code), model (sonnet/opus/haiku), name format
+- Compose: list of files appended after agent.md when building CLAUDE.md at spawn time
 
 **Session** (`internal/session/session.go`):
 - Fields: ID (uuid), Agent, CreatedAt, WorkspacePath
@@ -53,11 +54,12 @@ internal/
 
 1. `spawn.SpawnSession()` creates a temp dir at `/tmp/toc-sessions/<name>-<timestamp>/`
 2. Copies the entire agent template directory into it
-3. If the agent has `context:` patterns, generates `.claude/settings.json` with a PostToolUse hook and `.claude/toc-sync.sh` — this syncs matching files back to the agent template in real-time
-4. If the agent has `on_end:`, adds a SessionEnd hook with an agent-type handler that runs the prompt with tool access before the session fully closes
-5. Launches `claude` CLI with `--model` and `--session-id` flags
-6. After session ends, runs a post-session sync pass as a safety net
-6. Prints resume command
+3. Builds `CLAUDE.md` from `agent.md` + compose files, applying template variables (`{{.AgentName}}`, `{{.SessionID}}`, `{{.Date}}`, `{{.Model}}`)
+4. If the agent has `context:` patterns, generates `.claude/settings.json` with a PostToolUse hook and `.claude/toc-sync.sh` — this syncs matching files back to the agent template in real-time
+5. If the agent has `on_end:`, adds a SessionEnd hook with an agent-type handler that runs the prompt with tool access before the session fully closes
+6. Launches `claude` CLI with `--model` and `--session-id` flags
+7. After session ends, runs a post-session sync pass as a safety net
+8. Prints resume command
 
 ## Context sync system
 

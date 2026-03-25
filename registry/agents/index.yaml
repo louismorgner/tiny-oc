@@ -3,3 +3,7 @@ agents:
     description: Technical leadership agent — code quality, architecture, and open-source standards
     model: sonnet
     skills: [open-source-cto]
+  - name: mini-claw
+    description: Persistent agent with identity, memory, and session awareness — inspired by OpenClaw
+    model: sonnet
+    skills: [agentic-memory]

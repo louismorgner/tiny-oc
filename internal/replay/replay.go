@@ -52,7 +52,7 @@ func (r *Replay) FormatDuration() string {
 
 // ForSession parses a Claude Code session JSONL and returns a structured Replay.
 func ForSession(sess *session.Session) (*Replay, error) {
-	jsonlPath := sessionJSONLPath(sess.WorkspacePath, sess.ID)
+	jsonlPath := SessionJSONLPath(sess.WorkspacePath, sess.ID)
 	if jsonlPath == "" {
 		return nil, fmt.Errorf("could not resolve JSONL path for session '%s'", sess.ID)
 	}
@@ -100,7 +100,10 @@ func ForSession(sess *session.Session) (*Replay, error) {
 	}, nil
 }
 
-func sessionJSONLPath(workspacePath, sessionID string) string {
+// ExpectedJSONLPath returns the expected path to a Claude Code JSONL session log
+// without checking whether the file exists. Use this when you need to poll for
+// a file that may not exist yet (e.g., a session that just started).
+func ExpectedJSONLPath(workspacePath, sessionID string) string {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return ""
@@ -114,7 +117,39 @@ func sessionJSONLPath(workspacePath, sessionID string) string {
 	if resolved, err := filepath.EvalSymlinks(workspacePath); err == nil && resolved != workspacePath {
 		candidates = append(candidates, resolved)
 	}
-	// Also try with /private prefix if not already present (macOS)
+	if !strings.HasPrefix(workspacePath, "/private") {
+		candidates = append(candidates, "/private"+workspacePath)
+	}
+
+	// Return the first candidate whose project directory exists (or the primary
+	// candidate if none do). The exact JSONL file may not exist yet.
+	for _, path := range candidates {
+		encoded := strings.NewReplacer("/", "-", "_", "-").Replace(path)
+		projectDir := filepath.Join(projectsDir, encoded)
+		if _, err := os.Stat(projectDir); err == nil {
+			return filepath.Join(projectDir, sessionID+".jsonl")
+		}
+	}
+
+	// Fallback: use the primary workspace path even if the directory doesn't exist yet.
+	encoded := strings.NewReplacer("/", "-", "_", "-").Replace(workspacePath)
+	return filepath.Join(projectsDir, encoded, sessionID+".jsonl")
+}
+
+// SessionJSONLPath resolves the path to an existing Claude Code JSONL session log.
+// Returns "" if the file cannot be found.
+func SessionJSONLPath(workspacePath, sessionID string) string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+
+	projectsDir := filepath.Join(home, ".claude", "projects")
+
+	candidates := []string{workspacePath}
+	if resolved, err := filepath.EvalSymlinks(workspacePath); err == nil && resolved != workspacePath {
+		candidates = append(candidates, resolved)
+	}
 	if !strings.HasPrefix(workspacePath, "/private") {
 		candidates = append(candidates, "/private"+workspacePath)
 	}
@@ -325,6 +360,19 @@ func collectFilesChanged(steps []Step) []string {
 		}
 	}
 	return files
+}
+
+// ParseJSONLLine parses a single JSONL line and returns any Steps found.
+// Returns nil for non-assistant entries or unparseable lines.
+func ParseJSONLLine(line []byte) []Step {
+	var entry jsonlEntry
+	if err := json.Unmarshal(line, &entry); err != nil {
+		return nil
+	}
+	if entry.Type != "assistant" {
+		return nil
+	}
+	return parseAssistantMessage(entry.Message)
 }
 
 // TruncateThinking truncates thinking text to maxLen chars for display.

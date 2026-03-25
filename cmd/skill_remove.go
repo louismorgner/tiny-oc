@@ -39,11 +39,11 @@ var skillRemoveCmd = &cobra.Command{
 			skillType = "url"
 		}
 
-		confirm, err := ui.Prompt(fmt.Sprintf("Remove %s skill %s? (y/N)", skillType, ui.Bold(name)), "n")
+		confirmed, err := ui.Confirm(fmt.Sprintf("Remove %s skill %s?", skillType, name), false)
 		if err != nil {
 			return err
 		}
-		if confirm != "y" && confirm != "Y" {
+		if !confirmed {
 			ui.Info("Cancelled.")
 			return nil
 		}

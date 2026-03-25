@@ -27,6 +27,7 @@ var agentCreateCmd = &cobra.Command{
 
 		var name, desc, model string
 		var contextRaw, skillsRaw, instructions string
+		var onEnd, composeRaw, subAgentsRaw string
 
 		basics := huh.NewForm(
 			huh.NewGroup(
@@ -49,7 +50,7 @@ var agentCreateCmd = &cobra.Command{
 
 				huh.NewInput().
 					Title("Description").
-					Description("what does this agent do? (optional, press enter to skip)").
+					Description("what does this agent do? (optional)").
 					Value(&desc),
 
 				huh.NewSelect[string]().
@@ -65,18 +66,35 @@ var agentCreateCmd = &cobra.Command{
 			huh.NewGroup(
 				huh.NewText().
 					Title("Skills").
-					Description("skill names or URLs — one per line (optional, press enter to skip).\nuse 'toc skill list' to see available skills.").
+					Description("skill names or URLs — one per line (optional).\nuse 'toc skill list' to see available skills.").
 					Value(&skillsRaw),
 
 				huh.NewText().
 					Title("Context sync patterns").
-					Description("files matching these patterns sync back from sessions to the agent template.\none per line, e.g. context/*.md, docs/, notes.txt (optional, press enter to skip)").
+					Description("files synced back from sessions to the agent template.\none per line, e.g. context/*.md, docs/ (optional)").
 					Value(&contextRaw),
 
 				huh.NewText().
 					Title("Agent instructions").
-					Description("initial instructions for this agent — loaded as context when you spawn a session.\nyou can always edit agent.md later (optional, press enter to skip)").
+					Description("loaded as context when you spawn a session.\nyou can always edit agent.md later (optional)").
 					Value(&instructions),
+			),
+
+			huh.NewGroup(
+				huh.NewText().
+					Title("Compose files").
+					Description("additional markdown files appended after agent.md.\none per line, e.g. soul.md, user.md (optional)").
+					Value(&composeRaw),
+
+				huh.NewText().
+					Title("Sub-agents").
+					Description("agents this agent can spawn.\none per line, or * to allow all (optional)").
+					Value(&subAgentsRaw),
+
+				huh.NewText().
+					Title("On-end hook").
+					Description("prompt sent to the agent when a session ends.\ne.g. Save summary to context/notes.md (optional)").
+					Value(&onEnd),
 			),
 		)
 
@@ -85,25 +103,23 @@ var agentCreateCmd = &cobra.Command{
 		}
 
 		// Parse multiline inputs
-		var contextPatterns []string
-		if contextRaw != "" {
-			for _, line := range strings.Split(contextRaw, "\n") {
-				line = strings.TrimSpace(line)
-				if line != "" {
-					contextPatterns = append(contextPatterns, line)
+		parseLines := func(raw string) []string {
+			var result []string
+			if raw != "" {
+				for _, line := range strings.Split(raw, "\n") {
+					line = strings.TrimSpace(line)
+					if line != "" {
+						result = append(result, line)
+					}
 				}
 			}
+			return result
 		}
 
-		var skills []string
-		if skillsRaw != "" {
-			for _, line := range strings.Split(skillsRaw, "\n") {
-				line = strings.TrimSpace(line)
-				if line != "" {
-					skills = append(skills, line)
-				}
-			}
-		}
+		contextPatterns := parseLines(contextRaw)
+		skills := parseLines(skillsRaw)
+		compose := parseLines(composeRaw)
+		subAgents := parseLines(subAgentsRaw)
 
 		cfg := agent.AgentConfig{
 			Runtime:     "claude-code",
@@ -112,6 +128,9 @@ var agentCreateCmd = &cobra.Command{
 			Model:       model,
 			Context:     contextPatterns,
 			Skills:      skills,
+			SubAgents:   subAgents,
+			OnEnd:       strings.TrimSpace(onEnd),
+			Compose:     compose,
 		}
 
 		agentMD := ""
@@ -137,6 +156,15 @@ var agentCreateCmd = &cobra.Command{
 		}
 		if len(contextPatterns) > 0 {
 			ui.Info("Context sync: %s", ui.Dim(fmt.Sprintf("%d pattern(s)", len(contextPatterns))))
+		}
+		if len(compose) > 0 {
+			ui.Info("Compose: %s", ui.Dim(fmt.Sprintf("%d file(s)", len(compose))))
+		}
+		if len(subAgents) > 0 {
+			ui.Info("Sub-agents: %s", ui.Dim(strings.Join(subAgents, ", ")))
+		}
+		if cfg.OnEnd != "" {
+			ui.Info("On-end hook: %s", ui.Dim("configured"))
 		}
 		if agentMD != "" {
 			ui.Info("Instructions written to %s", ui.Dim(agent.Dir(name)+"/agent.md"))

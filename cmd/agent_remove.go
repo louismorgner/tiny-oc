@@ -29,11 +29,11 @@ var agentRemoveCmd = &cobra.Command{
 			return fmt.Errorf("agent '%s' not found", name)
 		}
 
-		confirm, err := ui.Prompt(fmt.Sprintf("Remove agent %s? (y/N)", ui.Bold(name)), "n")
+		confirmed, err := ui.Confirm(fmt.Sprintf("Remove agent %s?", name), false)
 		if err != nil {
 			return err
 		}
-		if confirm != "y" && confirm != "Y" {
+		if !confirmed {
 			ui.Info("Cancelled.")
 			return nil
 		}

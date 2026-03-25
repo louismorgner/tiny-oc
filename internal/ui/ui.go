@@ -1,9 +1,7 @@
 package ui
 
 import (
-	"bufio"
 	"fmt"
-	"os"
 	"strings"
 
 	"charm.land/huh/v2"
@@ -21,15 +19,16 @@ var (
 )
 
 // Prompt asks for text input with an optional default value.
+// Uses Huh for proper line-editing support (word deletion, cursor movement).
 func Prompt(label, defaultVal string) (string, error) {
-	reader := bufio.NewReader(os.Stdin)
+	var val string
+	input := huh.NewInput().
+		Title(label).
+		Value(&val)
 	if defaultVal != "" {
-		fmt.Printf("  %s %s: ", Green("▸"), Bold(label)+" "+Dim("["+defaultVal+"]"))
-	} else {
-		fmt.Printf("  %s %s: ", Green("▸"), Bold(label))
+		input = input.Description("default: " + defaultVal)
 	}
-	val, err := reader.ReadString('\n')
-	if err != nil {
+	if err := input.Run(); err != nil {
 		return "", err
 	}
 	val = strings.TrimSpace(val)
@@ -37,6 +36,18 @@ func Prompt(label, defaultVal string) (string, error) {
 		return defaultVal, nil
 	}
 	return val, nil
+}
+
+// Confirm asks a yes/no question. Returns true if the user confirms.
+func Confirm(label string, defaultVal bool) (bool, error) {
+	var result bool = defaultVal
+	c := huh.NewConfirm().
+		Title(label).
+		Value(&result)
+	if err := c.Run(); err != nil {
+		return false, err
+	}
+	return result, nil
 }
 
 type SelectOption struct {

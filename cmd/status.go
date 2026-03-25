@@ -42,19 +42,45 @@ var statusCmd = &cobra.Command{
 		fmt.Printf("  %s %s\n", ui.Bold("Config:"), ui.Dim(config.TocDir()+"/"))
 		fmt.Println()
 
+		// Build per-agent token totals
+		agentTokens := make(map[string]usage.TokenUsage)
+		var totalTokens usage.TokenUsage
+		for _, s := range sf.Sessions {
+			tokens := usage.ForSession(s.WorkspacePath, s.ID)
+			combined := agentTokens[s.Agent]
+			combined.InputTokens += tokens.InputTokens
+			combined.OutputTokens += tokens.OutputTokens
+			combined.CacheRead += tokens.CacheRead
+			combined.CacheCreate += tokens.CacheCreate
+			agentTokens[s.Agent] = combined
+			totalTokens.InputTokens += tokens.InputTokens
+			totalTokens.OutputTokens += tokens.OutputTokens
+			totalTokens.CacheRead += tokens.CacheRead
+			totalTokens.CacheCreate += tokens.CacheCreate
+		}
+
 		// Agents
 		fmt.Printf("  %s", ui.Bold("Agents"))
 		if len(agents) == 0 {
 			fmt.Printf("  %s\n", ui.Dim("none"))
 			fmt.Printf("  %s\n", ui.Dim("Run 'toc agent create' to get started."))
 		} else {
-			fmt.Printf(" %s\n", ui.Dim(fmt.Sprintf("(%d)", len(agents))))
+			totalStr := totalTokens.FormatTotal()
+			if totalStr != "" {
+				fmt.Printf(" %s %s\n", ui.Dim(fmt.Sprintf("(%d)", len(agents))), ui.Dim("— "+totalStr+" total"))
+			} else {
+				fmt.Printf(" %s\n", ui.Dim(fmt.Sprintf("(%d)", len(agents))))
+			}
 			for _, a := range agents {
 				problems := a.Validate()
 				if len(problems) == 0 {
 					desc := ""
 					if a.Description != "" {
 						desc = " " + ui.Dim("— "+a.Description)
+					}
+					tokenStr := agentTokens[a.Name].FormatTotal()
+					if tokenStr != "" {
+						desc += " " + ui.Dim("["+tokenStr+"]")
 					}
 					fmt.Printf("    %s %s %s%s\n", ui.Green("✓"), ui.Cyan(a.Name), ui.Dim(a.Model), desc)
 				} else {

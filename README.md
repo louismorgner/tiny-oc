@@ -103,6 +103,7 @@ When you run `toc agent spawn`, it:
 - [x] Sub-agents — agents that spawn and coordinate other agents
 - [ ] Session sandbox — unforgeable identity and permissions ([#12](https://github.com/louismorgner/tiny-oc/issues/12))
 - [ ] Cost controls — per-agent and per-session spending limits
+- [ ] Git backing for `.toc/` and agent sync
 - [ ] Integrations and permissions — connect agents to external tools with scoped access
 - [ ] **v1 release**
 

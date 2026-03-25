@@ -80,9 +80,9 @@ func TestPermissionScript_ContainsDecisions(t *testing.T) {
 			Write:   agent.PermAsk,
 			Execute: agent.PermOff,
 		},
-		Integrations: map[string]agent.PermissionLevel{
-			"slack": agent.PermOn,
-			"github": agent.PermOff,
+		Integrations: map[string][]string{
+			"slack":  {"send_message:*"},
+			"github": {"issues.read:*"},
 		},
 	}
 
@@ -99,12 +99,10 @@ func TestPermissionScript_ContainsDecisions(t *testing.T) {
 		t.Error("expected execute level 'off' in script")
 	}
 
-	// Check integration rules
-	if !strings.Contains(script, "mcp__slack__*") {
-		t.Error("expected slack integration pattern in script")
-	}
-	if !strings.Contains(script, "mcp__github__*") {
-		t.Error("expected github integration pattern in script")
+	// Integration permissions are now enforced by the gateway, not hook scripts.
+	// Verify integration patterns are NOT in the script.
+	if strings.Contains(script, "mcp__slack__") {
+		t.Error("integration patterns should not be in hook script (enforced by gateway)")
 	}
 
 	// Check it's valid bash (starts with shebang)

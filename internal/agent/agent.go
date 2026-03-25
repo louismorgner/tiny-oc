@@ -30,8 +30,8 @@ type FilesystemPermissions struct {
 
 // Permissions is the unified permission spec for an agent.
 type Permissions struct {
-	Filesystem   FilesystemPermissions  `yaml:"filesystem,omitempty"`
-	Integrations map[string]PermissionLevel `yaml:"integrations,omitempty"`
+	Filesystem   FilesystemPermissions      `yaml:"filesystem,omitempty"`
+	Integrations map[string][]string        `yaml:"integrations,omitempty"`
 	SubAgents    map[string]PermissionLevel `yaml:"sub-agents,omitempty"`
 }
 
@@ -56,7 +56,7 @@ func (cfg *AgentConfig) EffectivePermissions() Permissions {
 			Write:   PermOn,
 			Execute: PermOn,
 		},
-		Integrations: make(map[string]PermissionLevel),
+		Integrations: make(map[string][]string),
 		SubAgents:    make(map[string]PermissionLevel),
 	}
 
@@ -163,9 +163,9 @@ func (cfg *AgentConfig) Validate() []string {
 				problems = append(problems, fmt.Sprintf("invalid permission level for %s: %s (expected on, ask, or off)", pair.name, pair.level))
 			}
 		}
-		for name, level := range cfg.Perms.Integrations {
-			if !validPermissionLevel(level) {
-				problems = append(problems, fmt.Sprintf("invalid permission level for integrations.%s: %s", name, level))
+		for name, perms := range cfg.Perms.Integrations {
+			if len(perms) == 0 {
+				problems = append(problems, fmt.Sprintf("integrations.%s: empty permission list", name))
 			}
 		}
 		for name, level := range cfg.Perms.SubAgents {

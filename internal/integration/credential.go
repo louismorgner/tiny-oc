@@ -244,6 +244,32 @@ func LoadCredentialFromWorkspace(workspace, name string) (*Credential, error) {
 	return &cred, nil
 }
 
+// StoreCredentialInWorkspace encrypts and saves a credential using an explicit workspace path.
+func StoreCredentialInWorkspace(workspace, name string, cred *Credential) error {
+	key, err := GetOrCreateMasterKey()
+	if err != nil {
+		return err
+	}
+
+	data, err := json.Marshal(cred)
+	if err != nil {
+		return fmt.Errorf("failed to marshal credential: %w", err)
+	}
+
+	encrypted, err := Encrypt(data, key)
+	if err != nil {
+		return fmt.Errorf("failed to encrypt credential: %w", err)
+	}
+
+	dir := filepath.Join(workspace, ".toc", "integrations", name)
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return fmt.Errorf("failed to create integration directory: %w", err)
+	}
+
+	path := filepath.Join(dir, "credentials.enc")
+	return os.WriteFile(path, encrypted, 0600)
+}
+
 // RemoveCredential deletes the credential file for an integration.
 func RemoveCredential(name string) error {
 	dir := filepath.Join(config.IntegrationsDir(), name)

@@ -1,7 +1,11 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
+	"os/exec"
+	"runtime"
+	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/tiny-oc/toc/internal/config"
@@ -47,32 +51,28 @@ var integrateAddCmd = &cobra.Command{
 		}
 		fmt.Println()
 
-		var token string
+		var cred *integration.Credential
+
 		switch def.Auth.Method {
 		case "token", "api_key":
-			token, err = ui.Prompt("Enter access token (PAT)", "")
+			token, err := ui.Prompt("Enter access token (PAT)", "")
 			if err != nil {
 				return err
 			}
 			if token == "" {
 				return fmt.Errorf("token cannot be empty")
 			}
+			cred = &integration.Credential{AccessToken: token}
+
 		case "oauth2":
-			// For OAuth2, we still accept a PAT for now (v1 simplification)
-			ui.Info("OAuth2 flow not yet implemented — enter a personal access token instead.")
-			token, err = ui.Prompt("Enter access token", "")
+			var err error
+			cred, err = runOAuth2Flow(name, def)
 			if err != nil {
 				return err
 			}
-			if token == "" {
-				return fmt.Errorf("token cannot be empty")
-			}
+
 		default:
 			return fmt.Errorf("unsupported auth method: %s", def.Auth.Method)
-		}
-
-		cred := &integration.Credential{
-			AccessToken: token,
 		}
 
 		if err := integration.StoreCredential(name, cred); err != nil {
@@ -91,4 +91,110 @@ var integrateAddCmd = &cobra.Command{
 		fmt.Println()
 		return nil
 	},
+}
+
+func runOAuth2Flow(name string, def *integration.Definition) (*integration.Credential, error) {
+	ui.Info("This integration uses OAuth2. You'll need your app's Client ID and Client Secret.")
+	if def.Auth.SetupURL != "" {
+		ui.Info("Create an app at: %s", ui.Cyan(def.Auth.SetupURL))
+	}
+	fmt.Println()
+
+	clientID, err := ui.Prompt("Enter Client ID", "")
+	if err != nil {
+		return nil, err
+	}
+	if clientID == "" {
+		return nil, fmt.Errorf("client ID cannot be empty")
+	}
+
+	clientSecret, err := ui.Prompt("Enter Client Secret", "")
+	if err != nil {
+		return nil, err
+	}
+	if clientSecret == "" {
+		return nil, fmt.Errorf("client secret cannot be empty")
+	}
+
+	oauth2Cfg := integration.SlackOAuth2Config(clientID, clientSecret, def.Auth.RequiredScopes)
+
+	// For non-slack integrations we could add more configs here in the future
+	if name != "slack" {
+		// Generic OAuth2 fallback — ask for PAT instead
+		ui.Info("Generic OAuth2 flow — enter a personal access token instead.")
+		token, err := ui.Prompt("Enter access token", "")
+		if err != nil {
+			return nil, err
+		}
+		if token == "" {
+			return nil, fmt.Errorf("token cannot be empty")
+		}
+		return &integration.Credential{AccessToken: token}, nil
+	}
+
+	authURL := oauth2Cfg.AuthorizationURL()
+	fmt.Println()
+	ui.Info("Opening browser for authorization...")
+	ui.Info("If the browser doesn't open, visit: %s", ui.Cyan(authURL))
+	fmt.Println()
+
+	// Open browser
+	openBrowser(authURL)
+
+	// Start callback server with 5-minute timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+
+	ui.Info("Waiting for OAuth callback on localhost:%d...", oauth2Cfg.RedirectPort)
+
+	code, err := oauth2Cfg.RunCallbackServer(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("OAuth2 authorization failed: %w", err)
+	}
+
+	ui.Info("Authorization code received, exchanging for tokens...")
+
+	cred, err := oauth2Cfg.ExchangeCode(code)
+	if err != nil {
+		return nil, fmt.Errorf("token exchange failed: %w", err)
+	}
+
+	// Store client ID and secret alongside the tokens by encoding them
+	// into a secondary credential file for token refresh
+	if err := storeOAuth2ClientInfo(name, clientID, clientSecret); err != nil {
+		ui.Warn("Could not store client info for token refresh: %s", err)
+	}
+
+	return cred, nil
+}
+
+func storeOAuth2ClientInfo(name, clientID, clientSecret string) error {
+	// Store as a separate credential with a known suffix
+	info := &integration.Credential{
+		AccessToken:  clientID,
+		RefreshToken: clientSecret,
+	}
+	return integration.StoreCredential(name+"-oauth2-client", info)
+}
+
+// LoadOAuth2ClientInfo loads the stored client ID and secret for an integration.
+func LoadOAuth2ClientInfo(name string) (clientID, clientSecret string, err error) {
+	info, err := integration.LoadCredential(name + "-oauth2-client")
+	if err != nil {
+		return "", "", err
+	}
+	return info.AccessToken, info.RefreshToken, nil
+}
+
+func openBrowser(url string) {
+	var cmd *exec.Cmd
+	switch runtime.GOOS {
+	case "darwin":
+		cmd = exec.Command("open", url)
+	case "linux":
+		cmd = exec.Command("xdg-open", url)
+	default:
+		return
+	}
+	_ = cmd.Start()
 }

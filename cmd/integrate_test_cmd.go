@@ -79,6 +79,9 @@ func getTestEndpoint(name string, def *integration.Definition, cred *integration
 	case "github":
 		authHeader := strings.ReplaceAll("Bearer {{token}}", "{{token}}", cred.AccessToken)
 		return "https://api.github.com/user", authHeader
+	case "slack":
+		authHeader := "Bearer " + cred.AccessToken
+		return "https://slack.com/api/auth.test", authHeader
 	default:
 		// Find the first GET action and use that
 		for _, action := range def.Actions {

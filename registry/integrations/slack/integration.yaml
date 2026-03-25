@@ -1,0 +1,105 @@
+name: slack
+description: Slack API — messaging, channels, and reactions
+auth:
+  method: oauth2
+  setup_url: https://api.slack.com/apps
+  required_scopes:
+    - channels:read
+    - channels:history
+    - chat:write
+    - reactions:write
+
+actions:
+  send_message:
+    description: Send a message to a channel or DM
+    scopes:
+      "*": any channel or DM
+      dm: direct messages only
+    params:
+      - name: channel
+        required: true
+      - name: text
+        required: true
+    method: POST
+    endpoint: https://slack.com/api/chat.postMessage
+    auth_header: "Bearer {{token}}"
+    body_format: json
+    rate_limit:
+      max: 20
+      window: 60s
+    returns:
+      - ok
+      - channel
+      - ts
+      - message.text
+      - message.user
+
+  read_messages:
+    description: Read message history from a channel
+    scopes:
+      "*": any channel
+    params:
+      - name: channel
+        required: true
+      - name: limit
+        required: false
+        default: "20"
+    method: GET
+    endpoint: https://slack.com/api/conversations.history
+    auth_header: "Bearer {{token}}"
+    body_format: query
+    rate_limit:
+      max: 30
+      window: 60s
+    returns:
+      - ok
+      - messages[].text
+      - messages[].user
+      - messages[].ts
+      - messages[].type
+
+  list_channels:
+    description: List public channels in the workspace
+    scopes:
+      "*": all channels
+    params:
+      - name: limit
+        required: false
+        default: "100"
+      - name: types
+        required: false
+        default: public_channel
+    method: GET
+    endpoint: https://slack.com/api/conversations.list
+    auth_header: "Bearer {{token}}"
+    body_format: query
+    rate_limit:
+      max: 20
+      window: 60s
+    returns:
+      - ok
+      - channels[].id
+      - channels[].name
+      - channels[].is_channel
+      - channels[].num_members
+
+  react:
+    description: Add an emoji reaction to a message
+    scopes:
+      "*": any channel
+    params:
+      - name: channel
+        required: true
+      - name: timestamp
+        required: true
+      - name: name
+        required: true
+    method: POST
+    endpoint: https://slack.com/api/reactions.add
+    auth_header: "Bearer {{token}}"
+    body_format: json
+    rate_limit:
+      max: 20
+      window: 60s
+    returns:
+      - ok

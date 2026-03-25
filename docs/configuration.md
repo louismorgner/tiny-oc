@@ -27,6 +27,9 @@ context:
 skills:
   - code-review
   - https://github.com/example/my-skill.git
+on_end: >
+  Save a concise summary of decisions made, open questions, and
+  key learnings from this session to context/session-notes.md.
 ```
 
 ### Fields
@@ -39,6 +42,7 @@ skills:
 | `model` | string | yes | — | Claude model: `sonnet`, `opus`, or `haiku` |
 | `context` | list | no | — | Glob patterns for context sync (see below) |
 | `skills` | list | no | — | Skill names (local) or Git URLs (remote) |
+| `on_end` | string | no | — | Prompt run as a Claude Code `SessionEnd` hook (see below) |
 
 ### Agent instructions
 
@@ -72,6 +76,23 @@ When a session is spawned, toc generates:
 - `.claude/settings.json` — registers the sync script as a PostToolUse hook
 
 These are created in the session's temp directory and do not affect your project.
+
+## Session end hook
+
+The `on_end` field lets you define a prompt that runs automatically when a Claude Code session ends. It uses Claude Code's `SessionEnd` hook with an `agent`-type handler, meaning the prompt is evaluated by Claude with full tool access — it can read, write, and edit files before the session fully closes.
+
+This is useful for persisting context that the agent might not save on its own during the session. For example, you can ask it to write a summary, update a knowledge base, or capture decisions.
+
+```yaml
+on_end: >
+  Review what happened in this session. Save a concise summary of
+  decisions, open questions, and anything worth remembering to
+  context/session-notes.md. Append to the file if it already exists.
+```
+
+The prompt is written directly in your agent config — use it to describe what you want persisted and where. When combined with `context` patterns, any files the hook writes that match a pattern will be synced back to the agent template by the post-session sync pass.
+
+`on_end` works independently of `context` — you can use it without context sync patterns if you just want end-of-session behavior without bidirectional file sync.
 
 ## Session storage
 

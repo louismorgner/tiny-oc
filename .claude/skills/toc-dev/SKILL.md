@@ -37,7 +37,7 @@ internal/
 ## Key data structures
 
 **AgentConfig** (`internal/agent/agent.go`):
-- Fields: Runtime, Name, Description, Model, Context (glob patterns)
+- Fields: Runtime, Name, Description, Model, Context (glob patterns), OnEnd (session end prompt)
 - Stored as `.toc/agents/<name>/oc-agent.yaml`
 - Validate() checks runtime (claude-code), model (sonnet/opus/haiku), name format
 
@@ -54,8 +54,9 @@ internal/
 1. `spawn.SpawnSession()` creates a temp dir at `/tmp/toc-sessions/<name>-<timestamp>/`
 2. Copies the entire agent template directory into it
 3. If the agent has `context:` patterns, generates `.claude/settings.json` with a PostToolUse hook and `.claude/toc-sync.sh` — this syncs matching files back to the agent template in real-time
-4. Launches `claude` CLI with `--model` and `--session-id` flags
-5. After session ends, runs a post-session sync pass as a safety net
+4. If the agent has `on_end:`, adds a SessionEnd hook with an agent-type handler that runs the prompt with tool access before the session fully closes
+5. Launches `claude` CLI with `--model` and `--session-id` flags
+6. After session ends, runs a post-session sync pass as a safety net
 6. Prints resume command
 
 ## Context sync system
@@ -63,6 +64,10 @@ internal/
 The `context:` field in `oc-agent.yaml` defines glob patterns for files that should be synced back from temp sessions to the agent template. Supports: `*.md`, `docs/`, `context/**/*.md`, bare filenames. Pattern matching is in `internal/sync/sync.go` with tests in `sync_test.go`.
 
 Real-time sync uses Claude Code's PostToolUse hook (fires on Edit/Write/MultiEdit). Post-session sync walks the session dir as a fallback.
+
+## Session end hook
+
+The `on_end:` field in `oc-agent.yaml` configures a SessionEnd hook with an agent-type handler. The prompt is evaluated by Claude with tool access when the session ends, allowing it to write files before closing. Works independently of context sync — can be used alone or combined with `context:` patterns.
 
 ## Development workflow
 

@@ -45,7 +45,13 @@ toc agent spawn pr-reviewer
 │                  │  Matching files copied back to agent template
 └───────┬─────────┘
         │
-        ▼  (session ends)
+        ▼  (session ending, if on_end configured)
+┌─────────────────┐
+│  Session end     │  SessionEnd hook runs on_end prompt with tool access
+│  hook            │  Agent persists context before session closes
+└───────┬─────────┘
+        │
+        ▼  (session closed)
 ┌─────────────────┐
 │  Post-session    │  Final sync pass copies any remaining matches
 │  sync            │  Session recorded in .toc/sessions.yaml

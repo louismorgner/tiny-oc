@@ -58,13 +58,14 @@ The markdown body after the frontmatter is the skill's instructions — loaded i
 
 ## Adding a remote skill
 
-Install a skill from a Git repository:
+Install a skill by name (from the registry) or by Git URL:
 
 ```bash
-toc skill add https://github.com/example/my-skill.git
+toc skill add open-source-cto               # auto-detects as registry name
+toc skill add https://github.com/example/my-skill.git  # installs from URL
 ```
 
-This clones the repo, locates the `SKILL.md` (at root or one level deep), validates it, and registers the skill locally. The skill files are copied to `.toc/skills/<name>/`.
+When given a name, toc searches the registry automatically. When given a URL, it clones the repo, locates the `SKILL.md` (at root or one level deep), validates it, and registers the skill locally.
 
 URL skill references are tracked in `.toc/skills.yaml`:
 
@@ -112,8 +113,17 @@ The toc registry includes starter skills:
 
 | Skill | Description |
 |---|---|
+| `agentic-memory` | Two-tier memory system — daily logs and long-term memory for persistent agents |
 | `code-review` | Reviews code changes for quality, bugs, and style issues |
 | `commit-msg` | Generates conventional commit messages from staged changes |
+| `open-source-cto` | Strategic technical leadership for open-source projects |
 | `test-writer` | Generates unit tests for functions and methods |
 
-These are available from the [toc registry](https://github.com/tiny-oc/toc/tree/main/registry/skills).
+Install from the registry:
+
+```bash
+toc skill add <skill-name>
+toc agent add <agent-name>    # for agent templates (e.g. cto, mini-claw)
+```
+
+These are available from the [toc registry](https://github.com/tiny-oc/toc/tree/main/registry).

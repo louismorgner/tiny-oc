@@ -30,6 +30,11 @@ skills:
 on_end: >
   Save a concise summary of decisions made, open questions, and
   key learnings from this session to context/session-notes.md.
+compose:
+  - soul.md
+  - user.md
+sub-agents:
+  - "*"
 ```
 
 ### Fields
@@ -43,12 +48,59 @@ on_end: >
 | `context` | list | no | — | Glob patterns for context sync (see below) |
 | `skills` | list | no | — | Skill names (local) or Git URLs (remote) |
 | `on_end` | string | no | — | Prompt run as a Claude Code `SessionEnd` hook (see below) |
+| `compose` | list | no | — | Files to append after `agent.md` when building `CLAUDE.md` (see below) |
+| `sub-agents` | list | no | — | Agent names this agent can spawn as sub-agents. Use `["*"]` for all agents |
 
 ### Agent instructions
 
 Each agent also has an `agent.md` file in the same directory. This is loaded as `CLAUDE.md` when a session is spawned, serving as the agent's system instructions.
 
 You can put anything in `agent.md` that you'd put in a `CLAUDE.md` — task descriptions, constraints, output format requirements, tool usage rules, etc.
+
+### Compose
+
+The `compose` field lists additional files to append to `agent.md` when building `CLAUDE.md` at spawn time. Files are appended in order, separated by `---`. The `agent.md` content is always first.
+
+This is useful for separating concerns — e.g. keeping identity (`soul.md`) and user profile (`user.md`) as standalone files that get composed into the final instructions.
+
+### Template variables
+
+Both `agent.md` and compose files support template variables that are replaced at spawn time:
+
+| Variable | Description |
+|---|---|
+| `{{.AgentName}}` | The agent's name from config |
+| `{{.SessionID}}` | Unique session UUID |
+| `{{.Date}}` | Today's date (`YYYY-MM-DD`) |
+| `{{.Model}}` | The model being used |
+
+## Sub-agents
+
+The `sub-agents` field controls which other agents this agent is allowed to spawn as background tasks during a session. Agents without this field cannot spawn sub-agents.
+
+```yaml
+sub-agents:
+  - "*"              # allow spawning any agent in the workspace
+```
+
+Or restrict to specific agents:
+
+```yaml
+sub-agents:
+  - researcher
+  - test-writer
+```
+
+During a session, agents use `toc runtime` commands to manage sub-agents:
+
+| Command | Description |
+|---|---|
+| `toc runtime list` | List agents available to spawn |
+| `toc runtime spawn <name> -p "..."` | Spawn a sub-agent in the background |
+| `toc runtime status [session-id]` | Check sub-agent progress |
+| `toc runtime output <session-id>` | Read completed sub-agent output |
+
+Sub-agents run with `claude --print` in a detached process, capturing output to `toc-output.txt` in the session workspace. Parent-child relationships are tracked in `sessions.yaml`.
 
 ## Context sync patterns
 
@@ -136,6 +188,8 @@ Each entry contains:
 | `skill.create` | `toc skill create` |
 | `skill.add` | `toc skill add` |
 | `skill.remove` | `toc skill remove` |
+| `agent.add` | `toc agent add` (registry install) |
+| `runtime.spawn` | Sub-agent spawned during a session |
 
 No secrets or file contents are logged.
 
@@ -149,7 +203,9 @@ No secrets or file contents are logged.
 ├── agents/
 │   └── pr-reviewer/
 │       ├── oc-agent.yaml    # Agent config
-│       └── agent.md         # Agent instructions
+│       ├── agent.md         # Agent instructions (always first in CLAUDE.md)
+│       ├── soul.md          # (optional) Identity file, listed in compose
+│       └── user.md          # (optional) User profile, listed in compose
 ├── skills/
 │   └── code-review/
 │       └── SKILL.md         # Local skill definition

@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Sub-agent spawning system: agents can now spawn other agents as background tasks during a session.
+  - New `sub-agents` field in `oc-agent.yaml` controls which agents can be spawned (explicit names or `"*"` wildcard).
+  - New `toc runtime` commands for agents during sessions: `list`, `spawn`, `status`, `output`.
+  - Environment variables (`TOC_WORKSPACE`, `TOC_AGENT`, `TOC_SESSION_ID`) injected into every session for runtime context.
+  - Parent-child session tracking in `sessions.yaml` with `parent_session_id` and `prompt` fields.
+- Session end hooks: new `on_end` field in `oc-agent.yaml` runs a prompt via Claude Code's `SessionEnd` hook before the session closes, useful for persisting context and memory.
+- Composable agent instructions: new `compose` field in `oc-agent.yaml` lists files appended after `agent.md` when building `CLAUDE.md` at spawn time.
+- Template variables in agent instructions: `{{.AgentName}}`, `{{.SessionID}}`, `{{.Date}}`, `{{.Model}}` are replaced at spawn time in `agent.md` and compose files.
+- `toc agent add <name>` command to install agent templates from the registry.
+- `toc skill add` now auto-detects registry names in addition to Git URLs.
+- Cross-type error messages: `toc skill add <agent-name>` suggests `toc agent add` and vice versa.
+- New `mini-claw` agent template: persistent agent with identity, memory, and session awareness inspired by OpenClaw.
+- New `agentic-memory` skill: two-tier memory system with daily logs (`memory/YYYY-MM-DD.md`) and long-term storage (`memory/MEMORY.md`).
+
 ## [0.1.0] - 2026-03-24
 
 ### Added

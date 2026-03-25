@@ -2,3 +2,6 @@ skills:
   - name: open-source-cto
     description: Technical decision-making and code quality standards from an open-source CTO perspective
     tags: [leadership, quality, architecture, standards]
+  - name: agentic-memory
+    description: Persistent memory system with daily logs and long-term storage for cross-session continuity
+    tags: [memory, persistence, agentic, continuity]

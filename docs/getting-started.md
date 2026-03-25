@@ -68,7 +68,7 @@ toc pr-reviewer
 This:
 
 1. Copies the agent template to an isolated temp directory
-2. Renames `agent.md` to `CLAUDE.md` so Claude Code loads it as instructions
+2. Builds `CLAUDE.md` from `agent.md` + any `compose` files, applying template variables (`{{.AgentName}}`, `{{.Date}}`, etc.)
 3. Resolves and provisions any configured skills
 4. Sets up context sync hooks (if context patterns are defined)
 5. Launches a Claude Code session with the configured model

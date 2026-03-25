@@ -217,6 +217,54 @@ func FindByIDInWorkspace(workspace, id string) (*Session, error) {
 	return nil, fmt.Errorf("session '%s' not found", id)
 }
 
+// FindByIDPrefix finds a session whose ID starts with the given prefix.
+// Returns an error if no match or multiple matches are found.
+func FindByIDPrefix(prefix string) (*Session, error) {
+	sf, err := Load()
+	if err != nil {
+		return nil, err
+	}
+	var match *Session
+	for i, s := range sf.Sessions {
+		if len(s.ID) >= len(prefix) && s.ID[:len(prefix)] == prefix {
+			if match != nil {
+				return nil, fmt.Errorf("ambiguous session prefix '%s': matches multiple sessions", prefix)
+			}
+			match = &sf.Sessions[i]
+		}
+	}
+	if match == nil {
+		return nil, fmt.Errorf("session '%s' not found", prefix)
+	}
+	return match, nil
+}
+
+// FindByIDPrefixInWorkspace finds a session by ID prefix in a specific workspace.
+func FindByIDPrefixInWorkspace(workspace, prefix string) (*Session, error) {
+	path := workspace + "/.toc/sessions.yaml"
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("session '%s' not found", prefix)
+	}
+	var sf SessionsFile
+	if err := yaml.Unmarshal(data, &sf); err != nil {
+		return nil, err
+	}
+	var match *Session
+	for i, s := range sf.Sessions {
+		if len(s.ID) >= len(prefix) && s.ID[:len(prefix)] == prefix {
+			if match != nil {
+				return nil, fmt.Errorf("ambiguous session prefix '%s': matches multiple sessions", prefix)
+			}
+			match = &sf.Sessions[i]
+		}
+	}
+	if match == nil {
+		return nil, fmt.Errorf("session '%s' not found", prefix)
+	}
+	return match, nil
+}
+
 // ListByParentInWorkspace lists child sessions using a specific workspace path.
 func ListByParentInWorkspace(workspace, parentID string) ([]Session, error) {
 	path := workspace + "/.toc/sessions.yaml"

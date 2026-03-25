@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
+	"strings"
 
 	"github.com/spf13/cobra"
 	"github.com/tiny-oc/toc/internal/replay"
@@ -26,19 +27,27 @@ var runtimeReplayCmd = &cobra.Command{
 	Long:  "Parse Claude Code session logs and show a structured timeline of agent behavior including reasoning, tool calls, and skill invocations.",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		ctx, err := runtime.FromEnv()
-		if err != nil {
-			return err
-		}
-
 		sessionID := args[0]
 
-		s, err := session.FindByIDInWorkspace(ctx.Workspace, sessionID)
-		if err != nil {
-			// Fall back to global sessions
+		var s *session.Session
+
+		// Try workspace-scoped lookup first if inside a toc session
+		if ctx, err := runtime.FromEnv(); err == nil {
+			s, _ = session.FindByIDInWorkspace(ctx.Workspace, sessionID)
+			if s == nil {
+				s, _ = session.FindByIDPrefixInWorkspace(ctx.Workspace, sessionID)
+			}
+		}
+
+		// Fall back to global sessions
+		if s == nil {
+			var err error
 			s, err = session.FindByID(sessionID)
 			if err != nil {
-				return err
+				s, err = session.FindByIDPrefix(sessionID)
+				if err != nil {
+					return fmt.Errorf("session '%s' not found", sessionID)
+				}
 			}
 		}
 
@@ -176,5 +185,10 @@ func shortID(id string) string {
 }
 
 func shortPath(p string) string {
-	return filepath.Base(p)
+	// Show last 2-3 path components for context, e.g. "internal/agent/agent.go"
+	parts := strings.Split(filepath.ToSlash(p), "/")
+	if len(parts) <= 3 {
+		return p
+	}
+	return strings.Join(parts[len(parts)-3:], "/")
 }

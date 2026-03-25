@@ -57,17 +57,17 @@ func ForSession(sess *session.Session) (*Replay, error) {
 		return nil, fmt.Errorf("could not resolve JSONL path for session '%s'", sess.ID)
 	}
 
-	steps, err := parseSessionJSONL(jsonlPath)
+	parsed, err := parseSessionJSONLFull(jsonlPath)
 	if err != nil {
 		return nil, err
 	}
 
 	tokens := usage.ForSession(sess.WorkspacePath, sess.ID)
 
-	filesChanged := collectFilesChanged(steps)
+	filesChanged := collectFilesChanged(parsed.Steps)
 	toolCount := 0
 	errorCount := 0
-	for _, s := range steps {
+	for _, s := range parsed.Steps {
 		if s.Type == "tool" || s.Type == "skill" {
 			toolCount++
 		}
@@ -79,8 +79,12 @@ func ForSession(sess *session.Session) (*Replay, error) {
 		}
 	}
 
+	// Compute duration from JSONL timestamps (first to last entry).
+	// Falls back to time since creation only for active sessions with no timestamps.
 	var durationSecs float64
-	if !sess.CreatedAt.IsZero() {
+	if !parsed.FirstTS.IsZero() && !parsed.LastTS.IsZero() {
+		durationSecs = parsed.LastTS.Sub(parsed.FirstTS).Seconds()
+	} else if !sess.CreatedAt.IsZero() {
 		durationSecs = time.Since(sess.CreatedAt).Seconds()
 	}
 
@@ -89,7 +93,7 @@ func ForSession(sess *session.Session) (*Replay, error) {
 		Agent:        sess.Agent,
 		DurationSecs: durationSecs,
 		Tokens:       tokens,
-		Steps:        steps,
+		Steps:        parsed.Steps,
 		FilesChanged: filesChanged,
 		ToolCount:    toolCount,
 		ErrorCount:   errorCount,
@@ -113,8 +117,9 @@ func sessionJSONLPath(workspacePath, sessionID string) string {
 
 // JSONL message types matching Claude Code's format.
 type jsonlEntry struct {
-	Type    string          `json:"type"`
-	Message json.RawMessage `json:"message"`
+	Type      string          `json:"type"`
+	Message   json.RawMessage `json:"message"`
+	Timestamp string          `json:"timestamp,omitempty"`
 }
 
 type messageEnvelope struct {
@@ -149,14 +154,28 @@ type toolInput struct {
 	Skill    string `json:"skill,omitempty"`
 }
 
+type parsedJSONL struct {
+	Steps    []Step
+	FirstTS  time.Time
+	LastTS   time.Time
+}
+
 func parseSessionJSONL(path string) ([]Step, error) {
+	result, err := parseSessionJSONLFull(path)
+	if err != nil {
+		return nil, err
+	}
+	return result.Steps, nil
+}
+
+func parseSessionJSONLFull(path string) (*parsedJSONL, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, fmt.Errorf("could not open session log: %w", err)
 	}
 	defer f.Close()
 
-	var steps []Step
+	result := &parsedJSONL{}
 	scanner := bufio.NewScanner(f)
 	scanner.Buffer(make([]byte, 0, 256*1024), 4*1024*1024)
 
@@ -166,12 +185,21 @@ func parseSessionJSONL(path string) ([]Step, error) {
 			continue
 		}
 
+		if entry.Timestamp != "" {
+			if t, err := time.Parse(time.RFC3339Nano, entry.Timestamp); err == nil {
+				if result.FirstTS.IsZero() {
+					result.FirstTS = t
+				}
+				result.LastTS = t
+			}
+		}
+
 		switch entry.Type {
 		case "assistant":
-			steps = append(steps, parseAssistantMessage(entry.Message)...)
+			result.Steps = append(result.Steps, parseAssistantMessage(entry.Message)...)
 		}
 	}
-	return steps, nil
+	return result, nil
 }
 
 func parseAssistantMessage(raw json.RawMessage) []Step {

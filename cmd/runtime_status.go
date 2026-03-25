@@ -43,10 +43,24 @@ var runtimeStatusCmd = &cobra.Command{
 }
 
 type statusJSON struct {
-	ID     string `json:"id"`
-	Agent  string `json:"agent"`
-	Status string `json:"status"`
-	Prompt string `json:"prompt,omitempty"`
+	ID       string `json:"id"`
+	Agent    string `json:"agent"`
+	Status   string `json:"status"`
+	Prompt   string `json:"prompt,omitempty"`
+	ExitCode *int   `json:"exit_code,omitempty"`
+}
+
+func statusJSONForSession(s *session.Session) statusJSON {
+	sj := statusJSON{
+		ID:     s.ID,
+		Agent:  s.Agent,
+		Status: s.ResolvedStatus(),
+		Prompt: s.Prompt,
+	}
+	if exitCode, err := s.ReadExitCode(); err == nil {
+		sj.ExitCode = &exitCode
+	}
+	return sj
 }
 
 func showSubAgentStatusJSON(ctx *runtime.Context, sessionID string) error {
@@ -57,12 +71,7 @@ func showSubAgentStatusJSON(ctx *runtime.Context, sessionID string) error {
 	if s.ParentSessionID != ctx.SessionID {
 		return fmt.Errorf("session '%s' is not a sub-agent of this session", sessionID)
 	}
-	data, err := json.Marshal(statusJSON{
-		ID:     s.ID,
-		Agent:  s.Agent,
-		Status: s.ResolvedStatus(),
-		Prompt: s.Prompt,
-	})
+	data, err := json.Marshal(statusJSONForSession(s))
 	if err != nil {
 		return err
 	}
@@ -77,12 +86,7 @@ func listSubAgentStatusesJSON(ctx *runtime.Context) error {
 	}
 	var result []statusJSON
 	for _, s := range children {
-		result = append(result, statusJSON{
-			ID:     s.ID,
-			Agent:  s.Agent,
-			Status: s.ResolvedStatus(),
-			Prompt: s.Prompt,
-		})
+		result = append(result, statusJSONForSession(&s))
 	}
 	data, err := json.Marshal(result)
 	if err != nil {
@@ -90,6 +94,25 @@ func listSubAgentStatusesJSON(ctx *runtime.Context) error {
 	}
 	fmt.Println(string(data))
 	return nil
+}
+
+func statusBadge(status string) string {
+	switch status {
+	case "active":
+		return ui.Green("● active")
+	case "completed", session.StatusCompletedOK:
+		return ui.Green("● completed")
+	case session.StatusCompletedError:
+		return ui.Red("✗ failed")
+	case session.StatusZombie:
+		return ui.Red("⚠ zombie")
+	case session.StatusCancelled:
+		return ui.Yellow("◼ cancelled")
+	case "stale":
+		return ui.Yellow("◌ stale")
+	default:
+		return ui.Dim(status)
+	}
 }
 
 func showSubAgentStatus(ctx *runtime.Context, sessionID string) error {
@@ -109,6 +132,9 @@ func showSubAgentStatus(ctx *runtime.Context, sessionID string) error {
 	fmt.Printf("  %s %s\n", ui.Bold("Agent:"), ui.Cyan(s.Agent))
 	fmt.Printf("  %s %s\n", ui.Bold("Status:"), badge)
 	fmt.Printf("  %s %s\n", ui.Bold("Session:"), ui.Dim(s.ID))
+	if exitCode, err := s.ReadExitCode(); err == nil {
+		fmt.Printf("  %s %d\n", ui.Bold("Exit code:"), exitCode)
+	}
 	if s.Prompt != "" {
 		prompt := s.Prompt
 		if len(prompt) > 80 {
@@ -118,12 +144,16 @@ func showSubAgentStatus(ctx *runtime.Context, sessionID string) error {
 	}
 	fmt.Println()
 
-	if status == "completed" {
+	switch status {
+	case "completed", session.StatusCompletedOK:
 		ui.Info("Read output: %s", ui.Bold(fmt.Sprintf("toc runtime output %s", sessionID)))
 		fmt.Println()
-	}
-	if status == "failed" {
-		ui.Info("Resume with: %s", ui.Bold(fmt.Sprintf("toc runtime spawn %s --resume %s", s.Agent, sessionID)))
+	case session.StatusCompletedError, session.StatusZombie:
+		ui.Info("Read output:  %s", ui.Bold(fmt.Sprintf("toc runtime output %s", sessionID)))
+		ui.Info("Resume:       %s", ui.Bold(fmt.Sprintf("toc runtime spawn %s --resume %s", s.Agent, sessionID)))
+		fmt.Println()
+	case session.StatusCancelled:
+		ui.Info("Resume: %s", ui.Bold(fmt.Sprintf("toc runtime spawn %s --resume %s", s.Agent, sessionID)))
 		fmt.Println()
 	}
 
@@ -146,8 +176,7 @@ func listSubAgentStatuses(ctx *runtime.Context) error {
 	fmt.Printf("  %-10s %-16s %-10s %s\n", ui.Dim("──────────"), ui.Dim("────────────────"), ui.Dim("──────────"), ui.Dim("────────────────────────────"))
 
 	for _, s := range children {
-		status := s.ResolvedStatus()
-		badge := statusBadge(status)
+		badge := statusBadge(s.ResolvedStatus())
 
 		prompt := s.Prompt
 		if len(prompt) > 40 {
@@ -159,19 +188,4 @@ func listSubAgentStatuses(ctx *runtime.Context) error {
 
 	fmt.Println()
 	return nil
-}
-
-func statusBadge(status string) string {
-	switch status {
-	case "active":
-		return ui.Green("● active")
-	case "completed":
-		return ui.Green("● completed")
-	case "failed":
-		return ui.Red("✗ failed")
-	case "stale":
-		return ui.Yellow("◌ stale")
-	default:
-		return ui.Dim(status)
-	}
 }

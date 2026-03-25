@@ -16,7 +16,7 @@ var runtimeSpawnResume string
 
 func init() {
 	runtimeSpawnCmd.Flags().StringVarP(&runtimeSpawnPrompt, "prompt", "p", "", "Task prompt for the sub-agent")
-	runtimeSpawnCmd.Flags().StringVar(&runtimeSpawnResume, "resume", "", "Resume a previous sub-agent session by ID")
+	runtimeSpawnCmd.Flags().StringVar(&runtimeSpawnResume, "resume", "", "Resume a failed or cancelled sub-agent session by ID")
 	runtimeCmd.AddCommand(runtimeSpawnCmd)
 }
 

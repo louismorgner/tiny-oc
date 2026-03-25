@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/google/uuid"
@@ -237,7 +238,7 @@ type SubResumeOpts struct {
 	WorkspaceDir    string
 }
 
-// ResumeSubSession resumes a failed or completed sub-agent session.
+// ResumeSubSession resumes a failed, zombie, or cancelled sub-agent session.
 // The resumed session reuses the existing session directory and conversation history.
 func ResumeSubSession(s *session.Session, opts SubResumeOpts) (*SpawnResult, error) {
 	if _, err := os.Stat(s.WorkspacePath); os.IsNotExist(err) {
@@ -252,12 +253,16 @@ func ResumeSubSession(s *session.Session, opts SubResumeOpts) (*SpawnResult, err
 		return nil, fmt.Errorf("session '%s' workspace no longer exists", s.ID)
 	}
 
-	cfg, err := agent.LoadFrom(filepath.Join(opts.WorkspaceDir, ".toc", "agents", s.Agent))
+	agentDir := filepath.Join(opts.WorkspaceDir, ".toc", "agents", s.Agent)
+	cfg, err := agent.LoadFrom(agentDir)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load agent config: %w", err)
 	}
 
-	agentDir := filepath.Join(opts.WorkspaceDir, ".toc", "agents", s.Agent)
+	// Re-provision CLAUDE.md in case the template has changed
+	if err := provisionClaudeMD(s.WorkspacePath, cfg, s.ID); err != nil {
+		return nil, fmt.Errorf("failed to re-provision CLAUDE.md: %w", err)
+	}
 
 	// Re-resolve skills in case they were cleaned up
 	var failedSkills []string
@@ -270,121 +275,109 @@ func ResumeSubSession(s *session.Session, opts SubResumeOpts) (*SpawnResult, err
 		return nil, fmt.Errorf("failed to setup hooks: %w", err)
 	}
 
-	// Clean up previous exit code marker so ResolvedStatus works correctly
-	os.Remove(filepath.Join(s.WorkspacePath, "toc-exit-code.txt"))
-	os.Remove(filepath.Join(s.WorkspacePath, "toc-output.txt"))
+	// Clean up previous run markers so ResolvedStatus tracks the new run
+	for _, marker := range []string{"toc-output.txt", "toc-output.txt.tmp", "toc-exit-code.txt", "toc-pid.txt", "toc-cancelled.txt"} {
+		os.Remove(filepath.Join(s.WorkspacePath, marker))
+	}
 
 	// Update session status back to active
 	_ = session.UpdateStatusInWorkspace(opts.WorkspaceDir, s.ID, session.StatusActive)
 
+	// Build the prompt for the resumed session
+	resumePrompt := "You are resuming a previous session that was interrupted. Check your git status and continue where you left off."
+	if opts.Prompt != "" {
+		resumePrompt = opts.Prompt
+	}
+
+	// Launch claude detached with --continue to resume the previous conversation
 	outputPath := filepath.Join(s.WorkspacePath, "toc-output.txt")
-	if err := launchClaudeDetachedResume(s.WorkspacePath, cfg.Model, s.ID, opts.Prompt, opts.WorkspaceDir, s.Agent, outputPath); err != nil {
-		return nil, fmt.Errorf("failed to resume sub-agent: %w", err)
+	if err := launchDetached(detachedOpts{
+		Dir: s.WorkspacePath, Model: cfg.Model, Prompt: resumePrompt,
+		Workspace: opts.WorkspaceDir, AgentName: s.Agent, SessionID: s.ID,
+		OutputPath: outputPath, Resume: true,
+	}); err != nil {
+		return nil, fmt.Errorf("failed to launch resumed sub-agent: %w", err)
 	}
 
 	return &SpawnResult{SessionID: s.ID, FailedSkills: failedSkills}, nil
 }
 
+// detachedOpts contains options for launching a detached claude process.
+type detachedOpts struct {
+	Dir, Model, Prompt, Workspace, AgentName, SessionID, OutputPath string
+	Resume                                                          bool
+}
+
 // launchClaudeDetached starts claude in a detached process via a wrapper script
 // so the sub-agent outlives the parent toc process.
 func launchClaudeDetached(dir, model, prompt, workspace, agentName, sessionID, outputPath string) error {
+	return launchDetached(detachedOpts{
+		Dir: dir, Model: model, Prompt: prompt, Workspace: workspace,
+		AgentName: agentName, SessionID: sessionID, OutputPath: outputPath,
+	})
+}
+
+// launchDetached is the shared implementation for starting a detached claude process.
+// When Resume is true, it uses --continue to resume a previous conversation.
+func launchDetached(opts detachedOpts) error {
 	// Write the prompt to a file to avoid shell injection via interpolation.
-	promptPath := filepath.Join(dir, "toc-prompt.txt")
-	if err := os.WriteFile(promptPath, []byte(prompt), 0644); err != nil {
+	promptPath := filepath.Join(opts.Dir, "toc-prompt.txt")
+	if err := os.WriteFile(promptPath, []byte(opts.Prompt), 0644); err != nil {
 		return err
 	}
 
-	// Build claude command that reads prompt from the file.
-	args := fmt.Sprintf("claude --dangerously-skip-permissions -p \"$(cat %q)\"", promptPath)
-	if model != "" {
-		args += fmt.Sprintf(" --model %s", model)
-	}
+	scriptContent := buildDetachedScript(opts, promptPath)
 
-	// Write a wrapper script that runs claude and captures output.
-	// We write to a .tmp file first, then atomically rename to the final path.
-	// This prevents a race: shell `>` creates the file immediately (empty),
-	// but ResolvedStatus checks for toc-output.txt existence as the completion signal.
-	// Without the rename, the parent sees "completed" before claude even starts.
-	tmpOutputPath := outputPath + ".tmp"
-	exitCodePath := filepath.Join(dir, "toc-exit-code.txt")
-	scriptContent := fmt.Sprintf(`#!/bin/sh
-cd %q
-export TOC_WORKSPACE=%q
-export TOC_AGENT=%q
-export TOC_SESSION_ID=%q
-%s < /dev/null > %q 2>&1
-exit_code=$?
-echo $exit_code > %q
-mv %q %q
-`, dir, workspace, agentName, sessionID, args, tmpOutputPath, exitCodePath, tmpOutputPath, outputPath)
-
-	scriptPath := filepath.Join(dir, "toc-run.sh")
+	scriptPath := filepath.Join(opts.Dir, "toc-run.sh")
 	if err := os.WriteFile(scriptPath, []byte(scriptContent), 0755); err != nil {
 		return err
 	}
 
 	cmd := exec.Command("sh", scriptPath)
-	cmd.Dir = dir
+	cmd.Dir = opts.Dir
 	cmd.Stdout = nil
 	cmd.Stderr = nil
 	cmd.Stdin = nil
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 
-	// Start the process detached
 	if err := cmd.Start(); err != nil {
 		return err
 	}
 
-	// Release the process so it's not waited on
 	return cmd.Process.Release()
 }
 
-// launchClaudeDetachedResume starts claude in a detached process that resumes
-// an existing conversation via --resume.
-func launchClaudeDetachedResume(dir, model, sessionID, prompt, workspace, agentName, outputPath string) error {
-	// Build claude command with --resume to continue the existing conversation.
-	args := fmt.Sprintf("claude --dangerously-skip-permissions -p --resume %q", sessionID)
-	if model != "" {
-		args += fmt.Sprintf(" --model %s", model)
+// buildDetachedScript generates the shell script content for a detached claude process.
+// Separated from launchDetached so it can be tested without starting a process.
+func buildDetachedScript(opts detachedOpts, promptPath string) string {
+	// Build claude command that reads prompt from the file.
+	args := "claude --dangerously-skip-permissions"
+	if opts.Resume {
+		args += " --continue"
+	}
+	args += fmt.Sprintf(" -p \"$(cat %q)\"", promptPath)
+	if opts.Model != "" {
+		args += fmt.Sprintf(" --model %s", opts.Model)
 	}
 
-	// If a prompt is provided, write it to a file and pass it as the prompt argument.
-	if prompt != "" {
-		promptPath := filepath.Join(dir, "toc-prompt.txt")
-		if err := os.WriteFile(promptPath, []byte(prompt), 0644); err != nil {
-			return err
-		}
-		args += fmt.Sprintf(" \"$(cat %q)\"", promptPath)
-	}
+	// We write to a .tmp file first, then atomically rename to the final path.
+	// This prevents a race: shell `>` creates the file immediately (empty),
+	// but ResolvedStatus checks for toc-output.txt existence as the completion signal.
+	tmpOutputPath := opts.OutputPath + ".tmp"
+	pidPath := filepath.Join(opts.Dir, "toc-pid.txt")
+	exitCodePath := filepath.Join(opts.Dir, "toc-exit-code.txt")
 
-	tmpOutputPath := outputPath + ".tmp"
-	exitCodePath := filepath.Join(dir, "toc-exit-code.txt")
-	scriptContent := fmt.Sprintf(`#!/bin/sh
+	return fmt.Sprintf(`#!/bin/sh
+echo $$ > %q
 cd %q
 export TOC_WORKSPACE=%q
 export TOC_AGENT=%q
 export TOC_SESSION_ID=%q
 %s < /dev/null > %q 2>&1
-exit_code=$?
-echo $exit_code > %q
+TOC_EXIT=$?
+echo $TOC_EXIT > %q
 mv %q %q
-`, dir, workspace, agentName, sessionID, args, tmpOutputPath, exitCodePath, tmpOutputPath, outputPath)
-
-	scriptPath := filepath.Join(dir, "toc-run.sh")
-	if err := os.WriteFile(scriptPath, []byte(scriptContent), 0755); err != nil {
-		return err
-	}
-
-	cmd := exec.Command("sh", scriptPath)
-	cmd.Dir = dir
-	cmd.Stdout = nil
-	cmd.Stderr = nil
-	cmd.Stdin = nil
-
-	if err := cmd.Start(); err != nil {
-		return err
-	}
-
-	return cmd.Process.Release()
+`, pidPath, opts.Dir, opts.Workspace, opts.AgentName, opts.SessionID, args, tmpOutputPath, exitCodePath, tmpOutputPath, opts.OutputPath)
 }
 
 // setupHooks generates .claude/settings.json with all hooks: context sync,
@@ -673,4 +666,3 @@ func provisionClaudeMD(workDir string, cfg *agent.AgentConfig, sessionID string)
 
 	return os.WriteFile(claudeMD, []byte(content+"\n"), 0644)
 }
-

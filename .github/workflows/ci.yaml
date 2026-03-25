@@ -25,6 +25,9 @@ jobs:
       - name: Vet
         run: go vet ./...
 
+      - name: E2E Smoke Tests
+        run: go test ./e2e/ -v
+
       - name: Verify GoReleaser config
         uses: goreleaser/goreleaser-action@v6
         with:

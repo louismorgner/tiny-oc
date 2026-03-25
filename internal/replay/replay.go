@@ -106,13 +106,43 @@ func sessionJSONLPath(workspacePath, sessionID string) string {
 		return ""
 	}
 
-	resolved, err := filepath.EvalSymlinks(workspacePath)
-	if err != nil {
-		resolved = workspacePath
+	projectsDir := filepath.Join(home, ".claude", "projects")
+
+	// Try multiple path variants — macOS resolves /var to /private/var via symlinks,
+	// and sessions.yaml may store either form while Claude Code uses the resolved form.
+	candidates := []string{workspacePath}
+	if resolved, err := filepath.EvalSymlinks(workspacePath); err == nil && resolved != workspacePath {
+		candidates = append(candidates, resolved)
+	}
+	// Also try with /private prefix if not already present (macOS)
+	if !strings.HasPrefix(workspacePath, "/private") {
+		candidates = append(candidates, "/private"+workspacePath)
 	}
 
-	encoded := strings.ReplaceAll(resolved, "/", "-")
-	return filepath.Join(home, ".claude", "projects", encoded, sessionID+".jsonl")
+	for _, path := range candidates {
+		encoded := strings.NewReplacer("/", "-", "_", "-").Replace(path)
+		projectDir := filepath.Join(projectsDir, encoded)
+
+		// Try exact match first (interactive sessions where we pass --session-id)
+		exact := filepath.Join(projectDir, sessionID+".jsonl")
+		if _, err := os.Stat(exact); err == nil {
+			return exact
+		}
+
+		// For sub-agents (--print mode), Claude Code generates its own session ID.
+		// Scan the directory for any JSONL file as fallback.
+		entries, err := os.ReadDir(projectDir)
+		if err != nil {
+			continue
+		}
+		for _, e := range entries {
+			if !e.IsDir() && strings.HasSuffix(e.Name(), ".jsonl") {
+				return filepath.Join(projectDir, e.Name())
+			}
+		}
+	}
+
+	return ""
 }
 
 // JSONL message types matching Claude Code's format.

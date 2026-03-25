@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"fmt"
-	"sort"
 	"strings"
 	"time"
 
@@ -175,9 +174,7 @@ func (m statusModel) View() tea.View {
 
 		shown := make([]session.Session, len(m.sessions))
 		copy(shown, m.sessions)
-		sort.Slice(shown, func(i, j int) bool {
-			return shown[i].CreatedAt.After(shown[j].CreatedAt)
-		})
+		sortSessions(shown)
 
 		limit := 15
 		if len(shown) < limit {

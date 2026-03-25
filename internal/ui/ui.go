@@ -2,8 +2,10 @@ package ui
 
 import (
 	"fmt"
+	"os"
 	"strings"
 
+	tea "charm.land/bubbletea/v2"
 	"charm.land/huh/v2"
 	"github.com/fatih/color"
 )
@@ -18,8 +20,38 @@ var (
 	BoldCyan = color.New(color.Bold, color.FgCyan).SprintFunc()
 )
 
+// WordDeleteFilter remaps ctrl+backspace to ctrl+w so that the bubbles
+// textinput recognises it as word-deletion. BubbleTea v2 enables the Kitty
+// keyboard protocol, which sends a distinct ctrl+backspace event, but the
+// textinput default keymap only binds "alt+backspace" and "ctrl+w".
+func WordDeleteFilter(_ tea.Model, msg tea.Msg) tea.Msg {
+	if k, ok := msg.(tea.KeyPressMsg); ok {
+		if k.Code == tea.KeyBackspace && k.Mod == tea.ModCtrl {
+			return tea.KeyPressMsg{Code: 'w', Mod: tea.ModCtrl}
+		}
+	}
+	return msg
+}
+
+// FormOptions returns the default tea.ProgramOption set that should be passed
+// to any huh form via WithProgramOptions. It includes the word-delete filter
+// and the stderr output that huh uses by default.
+func FormOptions() []tea.ProgramOption {
+	return []tea.ProgramOption{
+		tea.WithOutput(os.Stderr),
+		tea.WithFilter(WordDeleteFilter),
+	}
+}
+
+// runField wraps a single huh field in a form with our standard program options.
+func runField(field huh.Field) error {
+	return huh.NewForm(huh.NewGroup(field)).
+		WithShowHelp(false).
+		WithProgramOptions(FormOptions()...).
+		Run()
+}
+
 // Prompt asks for text input with an optional default value.
-// Uses Huh for proper line-editing support (word deletion, cursor movement).
 func Prompt(label, defaultVal string) (string, error) {
 	var val string
 	input := huh.NewInput().
@@ -28,7 +60,7 @@ func Prompt(label, defaultVal string) (string, error) {
 	if defaultVal != "" {
 		input = input.Description("default: " + defaultVal)
 	}
-	if err := input.Run(); err != nil {
+	if err := runField(input); err != nil {
 		return "", err
 	}
 	val = strings.TrimSpace(val)
@@ -44,7 +76,7 @@ func Confirm(label string, defaultVal bool) (bool, error) {
 	c := huh.NewConfirm().
 		Title(label).
 		Value(&result)
-	if err := c.Run(); err != nil {
+	if err := runField(c); err != nil {
 		return false, err
 	}
 	return result, nil
@@ -73,7 +105,7 @@ func Select(label string, options []SelectOption, defaultIdx int) (string, error
 		result = options[defaultIdx].Value
 	}
 
-	if err := sel.Run(); err != nil {
+	if err := runField(sel); err != nil {
 		return "", err
 	}
 	return result, nil

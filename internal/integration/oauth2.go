@@ -18,11 +18,13 @@ type OAuth2Config struct {
 	ClientSecret string
 	AuthURL      string
 	TokenURL     string
-	Scopes       []string
+	Scopes       []string // bot scopes — sent as "scope" param
+	UserScopes   []string // user scopes — sent as "user_scope" param (Slack user tokens)
 	RedirectPort int
 }
 
 // OAuth2TokenResponse represents the response from a token exchange.
+// For Slack V2 OAuth, user tokens are nested under authed_user.
 type OAuth2TokenResponse struct {
 	AccessToken  string `json:"access_token"`
 	RefreshToken string `json:"refresh_token"`
@@ -31,26 +33,46 @@ type OAuth2TokenResponse struct {
 	Scope        string `json:"scope"`
 	OK           bool   `json:"ok"`
 	Error        string `json:"error"`
+	AuthedUser   *struct {
+		ID          string `json:"id"`
+		Scope       string `json:"scope"`
+		AccessToken string `json:"access_token"`
+		TokenType   string `json:"token_type"`
+	} `json:"authed_user,omitempty"`
 }
 
 // SlackOAuth2Config returns a pre-configured OAuth2Config for Slack.
-func SlackOAuth2Config(clientID, clientSecret string, scopes []string) *OAuth2Config {
+// When userScopes is non-empty, the flow requests user tokens (xoxp) via user_scope.
+// When scopes is non-empty, bot tokens (xoxb) are also requested via scope.
+func SlackOAuth2Config(clientID, clientSecret string, scopes, userScopes []string) *OAuth2Config {
 	return &OAuth2Config{
 		ClientID:     clientID,
 		ClientSecret: clientSecret,
 		AuthURL:      "https://slack.com/oauth/v2/authorize",
 		TokenURL:     "https://slack.com/api/oauth.v2.access",
 		Scopes:       scopes,
+		UserScopes:   userScopes,
 		RedirectPort: 8976,
 	}
 }
 
+// RedirectURI returns the localhost callback URI for this config.
+func (c *OAuth2Config) RedirectURI() string {
+	return fmt.Sprintf("http://localhost:%d/callback", c.RedirectPort)
+}
+
 // AuthorizationURL builds the URL to redirect the user to for OAuth consent.
+// For Slack user tokens, scopes are sent as "user_scope" (comma-separated).
 func (c *OAuth2Config) AuthorizationURL() string {
 	params := url.Values{
 		"client_id":    {c.ClientID},
-		"scope":        {strings.Join(c.Scopes, " ")},
-		"redirect_uri": {fmt.Sprintf("http://localhost:%d/callback", c.RedirectPort)},
+		"redirect_uri": {c.RedirectURI()},
+	}
+	if len(c.Scopes) > 0 {
+		params.Set("scope", strings.Join(c.Scopes, ","))
+	}
+	if len(c.UserScopes) > 0 {
+		params.Set("user_scope", strings.Join(c.UserScopes, ","))
 	}
 	return c.AuthURL + "?" + params.Encode()
 }
@@ -104,12 +126,14 @@ func (c *OAuth2Config) RunCallbackServer(ctx context.Context) (string, error) {
 }
 
 // ExchangeCode exchanges an authorization code for access and refresh tokens.
+// For Slack, when UserScopes were requested, the user token is extracted from
+// the authed_user field in the response.
 func (c *OAuth2Config) ExchangeCode(code string) (*Credential, error) {
 	data := url.Values{
 		"client_id":     {c.ClientID},
 		"client_secret": {c.ClientSecret},
 		"code":          {code},
-		"redirect_uri":  {fmt.Sprintf("http://localhost:%d/callback", c.RedirectPort)},
+		"redirect_uri":  {c.RedirectURI()},
 	}
 
 	resp, err := http.PostForm(c.TokenURL, data)
@@ -132,8 +156,18 @@ func (c *OAuth2Config) ExchangeCode(code string) (*Credential, error) {
 		return nil, fmt.Errorf("token exchange failed: %s", tokenResp.Error)
 	}
 
+	// Prefer user token from authed_user when user_scopes were requested.
+	accessToken := tokenResp.AccessToken
+	if len(c.UserScopes) > 0 && tokenResp.AuthedUser != nil && tokenResp.AuthedUser.AccessToken != "" {
+		accessToken = tokenResp.AuthedUser.AccessToken
+	}
+
+	if accessToken == "" {
+		return nil, fmt.Errorf("token exchange returned empty access token")
+	}
+
 	cred := &Credential{
-		AccessToken:  tokenResp.AccessToken,
+		AccessToken:  accessToken,
 		RefreshToken: tokenResp.RefreshToken,
 	}
 
@@ -143,6 +177,34 @@ func (c *OAuth2Config) ExchangeCode(code string) (*Credential, error) {
 	}
 
 	return cred, nil
+}
+
+// ParseCodeFromURL extracts the authorization code from a callback URL.
+// Accepts either a full URL (http://localhost:8976/callback?code=xyz) or a bare code string.
+func ParseCodeFromURL(raw string) (string, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return "", fmt.Errorf("empty input")
+	}
+
+	// If it looks like a URL, parse the code param
+	if strings.HasPrefix(raw, "http://") || strings.HasPrefix(raw, "https://") {
+		u, err := url.Parse(raw)
+		if err != nil {
+			return "", fmt.Errorf("invalid URL: %w", err)
+		}
+		if errMsg := u.Query().Get("error"); errMsg != "" {
+			return "", fmt.Errorf("OAuth error: %s — %s", errMsg, u.Query().Get("error_description"))
+		}
+		code := u.Query().Get("code")
+		if code == "" {
+			return "", fmt.Errorf("no authorization code found in URL")
+		}
+		return code, nil
+	}
+
+	// Otherwise treat the whole string as the code
+	return raw, nil
 }
 
 // RefreshAccessToken uses a refresh token to obtain a new access token.

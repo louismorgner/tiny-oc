@@ -18,6 +18,7 @@ import (
 
 func init() {
 	runtimeWatchCmd.Flags().Bool("json", false, "Output each step as newline-delimited JSON")
+	runtimeWatchCmd.Flags().BoolP("verbose", "v", false, "Show full assistant messages and thinking blocks")
 	runtimeCmd.AddCommand(runtimeWatchCmd)
 }
 
@@ -52,11 +53,12 @@ var runtimeWatchCmd = &cobra.Command{
 		}
 
 		jsonFlag, _ := cmd.Flags().GetBool("json")
+		verbose, _ := cmd.Flags().GetBool("verbose")
 
 		// If session is already completed, replay all steps and exit
 		status := s.ResolvedStatus()
 		if status == "completed" || status == session.StatusCompletedOK || status == session.StatusCompletedError || status == session.StatusCancelled {
-			return watchCompleted(s, jsonFlag, status)
+			return watchCompleted(s, jsonFlag, verbose, status)
 		}
 
 		provider, err := runtime.Get(s.RuntimeName())
@@ -119,8 +121,8 @@ var runtimeWatchCmd = &cobra.Command{
 				_ = runtime.AppendEvent(s, event.Event)
 			}
 
-			// Compact mode: skip thinking steps for scannable output
-			if !jsonFlag && event.Step.Type == "thinking" {
+			// Skip thinking unless verbose
+			if !jsonFlag && !verbose && event.Step.Type == "thinking" {
 				continue
 			}
 
@@ -128,7 +130,7 @@ var runtimeWatchCmd = &cobra.Command{
 				data, _ := json.Marshal(event.Step)
 				fmt.Println(string(data))
 			} else {
-				printStep(event.Step, true)
+				printStep(event.Step, printOpts{FullContent: verbose})
 			}
 		}
 
@@ -139,7 +141,7 @@ var runtimeWatchCmd = &cobra.Command{
 	},
 }
 
-func watchCompleted(s *session.Session, jsonFlag bool, status string) error {
+func watchCompleted(s *session.Session, jsonFlag, verbose bool, status string) error {
 	r, err := replay.ForSession(s)
 	if err != nil {
 		return err
@@ -152,11 +154,11 @@ func watchCompleted(s *session.Session, jsonFlag bool, status string) error {
 		}
 	} else {
 		for _, step := range r.Steps {
-			// Compact mode: skip thinking, show tools and text
-			if step.Type == "thinking" {
+			// Skip thinking unless verbose
+			if !verbose && step.Type == "thinking" {
 				continue
 			}
-			printStep(step, true)
+			printStep(step, printOpts{FullContent: verbose})
 		}
 	}
 

@@ -1,5 +1,7 @@
 # toc — tiny open company
 
+[![CI](https://github.com/louismorgner/tiny-oc/actions/workflows/ci.yaml/badge.svg)](https://github.com/louismorgner/tiny-oc/actions/workflows/ci.yaml)
+
 A local CLI tool for managing and spawning AI agent sessions from reusable templates.
 
 Define agents as simple YAML configs, then spawn isolated sessions instantly. Built for engineers who want fast, reproducible agent workflows with a local-first control plane and pluggable runtimes.

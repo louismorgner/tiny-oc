@@ -123,6 +123,9 @@ func BuildClaudeDetachedScript(opts DetachedOptions, promptPath string) string {
 	if opts.Model != "" {
 		args += fmt.Sprintf(" --model %s", opts.Model)
 	}
+	if opts.SessionID != "" {
+		args += fmt.Sprintf(" --session-id %s", opts.SessionID)
+	}
 
 	tmpOutputPath := opts.OutputPath + ".tmp"
 	pidPath := filepath.Join(opts.Dir, "toc-pid.txt")
@@ -263,15 +266,19 @@ func (claudeProvider) ParseSessionLog(path string) (*ParsedLog, error) {
 			}
 		}
 
-		if entry.Type == "assistant" {
-			steps := parseClaudeAssistantMessage(entry.Message)
-			result.Steps = append(result.Steps, steps...)
-			for _, step := range steps {
-				result.Events = append(result.Events, Event{
-					Timestamp: result.LastTS,
-					Step:      step,
-				})
-			}
+		var steps []Step
+		switch entry.Type {
+		case "user":
+			steps = parseClaudeUserMessage(entry.Message)
+		case "assistant":
+			steps = parseClaudeAssistantMessage(entry.Message)
+		}
+		result.Steps = append(result.Steps, steps...)
+		for _, step := range steps {
+			result.Events = append(result.Events, Event{
+				Timestamp: result.LastTS,
+				Step:      step,
+			})
 		}
 	}
 	return result, nil
@@ -282,10 +289,15 @@ func (claudeProvider) ParseSessionLogLineEvents(line []byte) []Event {
 	if err := json.Unmarshal(line, &entry); err != nil {
 		return nil
 	}
-	if entry.Type != "assistant" {
+	var steps []Step
+	switch entry.Type {
+	case "user":
+		steps = parseClaudeUserMessage(entry.Message)
+	case "assistant":
+		steps = parseClaudeAssistantMessage(entry.Message)
+	default:
 		return nil
 	}
-	steps := parseClaudeAssistantMessage(entry.Message)
 	if len(steps) == 0 {
 		return nil
 	}
@@ -303,6 +315,33 @@ func (claudeProvider) ParseSessionLogLineEvents(line []byte) []Event {
 		})
 	}
 	return events
+}
+
+func parseClaudeUserMessage(raw json.RawMessage) []Step {
+	var msg messageEnvelope
+	if err := json.Unmarshal(raw, &msg); err != nil {
+		return nil
+	}
+	if msg.Role != "user" {
+		return nil
+	}
+
+	// Content can be a string or array of blocks
+	var text string
+	if err := json.Unmarshal(msg.Content, &text); err == nil && text != "" {
+		return []Step{{Type: "user", Content: text}}
+	}
+
+	var blocks []contentBlock
+	if err := json.Unmarshal(msg.Content, &blocks); err == nil {
+		for _, b := range blocks {
+			if b.Type == "text" && b.Text != "" {
+				return []Step{{Type: "user", Content: b.Text}}
+			}
+		}
+	}
+
+	return nil
 }
 
 func parseClaudeAssistantMessage(raw json.RawMessage) []Step {

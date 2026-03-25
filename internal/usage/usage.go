@@ -53,7 +53,32 @@ func ForSession(sess *session.Session) TokenUsage {
 		if projectDir == "" {
 			return TokenUsage{}
 		}
-		return parseJSONL(filepath.Join(projectDir, sess.ID+".jsonl"))
+
+		// Try exact session ID match first (sessions launched with --session-id)
+		u := parseJSONL(filepath.Join(projectDir, sess.ID+".jsonl"))
+		if u.Total() > 0 {
+			return u
+		}
+
+		// Fallback: scan all JSONL files in the project directory.
+		// This handles older sessions that were spawned without --session-id,
+		// where Claude Code generated its own session UUID for the filename.
+		entries, err := os.ReadDir(projectDir)
+		if err != nil {
+			return TokenUsage{}
+		}
+		var total TokenUsage
+		for _, e := range entries {
+			if e.IsDir() || filepath.Ext(e.Name()) != ".jsonl" {
+				continue
+			}
+			t := parseJSONL(filepath.Join(projectDir, e.Name()))
+			total.InputTokens += t.InputTokens
+			total.OutputTokens += t.OutputTokens
+			total.CacheRead += t.CacheRead
+			total.CacheCreate += t.CacheCreate
+		}
+		return total
 	case runtimeinfo.NativeRuntime:
 		state, err := runtime.LoadState(sess)
 		if err != nil {
@@ -86,6 +111,7 @@ func claudeProjectDir(workspacePath string) string {
 
 	// Claude Code encodes paths by replacing "/" with "-" and removing "."
 	encoded := strings.ReplaceAll(resolved, "/", "-")
+	encoded = strings.ReplaceAll(encoded, ".", "")
 
 	return filepath.Join(home, ".claude", "projects", encoded)
 }

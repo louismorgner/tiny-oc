@@ -25,6 +25,7 @@ const (
 
 type Session struct {
 	ID              string    `yaml:"id"`
+	Name            string    `yaml:"name,omitempty"`
 	Agent           string    `yaml:"agent"`
 	Runtime         string    `yaml:"runtime,omitempty"`
 	MetadataDir     string    `yaml:"metadata_dir,omitempty"`

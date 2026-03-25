@@ -59,6 +59,38 @@ func TestFormatTotal(t *testing.T) {
 	}
 }
 
+func TestParseJSONL_FallbackScanAll(t *testing.T) {
+	dir := t.TempDir()
+
+	// Write a JSONL file with a different name than the session ID
+	content := `{"type":"assistant","message":{"role":"assistant","content":"hi","usage":{"input_tokens":500,"output_tokens":200}}}
+`
+	if err := os.WriteFile(filepath.Join(dir, "other-uuid.jsonl"), []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// parseJSONL for a non-matching session ID returns zero
+	u := parseJSONL(filepath.Join(dir, "my-session.jsonl"))
+	if u.Total() != 0 {
+		t.Errorf("expected zero for non-matching session, got %d", u.Total())
+	}
+
+	// But scanning all JSONL files in the dir should find it
+	entries, _ := os.ReadDir(dir)
+	var total TokenUsage
+	for _, e := range entries {
+		if filepath.Ext(e.Name()) != ".jsonl" {
+			continue
+		}
+		tok := parseJSONL(filepath.Join(dir, e.Name()))
+		total.InputTokens += tok.InputTokens
+		total.OutputTokens += tok.OutputTokens
+	}
+	if total.Total() != 700 {
+		t.Errorf("expected 700 tokens from fallback scan, got %d", total.Total())
+	}
+}
+
 func TestParseJSONL_MissingFile(t *testing.T) {
 	u := parseJSONL("/nonexistent/file.jsonl")
 	if u.Total() != 0 {
@@ -67,11 +99,19 @@ func TestParseJSONL_MissingFile(t *testing.T) {
 }
 
 func TestClaudeProjectDir(t *testing.T) {
-	dir := claudeProjectDir("/private/tmp/toc-sessions/buddy-123")
 	home, _ := os.UserHomeDir()
+
+	dir := claudeProjectDir("/private/tmp/toc-sessions/buddy-123")
 	want := filepath.Join(home, ".claude", "projects", "-private-tmp-toc-sessions-buddy-123")
 	if dir != want {
 		t.Errorf("claudeProjectDir = %q, want %q", dir, want)
+	}
+
+	// Paths with dots (hidden dirs) should have dots removed
+	dir2 := claudeProjectDir("/Users/test/.myapp/sessions/abc")
+	want2 := filepath.Join(home, ".claude", "projects", "-Users-test-myapp-sessions-abc")
+	if dir2 != want2 {
+		t.Errorf("claudeProjectDir (dots) = %q, want %q", dir2, want2)
 	}
 }
 

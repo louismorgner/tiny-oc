@@ -20,10 +20,13 @@ jobs:
         run: go build ./...
 
       - name: Test
-        run: go test ./...
+        run: go test -cover $(go list ./... | grep -v /e2e)
 
       - name: Vet
         run: go vet ./...
+
+      - name: E2E Smoke Tests
+        run: go test ./e2e/ -v -count=1 -timeout 120s
 
       - name: Verify GoReleaser config
         uses: goreleaser/goreleaser-action@v6

@@ -5,6 +5,35 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.3] - 2026-03-25
+
+### Changed
+
+- Slack integration switched from OAuth2 redirect flow to manual token-paste — Slack requires HTTPS on redirect URIs which broke localhost OAuth (#66).
+
+### Fixed
+
+- Removed duplicate setup URL display when adding token-based integrations (#66).
+
+## [0.3.2] - 2026-03-25
+
+### Added
+
+- Interactive TUI dashboard for `toc status` with real-time session monitoring (#56).
+- E2e smoke test suite with mock claude binary — 10 tests, deterministic, no API key needed (#59).
+- E2e smoke tests in CI pipeline (#63).
+- Auto-generated human-readable session names from prompts (#62).
+- Assistant text messages now visible in `toc runtime watch` output (#58).
+
+### Fixed
+
+- Token usage not displaying in `toc status` (#60).
+- Integration registry lookup now fetches from remote correctly (#55).
+
+### Changed
+
+- Replaced Codecov with inline `-cover` flag in CI (#64, #65).
+
 ## [0.3.0] - 2026-03-25
 
 ### Added
@@ -77,7 +106,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `toc completion` for bash, zsh, and fish with dynamic completion of agent names and session IDs.
 - `install.sh` for building and symlinking the binary to PATH.
 
-[unreleased]: https://github.com/louismorgner/tiny-oc/compare/v0.3.0...HEAD
+[unreleased]: https://github.com/louismorgner/tiny-oc/compare/v0.3.3...HEAD
+[0.3.3]: https://github.com/louismorgner/tiny-oc/compare/v0.3.2...v0.3.3
+[0.3.2]: https://github.com/louismorgner/tiny-oc/compare/v0.3.1...v0.3.2
+[0.3.1]: https://github.com/louismorgner/tiny-oc/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/louismorgner/tiny-oc/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/louismorgner/tiny-oc/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/louismorgner/tiny-oc/releases/tag/v0.1.0

@@ -44,6 +44,7 @@ var runtimeStatusCmd = &cobra.Command{
 
 type statusJSON struct {
 	ID           string `json:"id"`
+	Name         string `json:"name,omitempty"`
 	Agent        string `json:"agent"`
 	Status       string `json:"status"`
 	Prompt       string `json:"prompt,omitempty"`
@@ -62,6 +63,7 @@ type statusJSON struct {
 func statusJSONForSession(s *session.Session) statusJSON {
 	sj := statusJSON{
 		ID:      s.ID,
+		Name:    s.Name,
 		Agent:   s.Agent,
 		Status:  s.ResolvedStatus(),
 		Prompt:  s.Prompt,
@@ -150,6 +152,9 @@ func showSubAgentStatus(ctx *runtime.Context, sessionID string) error {
 
 	fmt.Println()
 	fmt.Printf("  %s %s\n", ui.Bold("Agent:"), ui.Cyan(s.Agent))
+	if s.Name != "" {
+		fmt.Printf("  %s %s\n", ui.Bold("Name:"), ui.Cyan(s.Name))
+	}
 	fmt.Printf("  %s %s\n", ui.Bold("Status:"), badge)
 	fmt.Printf("  %s %s\n", ui.Bold("Session:"), ui.Dim(s.ID))
 	fmt.Printf("  %s %s\n", ui.Bold("Runtime:"), ui.Dim(s.RuntimeName()))
@@ -219,7 +224,7 @@ func listSubAgentStatuses(ctx *runtime.Context) error {
 	}
 
 	fmt.Println()
-	fmt.Printf("  %-10s %-16s %-10s %-10s %s\n", ui.Bold("STATUS"), ui.Bold("AGENT"), ui.Bold("SESSION"), ui.Bold("TOKENS"), ui.Bold("PROMPT"))
+	fmt.Printf("  %-10s %-16s %-10s %-10s %s\n", ui.Bold("STATUS"), ui.Bold("AGENT"), ui.Bold("SESSION"), ui.Bold("TOKENS"), ui.Bold("NAME"))
 	fmt.Printf("  %-10s %-16s %-10s %-10s %s\n", ui.Dim("──────────"), ui.Dim("────────────────"), ui.Dim("──────────"), ui.Dim("──────────"), ui.Dim("────────────────────────────"))
 
 	for _, s := range children {
@@ -238,12 +243,15 @@ func listSubAgentStatuses(ctx *runtime.Context) error {
 			tokenText = tokenText[:10]
 		}
 
-		prompt := s.Prompt
-		if len(prompt) > 40 {
-			prompt = prompt[:37] + "..."
+		label := s.Name
+		if label == "" {
+			label = s.Prompt
+		}
+		if len(label) > 40 {
+			label = label[:37] + "..."
 		}
 
-		fmt.Printf("  %-10s %-16s %-10s %-10s %s\n", badge, ui.Cyan(s.Agent), ui.Dim(s.ID[:8]), ui.Dim(tokenText), ui.Dim(prompt))
+		fmt.Printf("  %-10s %-16s %-10s %-10s %s\n", badge, ui.Cyan(s.Agent), ui.Dim(s.ID[:8]), ui.Dim(tokenText), ui.Dim(label))
 	}
 
 	fmt.Println()

@@ -116,7 +116,7 @@ func printReplayHuman(r *replay.Replay, thinkingOnly, actionsOnly, compact, full
 			continue
 		}
 
-		printStep(step, compact)
+		printStep(step, printOpts{HideText: compact})
 	}
 
 	fmt.Println()
@@ -145,51 +145,94 @@ func printReplayHuman(r *replay.Replay, thinkingOnly, actionsOnly, compact, full
 	return nil
 }
 
-func printStep(step runtime.Step, compact bool) {
+// printOpts controls how steps are rendered.
+type printOpts struct {
+	HideText    bool // compact mode: don't show text/assistant steps
+	FullContent bool // verbose mode: show full content without truncation
+}
+
+func printStep(step runtime.Step, opts printOpts) {
 	switch step.Type {
+	case "user":
+		if opts.FullContent {
+			printMultiLine("[user]     ", step.Content, nil)
+		} else {
+			text := runtime.TruncateThinking(step.Content, 120)
+			fmt.Printf("  %s %s\n", ui.Green("[user]     "), text)
+		}
 	case "thinking":
-		text := runtime.TruncateThinking(step.Content, 100)
-		fmt.Printf("  %s %s\n", ui.Dim("[think]"), ui.Dim(text))
+		if opts.FullContent {
+			printMultiLine("[think]    ", step.Content, ui.Dim)
+		} else {
+			text := runtime.TruncateThinking(step.Content, 100)
+			fmt.Printf("  %s %s\n", ui.Dim("[think]    "), ui.Dim(text))
+		}
 	case "text":
-		text := runtime.TruncateThinking(step.Content, 100)
-		fmt.Printf("  %s %s\n", ui.Dim("[text] "), ui.Dim(text))
+		if !opts.HideText {
+			if opts.FullContent {
+				printMultiLine("[assistant]", step.Content, nil)
+			} else {
+				text := runtime.TruncateThinking(step.Content, 120)
+				fmt.Printf("  %s %s\n", ui.Cyan("[assistant]"), text)
+			}
+		}
 	case "tool":
 		printToolStep(step)
 	case "skill":
-		fmt.Printf("  %s %s\n", ui.Yellow("[skill]"), ui.Cyan(step.Skill))
+		fmt.Printf("  %s %s\n", ui.Yellow("[skill]    "), ui.Cyan(step.Skill))
 	case "error":
 		text := step.Content
 		if len(text) > 100 {
 			text = text[:97] + "..."
 		}
-		fmt.Printf("  %s %s\n", ui.Red("[error]"), text)
+		fmt.Printf("  %s %s\n", ui.Red("[error]    "), text)
 	case "recovery":
 		text := step.Content
 		if len(text) > 100 {
 			text = text[:97] + "..."
 		}
-		fmt.Printf("  %s %s\n", ui.Yellow("[recover]"), ui.Dim(text))
+		fmt.Printf("  %s %s\n", ui.Yellow("[recover]  "), ui.Dim(text))
 	case "compaction":
-		fmt.Printf("  %s %s\n", ui.Dim("[compact]"), ui.Dim(step.Content))
+		fmt.Printf("  %s %s\n", ui.Dim("[compact]  "), ui.Dim(step.Content))
+	}
+}
+
+// printMultiLine prints a labeled block with wrapped/indented content.
+func printMultiLine(label, content string, colorFn func(a ...interface{}) string) {
+	lines := strings.Split(content, "\n")
+	indent := strings.Repeat(" ", 2+len(label)+1) // "  " + label + " "
+	for i, line := range lines {
+		if colorFn != nil {
+			line = colorFn(line)
+		}
+		if i == 0 {
+			if colorFn != nil {
+				fmt.Printf("  %s %s\n", ui.Dim(label), line)
+			} else {
+				fmt.Printf("  %s %s\n", ui.Cyan(label), line)
+			}
+		} else {
+			fmt.Printf("%s%s\n", indent, line)
+		}
 	}
 }
 
 func printToolStep(step runtime.Step) {
 	switch step.Tool {
 	case "Read":
-		fmt.Printf("  %s %s\n", ui.Dim("[read] "), shortPath(step.Path))
+		fmt.Printf("  %s %s\n", ui.Dim("[read]     "), shortPath(step.Path))
 	case "Edit":
 		detail := ""
 		if step.Added > 0 || step.Removed > 0 {
 			detail = fmt.Sprintf(" +%d -%d lines", step.Added, step.Removed)
 		}
-		fmt.Printf("  %s %s%s\n", ui.Dim("[edit] "), shortPath(step.Path), ui.Dim(detail))
+		fmt.Printf("  %s %s%s\n", ui.Dim("[edit]     "), shortPath(step.Path), ui.Dim(detail))
 	case "Write":
 		detail := ""
 		if step.Lines > 0 {
 			detail = fmt.Sprintf(" %d lines", step.Lines)
 		}
-		fmt.Printf("  %s %s%s\n", ui.Dim("[write]"), shortPath(step.Path), ui.Dim(detail))
+		fmt.Printf("  %s %s%s\n", ui.Dim("[write]    "), shortPath(step.Path), ui.Dim(detail))
 	case "Bash":
 		cmd := step.Command
 		if len(cmd) > 80 {
@@ -204,17 +247,17 @@ func printToolStep(step runtime.Step) {
 		case step.DurationMS > 0:
 			detail = fmt.Sprintf(" %dms", step.DurationMS)
 		}
-		fmt.Printf("  %s %s%s\n", ui.Dim("[bash] "), cmd, ui.Dim(detail))
+		fmt.Printf("  %s %s%s\n", ui.Dim("[bash]     "), cmd, ui.Dim(detail))
 	case "Glob":
-		fmt.Printf("  %s %s\n", ui.Dim("[glob] "), step.Content)
+		fmt.Printf("  %s %s\n", ui.Dim("[glob]     "), step.Content)
 	case "Grep":
-		fmt.Printf("  %s %s\n", ui.Dim("[grep] "), step.Content)
+		fmt.Printf("  %s %s\n", ui.Dim("[grep]     "), step.Content)
 	default:
 		detail := step.Tool
 		if step.Path != "" {
 			detail += " " + shortPath(step.Path)
 		}
-		fmt.Printf("  %s %s\n", ui.Dim("[tool] "), detail)
+		fmt.Printf("  %s %s\n", ui.Dim("[tool]     "), detail)
 	}
 }
 

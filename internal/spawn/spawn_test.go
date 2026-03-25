@@ -153,6 +153,21 @@ func TestBuildDetachedScript_NoResume_NoContinueFlag(t *testing.T) {
 	}
 }
 
+func TestBuildDetachedScript_SessionID(t *testing.T) {
+	dir := t.TempDir()
+	promptPath := filepath.Join(dir, "toc-prompt.txt")
+	os.WriteFile(promptPath, []byte("test"), 0644)
+
+	script := runtime.BuildClaudeDetachedScript(runtime.DetachedOptions{
+		Dir: dir, Workspace: "/ws", AgentName: "agent",
+		SessionID: "abc-123", OutputPath: filepath.Join(dir, "toc-output.txt"),
+	}, promptPath)
+
+	if !strings.Contains(script, "--session-id abc-123") {
+		t.Error("script should pass --session-id to claude so JSONL files match the toc session ID")
+	}
+}
+
 func TestBuildDetachedScript_AtomicRename(t *testing.T) {
 	dir := t.TempDir()
 	promptPath := filepath.Join(dir, "toc-prompt.txt")

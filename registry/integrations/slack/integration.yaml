@@ -13,7 +13,7 @@ auth:
     1. Go to https://api.slack.com/apps and sign in
     2. Click "Create New App" → "From scratch" (or select an existing app)
     3. Go to "OAuth & Permissions" in the sidebar
-    4. Under "Redirect URLs", add: https://auth.opencompany.cloud/slack/callback
+    4. Under "Redirect URLs", add: https://toc.opencompany.cloud/slack/callback
     5. Note your Client ID and Client Secret from "Basic Information"
     6. Run `toc integrate add slack` and paste them when prompted
 

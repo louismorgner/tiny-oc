@@ -4,7 +4,7 @@ A Cloudflare Worker that receives OAuth callbacks from Slack and displays the au
 
 ## What it does
 
-Slack requires HTTPS redirect URIs. This worker handles the redirect at `https://auth.opencompany.cloud/slack/callback`, extracts the `?code=` parameter, and displays it in a clean page so the user can copy-paste it into their terminal.
+Slack requires HTTPS redirect URIs. This worker handles the redirect at `https://toc.opencompany.cloud/slack/callback`, extracts the `?code=` parameter, and displays it in a clean page so the user can copy-paste it into their terminal.
 
 No codes are stored, logged, or transmitted anywhere. The worker is completely stateless.
 
@@ -17,9 +17,9 @@ cd web/auth-callback
 npx wrangler deploy
 ```
 
-The worker serves a single route: `https://auth.opencompany.cloud/slack/callback`
+The worker serves a single route: `https://toc.opencompany.cloud/slack/callback`
 
-You'll need to configure the `auth.opencompany.cloud` subdomain in Cloudflare DNS to point to the worker.
+You'll need to configure the `toc.opencompany.cloud` subdomain in Cloudflare DNS to point to the worker.
 
 ## Local development
 

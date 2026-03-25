@@ -3,4 +3,4 @@ main = "worker.js"
 compatibility_date = "2024-01-01"
 
 [route]
-pattern = "auth.opencompany.cloud/slack/*"
+pattern = "toc.opencompany.cloud/slack/*"

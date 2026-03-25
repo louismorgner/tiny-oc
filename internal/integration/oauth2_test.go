@@ -72,7 +72,7 @@ func TestSlackOAuth2Config_AuthorizationURL_UserScopes(t *testing.T) {
 		"https://slack.com/oauth/v2/authorize",
 		"client_id=client123",
 		"user_scope=channels%3Aread%2Cchat%3Awrite%2Csearch%3Aread",
-		"redirect_uri=https%3A%2F%2Fauth.opencompany.cloud%2Fslack%2Fcallback",
+		"redirect_uri=https%3A%2F%2Ftoc.opencompany.cloud%2Fslack%2Fcallback",
 	}
 
 	for _, check := range checks {

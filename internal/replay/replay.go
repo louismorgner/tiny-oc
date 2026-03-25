@@ -52,7 +52,7 @@ func (r *Replay) FormatDuration() string {
 
 // ForSession parses a Claude Code session JSONL and returns a structured Replay.
 func ForSession(sess *session.Session) (*Replay, error) {
-	jsonlPath := sessionJSONLPath(sess.WorkspacePath, sess.ID)
+	jsonlPath := SessionJSONLPath(sess.WorkspacePath, sess.ID)
 	if jsonlPath == "" {
 		return nil, fmt.Errorf("could not resolve JSONL path for session '%s'", sess.ID)
 	}
@@ -100,7 +100,9 @@ func ForSession(sess *session.Session) (*Replay, error) {
 	}, nil
 }
 
-func sessionJSONLPath(workspacePath, sessionID string) string {
+// SessionJSONLPath resolves the path to a Claude Code JSONL session log.
+// Returns "" if the file cannot be found.
+func SessionJSONLPath(workspacePath, sessionID string) string {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return ""
@@ -325,6 +327,19 @@ func collectFilesChanged(steps []Step) []string {
 		}
 	}
 	return files
+}
+
+// ParseJSONLLine parses a single JSONL line and returns any Steps found.
+// Returns nil for non-assistant entries or unparseable lines.
+func ParseJSONLLine(line []byte) []Step {
+	var entry jsonlEntry
+	if err := json.Unmarshal(line, &entry); err != nil {
+		return nil
+	}
+	if entry.Type != "assistant" {
+		return nil
+	}
+	return parseAssistantMessage(entry.Message)
 }
 
 // TruncateThinking truncates thinking text to maxLen chars for display.

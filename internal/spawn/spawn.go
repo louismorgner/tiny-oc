@@ -56,8 +56,12 @@ func SpawnSession(cfg *agent.AgentConfig) (*SpawnResult, error) {
 	}
 
 	if len(cfg.Context) > 0 {
-		if err := setupContextHooks(workDir, srcDir, cfg.Context); err != nil {
+		if err := setupContextHooks(workDir, srcDir, cfg.Context, cfg.OnEnd); err != nil {
 			return nil, fmt.Errorf("failed to setup context sync hooks: %w", err)
+		}
+	} else if cfg.OnEnd != "" {
+		if err := setupOnEndHook(workDir, cfg.OnEnd); err != nil {
+			return nil, fmt.Errorf("failed to setup on_end hook: %w", err)
 		}
 	}
 
@@ -82,6 +86,9 @@ func SpawnSession(cfg *agent.AgentConfig) (*SpawnResult, error) {
 	}
 	if len(cfg.Context) > 0 {
 		ui.Info("Context sync: %s", ui.Dim(fmt.Sprintf("%d pattern(s)", len(cfg.Context))))
+	}
+	if cfg.OnEnd != "" {
+		ui.Info("On end: %s", ui.Dim("session end hook enabled"))
 	}
 	fmt.Println()
 
@@ -123,8 +130,12 @@ func ResumeSession(s *session.Session) (*SpawnResult, error) {
 
 	// Re-setup hooks in case they were cleaned up
 	if len(cfg.Context) > 0 {
-		if err := setupContextHooks(s.WorkspacePath, srcDir, cfg.Context); err != nil {
+		if err := setupContextHooks(s.WorkspacePath, srcDir, cfg.Context, cfg.OnEnd); err != nil {
 			return nil, fmt.Errorf("failed to setup context sync hooks: %w", err)
+		}
+	} else if cfg.OnEnd != "" {
+		if err := setupOnEndHook(s.WorkspacePath, cfg.OnEnd); err != nil {
+			return nil, fmt.Errorf("failed to setup on_end hook: %w", err)
 		}
 	}
 
@@ -252,7 +263,7 @@ export TOC_SESSION_ID=%q
 	return cmd.Process.Release()
 }
 
-func setupContextHooks(workDir, agentDir string, patterns []string) error {
+func setupContextHooks(workDir, agentDir string, patterns []string, onEnd string) error {
 	claudeDir := filepath.Join(workDir, ".claude")
 	if err := os.MkdirAll(claudeDir, 0755); err != nil {
 		return err
@@ -265,11 +276,23 @@ func setupContextHooks(workDir, agentDir string, patterns []string) error {
 		return err
 	}
 
-	// Write settings.json with hook config
+	// Write settings.json with hook config (includes SessionEnd if on_end is set)
 	settingsPath := filepath.Join(claudeDir, "settings.json")
+	settings, err := tocsync.HookSettings(scriptPath, onEnd)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(settingsPath, settings, 0644)
+}
 
-	// Merge with existing settings if present
-	settings, err := tocsync.HookSettings(scriptPath)
+func setupOnEndHook(workDir, onEnd string) error {
+	claudeDir := filepath.Join(workDir, ".claude")
+	if err := os.MkdirAll(claudeDir, 0755); err != nil {
+		return err
+	}
+
+	settingsPath := filepath.Join(claudeDir, "settings.json")
+	settings, err := tocsync.OnEndHookSettings(onEnd)
 	if err != nil {
 		return err
 	}

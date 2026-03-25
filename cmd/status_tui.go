@@ -227,8 +227,13 @@ func (m statusModel) View() tea.View {
 				tokenCol = "  " + dim(tokenStr)
 			}
 
-			b.WriteString(fmt.Sprintf("    %s  %-12s  %-14s  %s%s%s\n",
-				badge, cyan(s.Agent), dim(age), dim(idStr), parent, tokenCol))
+			nameCol := ""
+			if s.Name != "" {
+				nameCol = "  " + cyan(s.Name)
+			}
+
+			b.WriteString(fmt.Sprintf("    %s  %-12s  %-14s  %s%s%s%s\n",
+				badge, cyan(s.Agent), dim(age), dim(idStr), nameCol, parent, tokenCol))
 		}
 		if len(m.sessions) > limit {
 			b.WriteString(fmt.Sprintf("    %s\n", dim(fmt.Sprintf("... and %d more", len(m.sessions)-limit))))

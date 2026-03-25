@@ -231,6 +231,77 @@ func SpawnSubSession(cfg *agent.AgentConfig, opts SubSpawnOpts) (*SpawnResult, e
 	return &SpawnResult{SessionID: sessionID, FailedSkills: failedSkills}, nil
 }
 
+// SubResumeOpts contains options for resuming a sub-agent session.
+type SubResumeOpts struct {
+	ParentSessionID string
+	Prompt          string // optional additional context for the resumed session
+	WorkspaceDir    string
+}
+
+// ResumeSubSession resumes a failed, zombie, or cancelled sub-agent session.
+// The resumed session reuses the existing session directory and conversation history.
+func ResumeSubSession(s *session.Session, opts SubResumeOpts) (*SpawnResult, error) {
+	if _, err := os.Stat(s.WorkspacePath); os.IsNotExist(err) {
+		return nil, fmt.Errorf("session workspace no longer exists: %s", s.WorkspacePath)
+	}
+
+	status := s.ResolvedStatus()
+	if status == "active" {
+		return nil, fmt.Errorf("session '%s' is still active — cannot resume an active session", s.ID)
+	}
+	if status == "stale" {
+		return nil, fmt.Errorf("session '%s' workspace no longer exists", s.ID)
+	}
+
+	agentDir := filepath.Join(opts.WorkspaceDir, ".toc", "agents", s.Agent)
+	cfg, err := agent.LoadFrom(agentDir)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load agent config: %w", err)
+	}
+
+	// Re-provision CLAUDE.md in case the template has changed
+	if err := provisionClaudeMD(s.WorkspacePath, cfg, s.ID); err != nil {
+		return nil, fmt.Errorf("failed to re-provision CLAUDE.md: %w", err)
+	}
+
+	// Re-resolve skills in case they were cleaned up
+	var failedSkills []string
+	if len(cfg.Skills) > 0 {
+		failedSkills = resolveSkills(s.WorkspacePath, cfg.Skills)
+	}
+
+	// Re-setup hooks
+	if err := setupHooks(s.WorkspacePath, agentDir, cfg); err != nil {
+		return nil, fmt.Errorf("failed to setup hooks: %w", err)
+	}
+
+	// Clean up previous run markers so ResolvedStatus tracks the new run
+	for _, marker := range []string{"toc-output.txt", "toc-output.txt.tmp", "toc-exit-code.txt", "toc-pid.txt", "toc-cancelled.txt"} {
+		os.Remove(filepath.Join(s.WorkspacePath, marker))
+	}
+
+	// Update session status back to active
+	_ = session.UpdateStatusInWorkspace(opts.WorkspaceDir, s.ID, session.StatusActive)
+
+	// Build the prompt for the resumed session
+	resumePrompt := "You are resuming a previous session that was interrupted. Check your git status and continue where you left off."
+	if opts.Prompt != "" {
+		resumePrompt = opts.Prompt
+	}
+
+	// Launch claude detached with --continue to resume the previous conversation
+	outputPath := filepath.Join(s.WorkspacePath, "toc-output.txt")
+	if err := launchDetached(detachedOpts{
+		Dir: s.WorkspacePath, Model: cfg.Model, Prompt: resumePrompt,
+		Workspace: opts.WorkspaceDir, AgentName: s.Agent, SessionID: s.ID,
+		OutputPath: outputPath, Resume: true,
+	}); err != nil {
+		return nil, fmt.Errorf("failed to launch resumed sub-agent: %w", err)
+	}
+
+	return &SpawnResult{SessionID: s.ID, FailedSkills: failedSkills}, nil
+}
+
 // detachedOpts contains options for launching a detached claude process.
 type detachedOpts struct {
 	Dir, Model, Prompt, Workspace, AgentName, SessionID, OutputPath string
@@ -307,57 +378,6 @@ TOC_EXIT=$?
 echo $TOC_EXIT > %q
 mv %q %q
 `, pidPath, opts.Dir, opts.Workspace, opts.AgentName, opts.SessionID, args, tmpOutputPath, exitCodePath, tmpOutputPath, opts.OutputPath)
-}
-
-// ResumeSubSession resumes a failed or cancelled sub-agent session.
-// It reuses the existing workspace directory and re-provisions CLAUDE.md and skills,
-// then launches claude with --resume to continue the previous conversation.
-func ResumeSubSession(s *session.Session, opts SubSpawnOpts) (*SpawnResult, error) {
-	if _, err := os.Stat(s.WorkspacePath); os.IsNotExist(err) {
-		return nil, fmt.Errorf("session workspace no longer exists: %s", s.WorkspacePath)
-	}
-
-	// Load agent config from workspace
-	agentDir := filepath.Join(opts.WorkspaceDir, ".toc", "agents", s.Agent)
-	cfgPath := filepath.Join(agentDir, "oc-agent.yaml")
-	cfg, err := agent.LoadFrom(cfgPath, s.Agent)
-	if err != nil {
-		return nil, fmt.Errorf("failed to load agent config: %w", err)
-	}
-
-	// Re-provision CLAUDE.md in case the template has changed
-	if err := provisionClaudeMD(s.WorkspacePath, cfg, s.ID); err != nil {
-		return nil, fmt.Errorf("failed to re-provision CLAUDE.md: %w", err)
-	}
-
-	// Re-resolve skills
-	var failedSkills []string
-	if len(cfg.Skills) > 0 {
-		failedSkills = resolveSkills(s.WorkspacePath, cfg.Skills)
-	}
-
-	// Clean up previous run markers so ResolvedStatus tracks the new run
-	for _, marker := range []string{"toc-output.txt", "toc-output.txt.tmp", "toc-exit-code.txt", "toc-pid.txt", "toc-cancelled.txt"} {
-		os.Remove(filepath.Join(s.WorkspacePath, marker))
-	}
-
-	// Build the prompt for the resumed session
-	resumePrompt := "You are resuming a previous session that was interrupted. Check your git status and continue where you left off."
-	if opts.Prompt != "" {
-		resumePrompt = opts.Prompt
-	}
-
-	// Launch claude detached with --continue to resume the previous conversation
-	outputPath := filepath.Join(s.WorkspacePath, "toc-output.txt")
-	if err := launchDetached(detachedOpts{
-		Dir: s.WorkspacePath, Model: cfg.Model, Prompt: resumePrompt,
-		Workspace: opts.WorkspaceDir, AgentName: s.Agent, SessionID: s.ID,
-		OutputPath: outputPath, Resume: true,
-	}); err != nil {
-		return nil, fmt.Errorf("failed to launch resumed sub-agent: %w", err)
-	}
-
-	return &SpawnResult{SessionID: s.ID, FailedSkills: failedSkills}, nil
 }
 
 // setupHooks generates .claude/settings.json with all hooks: context sync,
@@ -646,4 +666,3 @@ func provisionClaudeMD(workDir string, cfg *agent.AgentConfig, sessionID string)
 
 	return os.WriteFile(claudeMD, []byte(content+"\n"), 0644)
 }
-

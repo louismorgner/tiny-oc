@@ -233,7 +233,6 @@ func FindByID(id string) (*Session, error) {
 	return nil, fmt.Errorf("session '%s' not found", id)
 }
 
-// FindByIDInWorkspace looks up a session by ID using a specific workspace path.
 // AddInWorkspace adds a session record using a specific workspace path.
 func AddInWorkspace(workspace string, s Session) error {
 	path := workspace + "/.toc/sessions.yaml"

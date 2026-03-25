@@ -188,14 +188,22 @@ func Exists(name string) bool {
 }
 
 func Load(name string) (*AgentConfig, error) {
-	return LoadFrom(filepath.Join(Dir(name), "oc-agent.yaml"), name)
-}
-
-// LoadFrom loads an agent config from a specific file path.
-func LoadFrom(path, name string) (*AgentConfig, error) {
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(filepath.Join(Dir(name), "oc-agent.yaml"))
 	if err != nil {
 		return nil, fmt.Errorf("agent '%s' not found: %w", name, err)
+	}
+	var cfg AgentConfig
+	if err := yaml.Unmarshal(data, &cfg); err != nil {
+		return nil, fmt.Errorf("failed to parse agent config: %w", err)
+	}
+	return &cfg, nil
+}
+
+// LoadFrom loads an agent config from a specific directory path.
+func LoadFrom(dir string) (*AgentConfig, error) {
+	data, err := os.ReadFile(filepath.Join(dir, "oc-agent.yaml"))
+	if err != nil {
+		return nil, fmt.Errorf("agent config not found in %s: %w", dir, err)
 	}
 	var cfg AgentConfig
 	if err := yaml.Unmarshal(data, &cfg); err != nil {

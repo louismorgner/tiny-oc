@@ -11,10 +11,8 @@ import (
 	"github.com/tiny-oc/toc/internal/ui"
 )
 
-var (
-	runtimeSpawnPrompt string
-	runtimeSpawnResume string
-)
+var runtimeSpawnPrompt string
+var runtimeSpawnResume string
 
 func init() {
 	runtimeSpawnCmd.Flags().StringVarP(&runtimeSpawnPrompt, "prompt", "p", "", "Task prompt for the sub-agent")
@@ -26,6 +24,13 @@ var runtimeSpawnCmd = &cobra.Command{
 	Use:   "spawn <agent-name>",
 	Short: "Spawn a sub-agent session in the background",
 	Args:  cobra.ExactArgs(1),
+	PreRunE: func(cmd *cobra.Command, args []string) error {
+		// --prompt is required unless --resume is set
+		if runtimeSpawnResume == "" && runtimeSpawnPrompt == "" {
+			return fmt.Errorf("required flag \"prompt\" not set (use --prompt or --resume)")
+		}
+		return nil
+	},
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx, err := runtime.FromEnv()
 		if err != nil {
@@ -44,17 +49,12 @@ var runtimeSpawnCmd = &cobra.Command{
 			return fmt.Errorf("agent '%s' is not allowed to spawn '%s' — check sub-agents config in oc-agent.yaml", ctx.Agent, targetName)
 		}
 
-		// Resume path
+		// Resume flow
 		if runtimeSpawnResume != "" {
-			return resumeSubAgent(ctx, targetName)
+			return resumeSubAgent(ctx, targetName, runtimeSpawnResume, runtimeSpawnPrompt)
 		}
 
-		// Normal spawn path — prompt is required
-		if runtimeSpawnPrompt == "" {
-			return fmt.Errorf("--prompt is required when spawning a new sub-agent (use --resume to resume a failed session)")
-		}
-
-		// Load target agent
+		// Normal spawn flow
 		targetCfg, err := ctx.LoadTargetAgent(targetName)
 		if err != nil {
 			return fmt.Errorf("agent '%s' not found in workspace", targetName)
@@ -89,34 +89,25 @@ var runtimeSpawnCmd = &cobra.Command{
 	},
 }
 
-func resumeSubAgent(ctx *runtime.Context, targetName string) error {
-	s, err := session.FindByIDInWorkspace(ctx.Workspace, runtimeSpawnResume)
+func resumeSubAgent(ctx *runtime.Context, targetName, resumeID, prompt string) error {
+	s, err := session.FindByIDPrefixInWorkspace(ctx.Workspace, resumeID)
 	if err != nil {
-		return fmt.Errorf("session not found: %w", err)
+		return fmt.Errorf("failed to find session to resume: %w", err)
 	}
 
 	if s.Agent != targetName {
-		return fmt.Errorf("session '%s' belongs to agent '%s', not '%s'", runtimeSpawnResume, s.Agent, targetName)
+		return fmt.Errorf("session '%s' belongs to agent '%s', not '%s'", s.ID, s.Agent, targetName)
 	}
 
 	if s.ParentSessionID != ctx.SessionID {
-		return fmt.Errorf("session '%s' is not a sub-agent of this session", runtimeSpawnResume)
+		return fmt.Errorf("session '%s' is not a sub-agent of this session", s.ID)
 	}
 
-	// Only allow resuming failed, zombie, or cancelled sessions
-	status := s.ResolvedStatus()
-	switch status {
-	case session.StatusCompletedError, session.StatusZombie, session.StatusCancelled:
-		// OK to resume
-	default:
-		return fmt.Errorf("cannot resume session in '%s' state (only failed, zombie, or cancelled sessions can be resumed)", status)
-	}
+	ui.Info("Resuming sub-agent %s (session %s)...", ui.Bold(targetName), ui.Cyan(s.ID[:8]))
 
-	ui.Info("Resuming sub-agent %s...", ui.Bold(targetName))
-
-	result, err := spawn.ResumeSubSession(s, spawn.SubSpawnOpts{
+	result, err := spawn.ResumeSubSession(s, spawn.SubResumeOpts{
 		ParentSessionID: ctx.SessionID,
-		Prompt:          runtimeSpawnPrompt,
+		Prompt:          prompt,
 		WorkspaceDir:    ctx.Workspace,
 	})
 	if err != nil {
@@ -128,7 +119,7 @@ func resumeSubAgent(ctx *runtime.Context, targetName string) error {
 		"parent_session": ctx.SessionID,
 		"target_agent":   targetName,
 		"session_id":     result.SessionID,
-		"prompt":         runtimeSpawnPrompt,
+		"prompt":         prompt,
 	})
 
 	fmt.Println()

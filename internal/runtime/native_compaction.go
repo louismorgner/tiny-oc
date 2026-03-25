@@ -62,7 +62,7 @@ func maybeCompactState(state *State, sess *session.Session, cfg *SessionConfig) 
 		}
 	}
 
-	_ = summary
+	_ = summary // summary text is already embedded in the compacted messages; return value unused
 	return true, nil
 }
 

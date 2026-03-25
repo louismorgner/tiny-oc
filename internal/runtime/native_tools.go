@@ -282,6 +282,9 @@ func nativeBash(ctx nativeToolContext, call ToolCall) toolExecution {
 	defer cancel()
 
 	start := time.Now()
+	// sh -lc loads the user's login shell profile so tools like nvm, rbenv,
+	// and custom PATH entries are available. This can cause surprising failures
+	// if the user's shell profile (.zshrc, .bashrc, etc.) contains errors.
 	cmd := exec.CommandContext(ctxExec, "sh", "-lc", args.Command)
 	cmd.Dir = ctx.SessionDir
 	output, err := cmd.CombinedOutput()

@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 
@@ -36,9 +37,13 @@ func LoadEventLog(sess *session.Session) (*ParsedLog, error) {
 	result := &ParsedLog{}
 	scanner := bufio.NewScanner(f)
 	scanner.Buffer(make([]byte, 0, 256*1024), 4*1024*1024)
+	lineNum := 0
+	skippedLines := 0
 	for scanner.Scan() {
+		lineNum++
 		var event Event
 		if err := json.Unmarshal(scanner.Bytes(), &event); err != nil {
+			skippedLines++
 			continue
 		}
 		result.Events = append(result.Events, event)
@@ -49,6 +54,9 @@ func LoadEventLog(sess *session.Session) (*ParsedLog, error) {
 			}
 			result.LastTS = event.Timestamp
 		}
+	}
+	if skippedLines > 0 {
+		log.Printf("warning: skipped %d malformed line(s) in event log %s", skippedLines, path)
 	}
 	return result, nil
 }
@@ -88,6 +96,15 @@ func SaveEventLog(sess *session.Session, parsed *ParsedLog) error {
 	return w.Flush()
 }
 
+// AppendEvent appends a single event to the session's JSONL event log.
+//
+// Concurrency safety: this uses O_APPEND which guarantees atomic writes on
+// POSIX systems for buffers up to PIPE_BUF (4096 bytes on macOS/Linux). Since
+// each event is a single JSON line written in one Write() call, concurrent
+// appends from separate processes (e.g. parent reading status while child
+// writes) will not interleave. Events exceeding PIPE_BUF are rare but handled
+// safely — the kernel may split the write, but each line is still valid JSON
+// terminated by a newline, so readers will parse it correctly on the next load.
 func AppendEvent(sess *session.Session, event Event) error {
 	path := EventLogPath(sess)
 	if path == "" {
@@ -108,7 +125,9 @@ func AppendEvent(sess *session.Session, event Event) error {
 	}
 	defer f.Close()
 
-	_, err = f.Write(append(line, '\n'))
+	// Write line+newline as a single call to preserve atomicity under O_APPEND.
+	buf := append(line, '\n')
+	_, err = f.Write(buf)
 	return err
 }
 

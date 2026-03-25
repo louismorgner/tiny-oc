@@ -4,7 +4,6 @@ import (
 	"fmt"
 
 	"github.com/spf13/cobra"
-	"github.com/tiny-oc/toc/internal/audit"
 	"github.com/tiny-oc/toc/internal/config"
 	"github.com/tiny-oc/toc/internal/registry"
 	"github.com/tiny-oc/toc/internal/ui"
@@ -47,7 +46,7 @@ var agentAddCmd = &cobra.Command{
 			return err
 		}
 
-		_ = audit.Log("agent.add", map[string]interface{}{
+		auditLog("agent.add", map[string]interface{}{
 			"agent":  entry.Name,
 			"source": "registry",
 		})

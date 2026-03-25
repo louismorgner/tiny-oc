@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.2.0] - 2026-03-24
 
 ### Added
 
@@ -22,6 +22,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Cross-type error messages: `toc skill add <agent-name>` suggests `toc agent add` and vice versa.
 - New `mini-claw` agent template: persistent agent with identity, memory, and session awareness inspired by OpenClaw.
 - New `agentic-memory` skill: two-tier memory system with daily logs (`memory/YYYY-MM-DD.md`) and long-term storage (`memory/MEMORY.md`).
+- Token usage tracking: `toc status` now shows per-session token usage (input, output, cache read/create) parsed from Claude Code JSONL logs.
+
+### Changed
+
+- Git hook injection prevention: all git clone operations now disable hooks via `-c core.hooksPath=/dev/null`.
+- HTTPS-only enforcement for all skill and agent URLs.
+- Session directories now use `os.MkdirTemp` for unpredictable paths (prevents symlink attacks).
+- Audit log and session files hardened to 0600 permissions (owner-only read/write).
+- HTTP client timeout (30s) added to registry fetches.
+- UTF-8 safe truncation in skill/agent table display.
 
 ## [0.1.0] - 2026-03-24
 
@@ -40,5 +50,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `toc completion` for bash, zsh, and fish with dynamic completion of agent names and session IDs.
 - `install.sh` for building and symlinking the binary to PATH.
 
-[unreleased]: https://github.com/tiny-oc/toc/compare/v0.1.0...HEAD
-[0.1.0]: https://github.com/tiny-oc/toc/releases/tag/v0.1.0
+[unreleased]: https://github.com/louismorgner/tiny-oc/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/louismorgner/tiny-oc/compare/v0.1.0...v0.2.0
+[0.1.0]: https://github.com/louismorgner/tiny-oc/releases/tag/v0.1.0

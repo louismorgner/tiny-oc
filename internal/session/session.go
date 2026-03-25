@@ -169,7 +169,7 @@ func AddInWorkspace(workspace string, s Session) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, out, 0644)
+	return os.WriteFile(path, out, 0600)
 }
 
 // UpdateStatusInWorkspace updates session status using a specific workspace path.
@@ -190,7 +190,7 @@ func UpdateStatusInWorkspace(workspace, id, status string) error {
 			if err != nil {
 				return err
 			}
-			return os.WriteFile(path, out, 0644)
+			return os.WriteFile(path, out, 0600)
 		}
 	}
 	return fmt.Errorf("session '%s' not found", id)

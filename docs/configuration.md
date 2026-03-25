@@ -151,11 +151,30 @@ The prompt is written directly in your agent config — use it to describe what 
 Sessions are tracked in `.toc/sessions.yaml`:
 
 ```yaml
-- id: 550e8400-e29b-41d4-a716-446655440000
-  agent: pr-reviewer
-  created: "2026-03-24T10:30:00Z"
-  workspace: /tmp/toc-sessions/pr-reviewer-1711273800
+sessions:
+  - id: 550e8400-e29b-41d4-a716-446655440000
+    agent: pr-reviewer
+    created_at: "2026-03-24T10:30:00Z"
+    workspace_path: /tmp/toc-sessions/pr-reviewer-abc123
+    status: completed
+  - id: 770e8400-e29b-41d4-a716-446655440001
+    agent: researcher
+    created_at: "2026-03-24T11:00:00Z"
+    workspace_path: /tmp/toc-sessions/researcher-def456
+    status: active
+    parent_session_id: 550e8400-e29b-41d4-a716-446655440000
+    prompt: "Research the latest security advisories for our dependencies"
 ```
+
+| Field | Description |
+|---|---|
+| `id` | Unique session UUID |
+| `agent` | Agent name |
+| `created_at` | UTC timestamp |
+| `workspace_path` | Isolated session directory |
+| `status` | `active` or `completed` |
+| `parent_session_id` | Parent session ID (sub-agents only) |
+| `prompt` | Prompt given to the sub-agent (sub-agents only) |
 
 Session workspaces live in `/tmp/toc-sessions/`. They persist until your system clears temp files or you manually delete them.
 

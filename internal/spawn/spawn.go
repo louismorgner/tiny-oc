@@ -210,8 +210,14 @@ func SpawnSubSession(cfg *agent.AgentConfig, opts SubSpawnOpts) (*SpawnResult, e
 // launchClaudeDetached starts claude in a detached process via a wrapper script
 // so the sub-agent outlives the parent toc process.
 func launchClaudeDetached(dir, model, prompt, workspace, agentName, sessionID, outputPath string) error {
-	// Build claude command
-	args := fmt.Sprintf("claude --dangerously-skip-permissions --print -p %q", prompt)
+	// Write the prompt to a file to avoid shell injection via interpolation.
+	promptPath := filepath.Join(dir, "toc-prompt.txt")
+	if err := os.WriteFile(promptPath, []byte(prompt), 0644); err != nil {
+		return err
+	}
+
+	// Build claude command that reads prompt from the file.
+	args := fmt.Sprintf("claude --dangerously-skip-permissions --print -p \"$(cat %q)\"", promptPath)
 	if model != "" {
 		args += fmt.Sprintf(" --model %s", model)
 	}

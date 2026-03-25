@@ -2,6 +2,7 @@ package audit
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"os"
 	"strings"
@@ -144,7 +145,7 @@ func LogFromWorkspace(workspacePath string, action string, details map[string]in
 	cfgPath := workspacePath + "/.toc/config.yaml"
 	if data, err := os.ReadFile(cfgPath); err == nil {
 		// Simple extraction — just get the name field
-		for _, line := range splitLines(data) {
+		for _, line := range bytes.Split(data, []byte("\n")) {
 			if len(line) > 6 && string(line[:5]) == "name:" {
 				workspace = strings.TrimSpace(string(line[5:]))
 				break
@@ -178,21 +179,6 @@ func LogFromWorkspace(workspacePath string, action string, details map[string]in
 
 	_, err = f.Write(line)
 	return err
-}
-
-func splitLines(data []byte) [][]byte {
-	var lines [][]byte
-	start := 0
-	for i, b := range data {
-		if b == '\n' {
-			lines = append(lines, data[start:i])
-			start = i + 1
-		}
-	}
-	if start < len(data) {
-		lines = append(lines, data[start:])
-	}
-	return lines
 }
 
 // version is set by the cmd package at init time.

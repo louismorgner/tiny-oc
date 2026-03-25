@@ -37,30 +37,6 @@ func (cfg *AgentConfig) CanSpawnAny() bool {
 	return len(cfg.SubAgents) > 0
 }
 
-// AllowedTargets returns the list of agent names this agent can spawn,
-// resolving wildcards against the workspace agent list.
-func (cfg *AgentConfig) AllowedTargets() ([]string, error) {
-	if !cfg.CanSpawnAny() {
-		return nil, nil
-	}
-	for _, entry := range cfg.SubAgents {
-		if entry == "*" {
-			all, err := List()
-			if err != nil {
-				return nil, err
-			}
-			var names []string
-			for _, a := range all {
-				if a.Name != cfg.Name { // don't list self
-					names = append(names, a.Name)
-				}
-			}
-			return names, nil
-		}
-	}
-	return cfg.SubAgents, nil
-}
-
 func ValidateName(name string) error {
 	if !validName.MatchString(name) {
 		return fmt.Errorf("agent name must be lowercase alphanumeric with hyphens (e.g. 'pr-reviewer')")

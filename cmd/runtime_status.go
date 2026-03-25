@@ -96,7 +96,7 @@ func listSubAgentStatuses(ctx *runtime.Context) error {
 		case "active":
 			badge = ui.Green("● active")
 		case "completed":
-			badge = "○ done"
+			badge = ui.Green("● completed")
 		case "stale":
 			badge = ui.Yellow("◌ stale")
 		}

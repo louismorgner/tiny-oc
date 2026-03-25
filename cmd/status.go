@@ -150,9 +150,7 @@ func printStaticStatus(cfg *config.WorkspaceConfig) error {
 	} else {
 		shown := make([]session.Session, len(sf.Sessions))
 		copy(shown, sf.Sessions)
-		sort.Slice(shown, func(i, j int) bool {
-			return shown[i].CreatedAt.After(shown[j].CreatedAt)
-		})
+		sortSessions(shown)
 		if len(shown) > 5 {
 			shown = shown[:5]
 		}
@@ -185,6 +183,18 @@ func printStaticStatus(cfg *config.WorkspaceConfig) error {
 	fmt.Println()
 
 	return nil
+}
+
+// sortSessions sorts active/running sessions first, then by most recent.
+func sortSessions(sessions []session.Session) {
+	sort.Slice(sessions, func(i, j int) bool {
+		ai := sessions[i].ResolvedStatus() == "active"
+		aj := sessions[j].ResolvedStatus() == "active"
+		if ai != aj {
+			return ai
+		}
+		return sessions[i].CreatedAt.After(sessions[j].CreatedAt)
+	})
 }
 
 func timeAgo(t time.Time) string {

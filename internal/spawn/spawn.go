@@ -308,15 +308,18 @@ func setupOnEndHook(workDir, onEnd string) error {
 }
 
 func runPostSessionSync(workDir, agentDir string, patterns []string) int {
-	count, err := tocsync.SyncBack(workDir, agentDir, patterns)
+	synced, err := tocsync.SyncBack(workDir, agentDir, patterns)
 	if err != nil {
 		ui.Warn("Context sync error: %s", err)
 		return 0
 	}
-	if count > 0 {
-		ui.Success("Synced %d context file(s) back to agent template", count)
+	if len(synced) > 0 {
+		ui.Success("Synced %d context file(s) back to agent template", len(synced))
+		for _, f := range synced {
+			fmt.Printf("    %s %s\n", ui.Dim("▪"), ui.Dim(f))
+		}
 	}
-	return count
+	return len(synced)
 }
 
 func printResumeCommand(agentName, sessionID string) {

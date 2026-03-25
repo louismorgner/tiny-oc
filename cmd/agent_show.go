@@ -72,8 +72,8 @@ var agentShowCmd = &cobra.Command{
 			fmt.Println()
 		}
 
-		if len(cfg.SubAgents) > 0 {
-			fmt.Printf("  %s %s\n", ui.Bold("Sub-agents:"), strings.Join(cfg.SubAgents, ", "))
+		if len(cfg.SubAgentsCompat) > 0 {
+			fmt.Printf("  %s %s\n", ui.Bold("Sub-agents:"), strings.Join(cfg.SubAgentsCompat, ", "))
 			fmt.Println()
 		}
 

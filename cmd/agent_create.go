@@ -128,7 +128,7 @@ var agentCreateCmd = &cobra.Command{
 			Model:       model,
 			Context:     contextPatterns,
 			Skills:      skills,
-			SubAgents:   subAgents,
+			SubAgentsCompat: subAgents,
 			OnEnd:       strings.TrimSpace(onEnd),
 			Compose:     compose,
 		}

@@ -171,7 +171,7 @@ func LogFromWorkspace(workspacePath string, action string, details map[string]in
 	line = append(line, '\n')
 
 	auditPath := workspacePath + "/.toc/audit.log"
-	f, err := os.OpenFile(auditPath, os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0644)
+	f, err := os.OpenFile(auditPath, os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0600)
 	if err != nil {
 		return err
 	}

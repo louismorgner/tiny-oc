@@ -10,7 +10,7 @@ This guide walks you through installing toc and spawning your first agent sessio
 ## Installation
 
 ```bash
-git clone https://github.com/tiny-oc/toc.git
+git clone https://github.com/louismorgner/tiny-oc.git
 cd toc
 make build
 ./install.sh

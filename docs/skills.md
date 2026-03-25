@@ -107,23 +107,23 @@ toc skill remove <name>
 
 Removes the local skill directory and/or its URL reference.
 
-## Built-in registry skills
+## Built-in registry
 
-The toc registry includes starter skills:
+The toc registry includes skills and agent templates:
 
-| Skill | Description |
-|---|---|
-| `agentic-memory` | Two-tier memory system — daily logs and long-term memory for persistent agents |
-| `code-review` | Reviews code changes for quality, bugs, and style issues |
-| `commit-msg` | Generates conventional commit messages from staged changes |
-| `open-source-cto` | Strategic technical leadership for open-source projects |
-| `test-writer` | Generates unit tests for functions and methods |
+| Name | Type | Description |
+|---|---|---|
+| `open-source-cto` | skill | Technical decision-making and code quality standards from an open-source CTO perspective |
+| `agentic-memory` | skill | Persistent memory system with daily logs and long-term storage for cross-session continuity |
+| `cto` | agent | Technical leadership agent — code quality, architecture, and open-source standards |
+| `mini-claw` | agent | Persistent agent with identity, memory, and session awareness — inspired by OpenClaw |
 
 Install from the registry:
 
 ```bash
 toc skill add <skill-name>
 toc agent add <agent-name>    # for agent templates (e.g. cto, mini-claw)
+toc registry search            # browse all available entries
 ```
 
-These are available from the [toc registry](https://github.com/tiny-oc/toc/tree/main/registry).
+These are available from the [toc registry](https://github.com/louismorgner/tiny-oc/tree/main/registry).

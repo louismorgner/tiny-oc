@@ -4,6 +4,14 @@ description: Technical leadership agent — code quality, architecture, and open
 model: sonnet
 skills:
   - open-source-cto
+  - agentic-memory
+context:
+  - BOOTSTRAP.md
+  - project.md
+  - memory/
+compose:
+  - BOOTSTRAP.md
+  - project.md
 permissions:
   sub-agents:
     "*": "on"

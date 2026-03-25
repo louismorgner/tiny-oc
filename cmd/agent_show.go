@@ -72,12 +72,37 @@ var agentShowCmd = &cobra.Command{
 			fmt.Println()
 		}
 
-		if cfg.Perms != nil && len(cfg.Perms.SubAgents) > 0 {
-			fmt.Printf("  %s\n", ui.Bold("Sub-agents:"))
-			for name, level := range cfg.Perms.SubAgents {
-				fmt.Printf("    %s %s: %s\n", ui.Dim("▪"), name, level)
+		if cfg.Perms != nil {
+			fs := cfg.Perms.Filesystem
+			if fs.Read != "" || fs.Write != "" || fs.Execute != "" {
+				fmt.Printf("  %s\n", ui.Bold("Filesystem:"))
+				if fs.Read != "" {
+					fmt.Printf("    %s read: %s\n", ui.Dim("▪"), fs.Read)
+				}
+				if fs.Write != "" {
+					fmt.Printf("    %s write: %s\n", ui.Dim("▪"), fs.Write)
+				}
+				if fs.Execute != "" {
+					fmt.Printf("    %s execute: %s\n", ui.Dim("▪"), fs.Execute)
+				}
+				fmt.Println()
 			}
-			fmt.Println()
+
+			if len(cfg.Perms.Integrations) > 0 {
+				fmt.Printf("  %s\n", ui.Bold("Integrations:"))
+				for name, level := range cfg.Perms.Integrations {
+					fmt.Printf("    %s %s: %s\n", ui.Dim("▪"), name, level)
+				}
+				fmt.Println()
+			}
+
+			if len(cfg.Perms.SubAgents) > 0 {
+				fmt.Printf("  %s\n", ui.Bold("Sub-agents:"))
+				for name, level := range cfg.Perms.SubAgents {
+					fmt.Printf("    %s %s: %s\n", ui.Dim("▪"), name, level)
+				}
+				fmt.Println()
+			}
 		}
 
 		if cfg.OnEnd != "" {

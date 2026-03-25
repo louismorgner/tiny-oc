@@ -174,72 +174,6 @@ func SyncFile(filePath, sessionDir, agentDir string, patterns []string) (bool, e
 	return true, fileutil.CopyFile(filePath, dst)
 }
 
-// HookSettings generates the .claude/settings.json content for hooks.
-// When onEnd is non-empty, a SessionEnd hook with an agent-type handler is added
-// so that Claude is prompted to persist context before the session closes.
-func HookSettings(syncScriptPath string, onEnd string) ([]byte, error) {
-	hooks := map[string]interface{}{
-		"PostToolUse": []map[string]interface{}{
-			{
-				"matcher": "Edit|Write|MultiEdit",
-				"hooks": []map[string]interface{}{
-					{
-						"type":    "command",
-						"command": syncScriptPath,
-					},
-				},
-			},
-		},
-	}
-
-	if onEnd != "" {
-		hooks["SessionEnd"] = []map[string]interface{}{
-			{
-				"hooks": []map[string]interface{}{
-					{
-						"type":   "agent",
-						"prompt": onEnd,
-					},
-				},
-			},
-		}
-	}
-
-	settings := map[string]interface{}{
-		"hooks": hooks,
-	}
-	return json.MarshalIndent(settings, "", "  ")
-}
-
-// MergePermissionHooks adds PreToolUse hooks for permission enforcement into
-// an existing settings map. If settings is nil, creates a new one.
-func MergePermissionHooks(settings map[string]interface{}, scriptPath string) map[string]interface{} {
-	if settings == nil {
-		settings = map[string]interface{}{}
-	}
-
-	hooks, _ := settings["hooks"].(map[string]interface{})
-	if hooks == nil {
-		hooks = map[string]interface{}{}
-	}
-
-	preToolUse, _ := hooks["PreToolUse"].([]interface{})
-
-	// Add the permission enforcement hook — it matches all tools
-	preToolUse = append(preToolUse, map[string]interface{}{
-		"hooks": []map[string]interface{}{
-			{
-				"type":    "command",
-				"command": scriptPath,
-			},
-		},
-	})
-
-	hooks["PreToolUse"] = preToolUse
-	settings["hooks"] = hooks
-	return settings
-}
-
 // HookSettingsWithPermissions generates settings.json content that includes
 // both existing hooks (sync, on_end) and permission enforcement hooks.
 func HookSettingsWithPermissions(syncScriptPath string, onEnd string, permScriptPath string) ([]byte, error) {
@@ -287,26 +221,6 @@ func HookSettingsWithPermissions(syncScriptPath string, onEnd string, permScript
 
 	settings := map[string]interface{}{
 		"hooks": hooks,
-	}
-	return json.MarshalIndent(settings, "", "  ")
-}
-
-// OnEndHookSettings generates a .claude/settings.json with only a SessionEnd hook.
-// Used when context sync patterns are not configured but on_end is.
-func OnEndHookSettings(onEnd string) ([]byte, error) {
-	settings := map[string]interface{}{
-		"hooks": map[string]interface{}{
-			"SessionEnd": []map[string]interface{}{
-				{
-					"hooks": []map[string]interface{}{
-						{
-							"type":   "agent",
-							"prompt": onEnd,
-						},
-					},
-				},
-			},
-		},
 	}
 	return json.MarshalIndent(settings, "", "  ")
 }

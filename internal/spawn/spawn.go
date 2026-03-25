@@ -307,42 +307,6 @@ func setupHooks(workDir, agentDir string, cfg *agent.AgentConfig) error {
 	return os.WriteFile(settingsPath, settings, 0644)
 }
 
-func setupContextHooks(workDir, agentDir string, patterns []string, onEnd string) error {
-	claudeDir := filepath.Join(workDir, ".claude")
-	if err := os.MkdirAll(claudeDir, 0755); err != nil {
-		return err
-	}
-
-	// Write sync script
-	scriptPath := filepath.Join(claudeDir, "toc-sync.sh")
-	script := tocsync.SyncScript(workDir, agentDir, patterns)
-	if err := os.WriteFile(scriptPath, []byte(script), 0755); err != nil {
-		return err
-	}
-
-	// Write settings.json with hook config (includes SessionEnd if on_end is set)
-	settingsPath := filepath.Join(claudeDir, "settings.json")
-	settings, err := tocsync.HookSettings(scriptPath, onEnd)
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(settingsPath, settings, 0644)
-}
-
-func setupOnEndHook(workDir, onEnd string) error {
-	claudeDir := filepath.Join(workDir, ".claude")
-	if err := os.MkdirAll(claudeDir, 0755); err != nil {
-		return err
-	}
-
-	settingsPath := filepath.Join(claudeDir, "settings.json")
-	settings, err := tocsync.OnEndHookSettings(onEnd)
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(settingsPath, settings, 0644)
-}
-
 func runPostSessionSync(workDir, agentDir string, patterns []string) int {
 	synced, err := tocsync.SyncBack(workDir, agentDir, patterns)
 	if err != nil {

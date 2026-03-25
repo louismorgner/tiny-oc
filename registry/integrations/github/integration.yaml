@@ -1,0 +1,158 @@
+name: github
+description: GitHub API — issues, pull requests, and repositories
+auth:
+  method: token
+  setup_url: https://github.com/settings/tokens
+  required_scopes:
+    - repo
+    - read:org
+
+actions:
+  issues.read:
+    description: Read issues from a repository
+    scopes:
+      "*": any repository
+    params:
+      - name: repo
+        required: true
+      - name: state
+        required: false
+        default: open
+      - name: per_page
+        required: false
+        default: "30"
+    method: GET
+    endpoint: https://api.github.com/repos/{{repo}}/issues
+    auth_header: "Bearer {{token}}"
+    body_format: query
+    rate_limit:
+      max: 30
+      window: 60s
+    returns:
+      - "[].number"
+      - "[].title"
+      - "[].state"
+      - "[].user.login"
+      - "[].labels[].name"
+      - "[].created_at"
+      - "[].updated_at"
+
+  issues.write:
+    description: Create an issue in a repository
+    scopes:
+      "*": any repository
+    params:
+      - name: repo
+        required: true
+      - name: title
+        required: true
+      - name: body
+        required: false
+    method: POST
+    endpoint: https://api.github.com/repos/{{repo}}/issues
+    auth_header: "Bearer {{token}}"
+    body_format: json
+    rate_limit:
+      max: 10
+      window: 60s
+    returns:
+      - number
+      - title
+      - html_url
+
+  issues.comment:
+    description: Add a comment to an issue
+    scopes:
+      "*": any repository
+    params:
+      - name: repo
+        required: true
+      - name: issue_number
+        required: true
+      - name: body
+        required: true
+    method: POST
+    endpoint: https://api.github.com/repos/{{repo}}/issues/{{issue_number}}/comments
+    auth_header: "Bearer {{token}}"
+    body_format: json
+    rate_limit:
+      max: 10
+      window: 60s
+    returns:
+      - id
+      - body
+      - html_url
+
+  pulls.read:
+    description: Read pull requests from a repository
+    scopes:
+      "*": any repository
+    params:
+      - name: repo
+        required: true
+      - name: state
+        required: false
+        default: open
+      - name: per_page
+        required: false
+        default: "30"
+    method: GET
+    endpoint: https://api.github.com/repos/{{repo}}/pulls
+    auth_header: "Bearer {{token}}"
+    body_format: query
+    rate_limit:
+      max: 30
+      window: 60s
+    returns:
+      - "[].number"
+      - "[].title"
+      - "[].state"
+      - "[].user.login"
+      - "[].head.ref"
+      - "[].base.ref"
+      - "[].created_at"
+
+  pulls.comment:
+    description: Add a review comment to a pull request
+    scopes:
+      "*": any repository
+    params:
+      - name: repo
+        required: true
+      - name: pull_number
+        required: true
+      - name: body
+        required: true
+    method: POST
+    endpoint: https://api.github.com/repos/{{repo}}/pulls/{{pull_number}}/reviews
+    auth_header: "Bearer {{token}}"
+    body_format: json
+    rate_limit:
+      max: 10
+      window: 60s
+    returns:
+      - id
+      - body
+      - html_url
+
+  repos.read:
+    description: Get repository information
+    scopes:
+      "*": any repository
+    params:
+      - name: repo
+        required: true
+    method: GET
+    endpoint: https://api.github.com/repos/{{repo}}
+    auth_header: "Bearer {{token}}"
+    body_format: query
+    rate_limit:
+      max: 30
+      window: 60s
+    returns:
+      - full_name
+      - description
+      - default_branch
+      - open_issues_count
+      - stargazers_count
+      - language

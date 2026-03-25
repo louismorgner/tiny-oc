@@ -1,6 +1,7 @@
 package spawn
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -10,8 +11,10 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/tiny-oc/toc/internal/agent"
+	"github.com/tiny-oc/toc/internal/config"
 	"github.com/tiny-oc/toc/internal/fileutil"
 	"github.com/tiny-oc/toc/internal/gitutil"
+	"github.com/tiny-oc/toc/internal/integration"
 	"github.com/tiny-oc/toc/internal/registry"
 	"github.com/tiny-oc/toc/internal/session"
 	"github.com/tiny-oc/toc/internal/skill"
@@ -61,6 +64,11 @@ func SpawnSession(cfg *agent.AgentConfig) (*SpawnResult, error) {
 
 	if err := setupHooks(workDir, srcDir, cfg); err != nil {
 		return nil, fmt.Errorf("failed to setup hooks: %w", err)
+	}
+
+	// Write resolved permission manifest for integration gateway enforcement
+	if err := writePermissionManifest(sessionID, cfg); err != nil {
+		return nil, fmt.Errorf("failed to write permission manifest: %w", err)
 	}
 
 	if err := session.Add(session.Session{
@@ -194,6 +202,11 @@ func SpawnSubSession(cfg *agent.AgentConfig, opts SubSpawnOpts) (*SpawnResult, e
 	var failedSkills []string
 	if len(cfg.Skills) > 0 {
 		failedSkills = resolveSkills(workDir, cfg.Skills)
+	}
+
+	// Write resolved permission manifest for sub-agent
+	if err := writePermissionManifestInWorkspace(opts.WorkspaceDir, sessionID, cfg); err != nil {
+		return nil, fmt.Errorf("failed to write permission manifest: %w", err)
 	}
 
 	if err := session.AddInWorkspace(opts.WorkspaceDir, session.Session{
@@ -457,6 +470,61 @@ func printFailedSkills(failed []string) {
 		fmt.Printf("  %s %s\n", ui.Red("✗"), s)
 	}
 	ui.Info("Consider removing or updating these skill references.")
+}
+
+// writePermissionManifest writes the resolved integration permissions to
+// .toc/sessions/<id>/permissions.json. This manifest is immutable after spawn —
+// the running session keeps its original permissions even if oc-agent.yaml changes.
+func writePermissionManifest(sessionID string, cfg *agent.AgentConfig) error {
+	perms := cfg.EffectivePermissions()
+	if len(perms.Integrations) == 0 {
+		return nil
+	}
+
+	manifest := integration.PermissionManifest{
+		SessionID:    sessionID,
+		Agent:        cfg.Name,
+		Integrations: perms.Integrations,
+	}
+
+	dir := filepath.Join(config.SessionsDir(), sessionID)
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return fmt.Errorf("failed to create session permissions directory: %w", err)
+	}
+
+	data, err := json.MarshalIndent(manifest, "", "  ")
+	if err != nil {
+		return err
+	}
+
+	return os.WriteFile(filepath.Join(dir, "permissions.json"), data, 0600)
+}
+
+// writePermissionManifestInWorkspace writes the permission manifest using an
+// explicit workspace path. Used for sub-agent spawning.
+func writePermissionManifestInWorkspace(workspace, sessionID string, cfg *agent.AgentConfig) error {
+	perms := cfg.EffectivePermissions()
+	if len(perms.Integrations) == 0 {
+		return nil
+	}
+
+	manifest := integration.PermissionManifest{
+		SessionID:    sessionID,
+		Agent:        cfg.Name,
+		Integrations: perms.Integrations,
+	}
+
+	dir := filepath.Join(workspace, ".toc", "sessions", sessionID)
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return fmt.Errorf("failed to create session permissions directory: %w", err)
+	}
+
+	data, err := json.MarshalIndent(manifest, "", "  ")
+	if err != nil {
+		return err
+	}
+
+	return os.WriteFile(filepath.Join(dir, "permissions.json"), data, 0600)
 }
 
 // provisionClaudeMD builds CLAUDE.md from agent.md + any compose files,

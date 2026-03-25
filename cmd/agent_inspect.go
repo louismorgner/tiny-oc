@@ -52,9 +52,17 @@ var agentInspectCmd = &cobra.Command{
 		// Integrations
 		if len(perms.Integrations) > 0 {
 			fmt.Printf("  %s\n", ui.Bold("Integrations"))
-			names := sortedKeys(perms.Integrations)
-			for _, n := range names {
-				printPermRow(n, perms.Integrations[n])
+			iNames := make([]string, 0, len(perms.Integrations))
+			for k := range perms.Integrations {
+				iNames = append(iNames, k)
+			}
+			sort.Strings(iNames)
+			for _, n := range iNames {
+				actions := perms.Integrations[n]
+				fmt.Printf("    %-20s %s\n", n, ui.Dim(fmt.Sprintf("%d action(s)", len(actions))))
+				for _, a := range actions {
+					fmt.Printf("      %s %s\n", ui.Dim("•"), a)
+				}
 			}
 			fmt.Println()
 		}

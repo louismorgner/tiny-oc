@@ -39,6 +39,14 @@ func SessionsPath() string {
 	return filepath.Join(tocDir, "sessions.yaml")
 }
 
+func IntegrationsDir() string {
+	return filepath.Join(tocDir, "integrations")
+}
+
+func SessionsDir() string {
+	return filepath.Join(tocDir, "sessions")
+}
+
 func AuditLogPath() string {
 	return filepath.Join(tocDir, "audit.log")
 }

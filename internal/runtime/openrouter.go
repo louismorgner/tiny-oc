@@ -1,0 +1,380 @@
+package runtime
+
+import (
+	"bufio"
+	"bytes"
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"os"
+	"strings"
+	"time"
+)
+
+const defaultOpenRouterBaseURL = "https://openrouter.ai/api/v1"
+
+type openRouterClient struct {
+	baseURL    string
+	apiKey     string
+	httpClient *http.Client
+	title      string
+	referer    string
+}
+
+type chatRequest struct {
+	Model    string              `json:"model"`
+	Messages []Message           `json:"messages"`
+	Tools    []toolDefinition    `json:"tools,omitempty"`
+	Stream   bool                `json:"stream"`
+	Provider *providerPreference `json:"provider,omitempty"`
+}
+
+type providerPreference struct {
+	RequireParameters bool `json:"require_parameters,omitempty"`
+}
+
+type toolDefinition struct {
+	Type     string         `json:"type"`
+	Function toolDescriptor `json:"function"`
+}
+
+type toolDescriptor struct {
+	Name        string                 `json:"name"`
+	Description string                 `json:"description"`
+	Parameters  map[string]interface{} `json:"parameters"`
+}
+
+type chatResponse struct {
+	ID      string `json:"id,omitempty"`
+	Model   string `json:"model,omitempty"`
+	Choices []struct {
+		Message      Message `json:"message"`
+		FinishReason string  `json:"finish_reason"`
+	} `json:"choices"`
+	Usage struct {
+		PromptTokens     int64 `json:"prompt_tokens"`
+		CompletionTokens int64 `json:"completion_tokens"`
+		TotalTokens      int64 `json:"total_tokens"`
+	} `json:"usage"`
+	Error *struct {
+		Message string `json:"message"`
+	} `json:"error,omitempty"`
+}
+
+type chatStreamChunk struct {
+	ID      string `json:"id,omitempty"`
+	Model   string `json:"model,omitempty"`
+	Choices []struct {
+		Index        int             `json:"index"`
+		Delta        chatStreamDelta `json:"delta"`
+		FinishReason string          `json:"finish_reason"`
+	} `json:"choices"`
+	Usage struct {
+		PromptTokens     int64 `json:"prompt_tokens"`
+		CompletionTokens int64 `json:"completion_tokens"`
+		TotalTokens      int64 `json:"total_tokens"`
+	} `json:"usage"`
+	Error *struct {
+		Message string `json:"message"`
+	} `json:"error,omitempty"`
+}
+
+type chatStreamDelta struct {
+	Role      string                `json:"role,omitempty"`
+	Content   json.RawMessage       `json:"content,omitempty"`
+	ToolCalls []streamToolCallDelta `json:"tool_calls,omitempty"`
+}
+
+type streamToolCallDelta struct {
+	Index    int    `json:"index"`
+	ID       string `json:"id,omitempty"`
+	Type     string `json:"type,omitempty"`
+	Function struct {
+		Name      string `json:"name,omitempty"`
+		Arguments string `json:"arguments,omitempty"`
+	} `json:"function"`
+}
+
+func newOpenRouterClientFromEnv() (*openRouterClient, error) {
+	apiKey := strings.TrimSpace(os.Getenv("OPENROUTER_API_KEY"))
+	if apiKey == "" {
+		return nil, fmt.Errorf("OPENROUTER_API_KEY is not set")
+	}
+
+	baseURL := strings.TrimRight(strings.TrimSpace(os.Getenv("OPENROUTER_BASE_URL")), "/")
+	if baseURL == "" {
+		baseURL = defaultOpenRouterBaseURL
+	}
+
+	return &openRouterClient{
+		baseURL: baseURL,
+		apiKey:  apiKey,
+		httpClient: &http.Client{
+			Timeout: 2 * time.Minute,
+		},
+		title:   strings.TrimSpace(os.Getenv("OPENROUTER_TITLE")),
+		referer: strings.TrimSpace(os.Getenv("OPENROUTER_HTTP_REFERER")),
+	}, nil
+}
+
+func (c *openRouterClient) Chat(ctx context.Context, req chatRequest) (*chatResponse, error) {
+	body, err := json.Marshal(req)
+	if err != nil {
+		return nil, err
+	}
+
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/chat/completions", bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	httpReq.Header.Set("Authorization", "Bearer "+c.apiKey)
+	httpReq.Header.Set("Content-Type", "application/json")
+	if c.title != "" {
+		httpReq.Header.Set("X-OpenRouter-Title", c.title)
+	}
+	if c.referer != "" {
+		httpReq.Header.Set("HTTP-Referer", c.referer)
+	}
+
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	var parsed chatResponse
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		return nil, fmt.Errorf("failed to decode OpenRouter response: %w", err)
+	}
+	if resp.StatusCode >= 400 {
+		if parsed.Error != nil && parsed.Error.Message != "" {
+			return nil, fmt.Errorf("openrouter request failed (%d): %s", resp.StatusCode, parsed.Error.Message)
+		}
+		return nil, fmt.Errorf("openrouter request failed (%d)", resp.StatusCode)
+	}
+	if len(parsed.Choices) == 0 {
+		return nil, fmt.Errorf("openrouter returned no choices")
+	}
+
+	return &parsed, nil
+}
+
+func (c *openRouterClient) ChatStream(ctx context.Context, req chatRequest, onText func(string) error) (*chatResponse, error) {
+	req.Stream = true
+
+	body, err := json.Marshal(req)
+	if err != nil {
+		return nil, err
+	}
+
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/chat/completions", bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	httpReq.Header.Set("Authorization", "Bearer "+c.apiKey)
+	httpReq.Header.Set("Content-Type", "application/json")
+	if c.title != "" {
+		httpReq.Header.Set("X-OpenRouter-Title", c.title)
+	}
+	if c.referer != "" {
+		httpReq.Header.Set("HTTP-Referer", c.referer)
+	}
+
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		data, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return nil, err
+		}
+		var parsed chatResponse
+		if err := json.Unmarshal(data, &parsed); err == nil && parsed.Error != nil && parsed.Error.Message != "" {
+			return nil, fmt.Errorf("openrouter request failed (%d): %s", resp.StatusCode, parsed.Error.Message)
+		}
+		return nil, fmt.Errorf("openrouter request failed (%d)", resp.StatusCode)
+	}
+
+	scanner := bufio.NewScanner(resp.Body)
+	scanner.Buffer(make([]byte, 0, 256*1024), 4*1024*1024)
+
+	assembled := &chatResponse{}
+	var eventData []string
+	processEvent := func() error {
+		if len(eventData) == 0 {
+			return nil
+		}
+		payload := strings.TrimSpace(strings.Join(eventData, "\n"))
+		eventData = nil
+		if payload == "" {
+			return nil
+		}
+		if payload == "[DONE]" {
+			return io.EOF
+		}
+
+		var chunk chatStreamChunk
+		if err := json.Unmarshal([]byte(payload), &chunk); err != nil {
+			return fmt.Errorf("failed to decode OpenRouter stream chunk: %w", err)
+		}
+		if chunk.Error != nil && chunk.Error.Message != "" {
+			return fmt.Errorf("openrouter stream failed: %s", chunk.Error.Message)
+		}
+		text, err := mergeStreamChunk(assembled, &chunk)
+		if err != nil {
+			return err
+		}
+		if text != "" && onText != nil {
+			if err := onText(text); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+
+	for scanner.Scan() {
+		line := scanner.Text()
+		if line == "" {
+			err := processEvent()
+			if err == io.EOF {
+				break
+			}
+			if err != nil {
+				return nil, err
+			}
+			continue
+		}
+		if strings.HasPrefix(line, ":") {
+			continue
+		}
+		if strings.HasPrefix(line, "data:") {
+			eventData = append(eventData, strings.TrimSpace(strings.TrimPrefix(line, "data:")))
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, err
+	}
+	if err := processEvent(); err != nil && err != io.EOF {
+		return nil, err
+	}
+	if len(assembled.Choices) == 0 {
+		return nil, fmt.Errorf("openrouter returned no choices")
+	}
+	return assembled, nil
+}
+
+func mergeStreamChunk(resp *chatResponse, chunk *chatStreamChunk) (string, error) {
+	if resp == nil || chunk == nil {
+		return "", nil
+	}
+	if resp.ID == "" {
+		resp.ID = chunk.ID
+	}
+	if resp.Model == "" {
+		resp.Model = chunk.Model
+	}
+	if chunk.Usage.TotalTokens > 0 || chunk.Usage.PromptTokens > 0 || chunk.Usage.CompletionTokens > 0 {
+		resp.Usage = chunk.Usage
+	}
+
+	var streamedText strings.Builder
+	for _, choiceChunk := range chunk.Choices {
+		for len(resp.Choices) <= choiceChunk.Index {
+			resp.Choices = append(resp.Choices, struct {
+				Message      Message `json:"message"`
+				FinishReason string  `json:"finish_reason"`
+			}{})
+		}
+		choice := &resp.Choices[choiceChunk.Index]
+		if choice.Message.Role == "" {
+			choice.Message.Role = "assistant"
+		}
+		if choiceChunk.Delta.Role != "" {
+			choice.Message.Role = choiceChunk.Delta.Role
+		}
+		text, err := normalizeOpenRouterContent(choiceChunk.Delta.Content)
+		if err != nil {
+			return "", err
+		}
+		if text != "" {
+			choice.Message.Content += text
+			if choiceChunk.Index == 0 {
+				streamedText.WriteString(text)
+			}
+		}
+		mergeToolCallDeltas(choice, choiceChunk.Delta.ToolCalls)
+		if choiceChunk.FinishReason != "" {
+			choice.FinishReason = choiceChunk.FinishReason
+		}
+	}
+	return streamedText.String(), nil
+}
+
+func mergeToolCallDeltas(choice *struct {
+	Message      Message `json:"message"`
+	FinishReason string  `json:"finish_reason"`
+}, deltas []streamToolCallDelta) {
+	for _, delta := range deltas {
+		for len(choice.Message.ToolCalls) <= delta.Index {
+			choice.Message.ToolCalls = append(choice.Message.ToolCalls, ToolCall{})
+		}
+		call := &choice.Message.ToolCalls[delta.Index]
+		if call.ID == "" {
+			call.ID = delta.ID
+		}
+		if call.Type == "" {
+			call.Type = delta.Type
+		}
+		if delta.Function.Name != "" {
+			call.Function.Name += delta.Function.Name
+		}
+		if delta.Function.Arguments != "" {
+			call.Function.Arguments += delta.Function.Arguments
+		}
+	}
+}
+
+func extractMessageText(msg Message) string {
+	return strings.TrimSpace(msg.Content)
+}
+
+func normalizeOpenRouterContent(raw json.RawMessage) (string, error) {
+	if len(raw) == 0 || string(raw) == "null" {
+		return "", nil
+	}
+
+	var text string
+	if err := json.Unmarshal(raw, &text); err == nil {
+		return text, nil
+	}
+
+	var parts []struct {
+		Type string `json:"type"`
+		Text string `json:"text"`
+	}
+	if err := json.Unmarshal(raw, &parts); err == nil {
+		var b strings.Builder
+		for _, part := range parts {
+			if part.Text == "" {
+				continue
+			}
+			if b.Len() > 0 {
+				b.WriteString("\n")
+			}
+			b.WriteString(part.Text)
+		}
+		return b.String(), nil
+	}
+
+	return "", fmt.Errorf("unsupported OpenRouter message content format")
+}

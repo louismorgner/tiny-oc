@@ -1,0 +1,158 @@
+package runtime
+
+import (
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
+
+	"github.com/tiny-oc/toc/internal/agent"
+	"github.com/tiny-oc/toc/internal/runtimeinfo"
+	"github.com/tiny-oc/toc/internal/session"
+)
+
+const SessionConfigVersion = 1
+
+type SessionLLMConfig struct {
+	Provider string `json:"provider,omitempty"`
+}
+
+type SessionRuntimeOptions struct {
+	EnabledTools              []string `json:"enabled_tools,omitempty"`
+	CompactionTriggerChars    int      `json:"compaction_trigger_chars,omitempty"`
+	CompactionKeepRecent      int      `json:"compaction_keep_recent,omitempty"`
+	CompactionMaxSummaryChars int      `json:"compaction_max_summary_chars,omitempty"`
+}
+
+// SessionConfig is the resolved, toc-owned session contract written at spawn
+// time. Sessions resume from this config rather than re-reading oc-agent.yaml.
+type SessionConfig struct {
+	Version                int                   `json:"version"`
+	Agent                  string                `json:"agent"`
+	Runtime                string                `json:"runtime"`
+	Model                  string                `json:"model"`
+	AllowCustomNativeModel bool                  `json:"allow_custom_native_model,omitempty"`
+	Description            string                `json:"description,omitempty"`
+	Context                []string              `json:"context,omitempty"`
+	Skills                 []string              `json:"skills,omitempty"`
+	Compose                []string              `json:"compose,omitempty"`
+	OnEnd                  string                `json:"on_end,omitempty"`
+	Permissions            agent.Permissions     `json:"permissions,omitempty"`
+	RuntimeConfig          SessionRuntimeOptions `json:"runtime_config,omitempty"`
+	LLM                    SessionLLMConfig      `json:"llm,omitempty"`
+}
+
+func ResolveSessionConfig(cfg *agent.AgentConfig) *SessionConfig {
+	if cfg == nil {
+		return nil
+	}
+
+	sessionCfg := &SessionConfig{
+		Version:                SessionConfigVersion,
+		Agent:                  cfg.Name,
+		Runtime:                cfg.Runtime,
+		Model:                  cfg.Model,
+		AllowCustomNativeModel: cfg.AllowCustomNativeModel,
+		Description:            cfg.Description,
+		Context:                append([]string(nil), cfg.Context...),
+		Skills:                 append([]string(nil), cfg.Skills...),
+		Compose:                append([]string(nil), cfg.Compose...),
+		OnEnd:                  cfg.OnEnd,
+		Permissions:            cfg.EffectivePermissions(),
+		LLM: SessionLLMConfig{
+			Provider: resolvedLLMProvider(cfg.Runtime),
+		},
+	}
+	if cfg.Runtime == runtimeinfo.NativeRuntime {
+		sessionCfg.RuntimeConfig.EnabledTools = NativeToolNames()
+		sessionCfg.RuntimeConfig.CompactionTriggerChars = 24000
+		sessionCfg.RuntimeConfig.CompactionKeepRecent = 12
+		sessionCfg.RuntimeConfig.CompactionMaxSummaryChars = 6000
+	}
+	return sessionCfg
+}
+
+func ValidateSessionConfig(cfg *SessionConfig) error {
+	if cfg == nil {
+		return fmt.Errorf("session config is nil")
+	}
+	return runtimeinfo.ValidateModelSelection(cfg.Runtime, cfg.Model, cfg.AllowCustomNativeModel)
+}
+
+func resolvedLLMProvider(runtimeName string) string {
+	switch runtimeName {
+	case runtimeinfo.NativeRuntime:
+		return "openrouter"
+	case DefaultRuntime:
+		return "claude-code"
+	default:
+		return ""
+	}
+}
+
+func SessionConfigPath(sess *session.Session) string {
+	if dir := sess.MetadataDirPath(); dir != "" {
+		return filepath.Join(dir, "session.json")
+	}
+	return ""
+}
+
+func SessionConfigPathInWorkspace(workspace, sessionID string) string {
+	return filepath.Join(MetadataDir(workspace, sessionID), "session.json")
+}
+
+func SaveSessionConfig(sess *session.Session, cfg *SessionConfig) error {
+	path := SessionConfigPath(sess)
+	if path == "" {
+		return fmt.Errorf("session '%s' has no metadata directory for session config", sess.ID)
+	}
+	return saveSessionConfigToPath(path, cfg)
+}
+
+func SaveSessionConfigInWorkspace(workspace, sessionID string, cfg *SessionConfig) error {
+	return saveSessionConfigToPath(SessionConfigPathInWorkspace(workspace, sessionID), cfg)
+}
+
+func LoadSessionConfig(sess *session.Session) (*SessionConfig, error) {
+	path := SessionConfigPath(sess)
+	if path == "" {
+		return nil, fmt.Errorf("session '%s' has no metadata directory for session config", sess.ID)
+	}
+	return loadSessionConfigFromPath(path)
+}
+
+func LoadSessionConfigInWorkspace(workspace, sessionID string) (*SessionConfig, error) {
+	return loadSessionConfigFromPath(SessionConfigPathInWorkspace(workspace, sessionID))
+}
+
+func loadSessionConfigFromPath(path string) (*SessionConfig, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+
+	var cfg SessionConfig
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		return nil, err
+	}
+	return &cfg, nil
+}
+
+func saveSessionConfigToPath(path string, cfg *SessionConfig) error {
+	if cfg == nil {
+		return fmt.Errorf("session config is nil")
+	}
+	if cfg.Version == 0 {
+		cfg.Version = SessionConfigVersion
+	}
+
+	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+		return err
+	}
+
+	data, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, append(data, '\n'), 0600)
+}

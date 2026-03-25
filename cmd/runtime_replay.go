@@ -25,7 +25,7 @@ func init() {
 var runtimeReplayCmd = &cobra.Command{
 	Use:   "replay <session-id>",
 	Short: "Replay a session timeline — thinking, tools, and skills",
-	Long:  "Parse Claude Code session logs and show a structured timeline of agent behavior including reasoning, tool calls, and skill invocations.",
+	Long:  "Parse runtime session logs and show a structured timeline of agent behavior including reasoning, tool calls, and skill invocations.",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		sessionID := args[0]
@@ -87,13 +87,18 @@ func printReplayHuman(r *replay.Replay, thinkingOnly, actionsOnly, compact, full
 	}
 
 	fmt.Println()
-	fmt.Printf("  %s: %s — agent: %s — %s — %s\n",
-		ui.Bold("Session"),
-		ui.Cyan(shortID(r.SessionID)),
-		ui.Cyan(r.Agent),
-		ui.Dim(r.FormatDuration()),
-		ui.Dim(tokenStr),
-	)
+	header := fmt.Sprintf("  %s: %s — agent: %s", ui.Bold("Session"), ui.Cyan(shortID(r.SessionID)), ui.Cyan(r.Agent))
+	if r.Runtime != "" {
+		header += fmt.Sprintf(" — %s", ui.Dim(r.Runtime))
+	}
+	if r.Model != "" {
+		header += fmt.Sprintf("/%s", ui.Dim(r.Model))
+	}
+	if r.Status != "" {
+		header += fmt.Sprintf(" — %s", ui.Dim(r.Status))
+	}
+	header += fmt.Sprintf(" — %s — %s", ui.Dim(r.FormatDuration()), ui.Dim(tokenStr))
+	fmt.Println(header)
 	fmt.Println()
 
 	for _, step := range r.Steps {
@@ -121,20 +126,33 @@ func printReplayHuman(r *replay.Replay, thinkingOnly, actionsOnly, compact, full
 		ui.Bold("Tokens"), tokenStr,
 		ui.Bold("Errors"), r.ErrorCount,
 	)
+	if r.ResumeCount > 0 {
+		fmt.Printf("  %s: %d\n", ui.Bold("Resumes"), r.ResumeCount)
+	}
+	if r.RecoveryCount > 0 {
+		fmt.Printf("  %s: %d\n", ui.Bold("Recoveries"), r.RecoveryCount)
+	}
+	if r.CompactionCount > 0 {
+		fmt.Printf("  %s: %d\n", ui.Bold("Compactions"), r.CompactionCount)
+	}
+	if r.LastError != "" && r.Status != session.StatusCompletedOK && r.Status != "completed" {
+		fmt.Printf("  %s: %s\n", ui.Bold("Last error"), ui.Dim(r.LastError))
+	}
+	if r.LastRecovery != "" {
+		fmt.Printf("  %s: %s\n", ui.Bold("Last recovery"), ui.Dim(r.LastRecovery))
+	}
 	fmt.Println()
 	return nil
 }
 
-func printStep(step replay.Step, compact bool) {
+func printStep(step runtime.Step, compact bool) {
 	switch step.Type {
 	case "thinking":
-		text := replay.TruncateThinking(step.Content, 100)
+		text := runtime.TruncateThinking(step.Content, 100)
 		fmt.Printf("  %s %s\n", ui.Dim("[think]"), ui.Dim(text))
 	case "text":
-		if !compact {
-			text := replay.TruncateThinking(step.Content, 100)
-			fmt.Printf("  %s %s\n", ui.Dim("[text] "), ui.Dim(text))
-		}
+		text := runtime.TruncateThinking(step.Content, 100)
+		fmt.Printf("  %s %s\n", ui.Dim("[text] "), ui.Dim(text))
 	case "tool":
 		printToolStep(step)
 	case "skill":
@@ -145,10 +163,18 @@ func printStep(step replay.Step, compact bool) {
 			text = text[:97] + "..."
 		}
 		fmt.Printf("  %s %s\n", ui.Red("[error]"), text)
+	case "recovery":
+		text := step.Content
+		if len(text) > 100 {
+			text = text[:97] + "..."
+		}
+		fmt.Printf("  %s %s\n", ui.Yellow("[recover]"), ui.Dim(text))
+	case "compaction":
+		fmt.Printf("  %s %s\n", ui.Dim("[compact]"), ui.Dim(step.Content))
 	}
 }
 
-func printToolStep(step replay.Step) {
+func printToolStep(step runtime.Step) {
 	switch step.Tool {
 	case "Read":
 		fmt.Printf("  %s %s\n", ui.Dim("[read] "), shortPath(step.Path))
@@ -169,7 +195,16 @@ func printToolStep(step replay.Step) {
 		if len(cmd) > 80 {
 			cmd = cmd[:77] + "..."
 		}
-		fmt.Printf("  %s %s\n", ui.Dim("[bash] "), cmd)
+		detail := ""
+		switch {
+		case step.TimedOut:
+			detail = " timeout"
+		case step.ExitCode != 0:
+			detail = fmt.Sprintf(" exit %d", step.ExitCode)
+		case step.DurationMS > 0:
+			detail = fmt.Sprintf(" %dms", step.DurationMS)
+		}
+		fmt.Printf("  %s %s%s\n", ui.Dim("[bash] "), cmd, ui.Dim(detail))
 	case "Glob":
 		fmt.Printf("  %s %s\n", ui.Dim("[glob] "), step.Content)
 	case "Grep":

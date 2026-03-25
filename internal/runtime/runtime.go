@@ -47,6 +47,11 @@ func (ctx *Context) LoadAgentConfig() (*agent.AgentConfig, error) {
 	return agent.Load(ctx.Agent)
 }
 
+// LoadSessionConfig loads the resolved per-session config for this runtime context.
+func (ctx *Context) LoadSessionConfig() (*SessionConfig, error) {
+	return LoadSessionConfigInWorkspace(ctx.Workspace, ctx.SessionID)
+}
+
 // LoadTargetAgent loads a target agent config from the workspace.
 func (ctx *Context) LoadTargetAgent(name string) (*agent.AgentConfig, error) {
 	orig, err := os.Getwd()

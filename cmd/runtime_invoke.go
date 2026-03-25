@@ -3,7 +3,6 @@ package cmd
 import (
 	"encoding/json"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 
@@ -157,18 +156,11 @@ func parseInvokeParams(args []string) map[string]string {
 }
 
 func loadPermissionManifest(ctx *runtime.Context) (*integration.PermissionManifest, error) {
-	path := filepath.Join(ctx.Workspace, ".toc", "sessions", ctx.SessionID, "permissions.json")
-	data, err := os.ReadFile(path)
+	manifest, err := runtime.LoadPermissionManifestInWorkspace(ctx.Workspace, ctx.SessionID)
 	if err != nil {
 		return nil, fmt.Errorf("permission manifest not found (session %s): %w", ctx.SessionID, err)
 	}
-
-	var manifest integration.PermissionManifest
-	if err := json.Unmarshal(data, &manifest); err != nil {
-		return nil, fmt.Errorf("invalid permission manifest: %w", err)
-	}
-
-	return &manifest, nil
+	return manifest, nil
 }
 
 // determineTarget extracts the scope target from params based on the integration type.

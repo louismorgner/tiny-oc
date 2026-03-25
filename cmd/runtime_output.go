@@ -15,6 +15,7 @@ import (
 func init() {
 	runtimeOutputCmd.Flags().Bool("json", false, "Output structured JSON")
 	runtimeOutputCmd.Flags().Bool("partial", false, "Read partial output from a running session")
+	runtimeOutputCmd.Flags().Bool("meta", false, "Show session metadata before output")
 	runtimeCmd.AddCommand(runtimeOutputCmd)
 }
 
@@ -31,6 +32,7 @@ var runtimeOutputCmd = &cobra.Command{
 		sessionID := args[0]
 		jsonFlag, _ := cmd.Flags().GetBool("json")
 		partialFlag, _ := cmd.Flags().GetBool("partial")
+		metaFlag, _ := cmd.Flags().GetBool("meta")
 
 		s, err := session.FindByIDInWorkspace(ctx.Workspace, sessionID)
 		if err != nil {
@@ -47,7 +49,7 @@ var runtimeOutputCmd = &cobra.Command{
 		outputPath := filepath.Join(s.WorkspacePath, "toc-output.txt")
 		data, err := os.ReadFile(outputPath)
 		if err == nil {
-			return printOutput(jsonFlag, sessionID, status, data)
+			return printOutput(jsonFlag, metaFlag, s, status, data)
 		}
 
 		if !os.IsNotExist(err) {
@@ -60,7 +62,7 @@ var runtimeOutputCmd = &cobra.Command{
 			partialData, tmpErr := os.ReadFile(tmpPath)
 			if tmpErr == nil && len(partialData) > 0 {
 				if partialFlag {
-					return printOutput(jsonFlag, sessionID, status, partialData)
+					return printOutput(jsonFlag, metaFlag, s, status, partialData)
 				}
 				// Active but not --partial: hint the user
 				if jsonFlag {
@@ -86,16 +88,80 @@ var runtimeOutputCmd = &cobra.Command{
 	},
 }
 
-func printOutput(jsonFlag bool, sessionID, status string, data []byte) error {
+func printOutput(jsonFlag, metaFlag bool, s *session.Session, status string, data []byte) error {
+	summary, err := loadRuntimeStateSummary(s)
+	if err != nil {
+		return err
+	}
+
 	if jsonFlag {
-		out, _ := json.Marshal(map[string]string{
-			"session_id": sessionID,
-			"status":     status,
-			"output":     string(data),
+		out, _ := json.Marshal(map[string]interface{}{
+			"session_id":       s.ID,
+			"status":           status,
+			"runtime":          s.RuntimeName(),
+			"runtime_state":    summaryField(summary, func(v *runtimeStateSummary) string { return v.Status }),
+			"resume_count":     summaryIntField(summary, func(v *runtimeStateSummary) int { return v.ResumeCount }),
+			"recovery_count":   summaryIntField(summary, func(v *runtimeStateSummary) int { return v.RecoveryCount }),
+			"compaction_count": summaryIntField(summary, func(v *runtimeStateSummary) int { return v.CompactionCount }),
+			"last_error":       summaryField(summary, func(v *runtimeStateSummary) string { return v.LastError }),
+			"last_recovery":    summaryField(summary, func(v *runtimeStateSummary) string { return v.LastRecovery }),
+			"token_total":      summaryTokenField(summary),
+			"output":           string(data),
 		})
 		fmt.Println(string(out))
 		return nil
 	}
+	if metaFlag {
+		fmt.Println()
+		fmt.Printf("  %s %s\n", ui.Bold("Session:"), ui.Dim(s.ID))
+		fmt.Printf("  %s %s\n", ui.Bold("Status:"), ui.Dim(status))
+		fmt.Printf("  %s %s\n", ui.Bold("Runtime:"), ui.Dim(s.RuntimeName()))
+		if summary != nil {
+			if summary.Model != "" {
+				fmt.Printf("  %s %s\n", ui.Bold("Model:"), ui.Dim(summary.Model))
+			}
+			if summary.ResumeCount > 0 {
+				fmt.Printf("  %s %d\n", ui.Bold("Resumes:"), summary.ResumeCount)
+			}
+			if summary.RecoveryCount > 0 {
+				fmt.Printf("  %s %d\n", ui.Bold("Recoveries:"), summary.RecoveryCount)
+			}
+			if summary.CompactionCount > 0 {
+				fmt.Printf("  %s %d\n", ui.Bold("Compactions:"), summary.CompactionCount)
+			}
+			if total := summary.Tokens.FormatTotal(); total != "" {
+				fmt.Printf("  %s %s\n", ui.Bold("Tokens:"), ui.Dim(total))
+			}
+			if summary.LastError != "" {
+				fmt.Printf("  %s %s\n", ui.Bold("Last error:"), ui.Dim(summary.LastError))
+			}
+			if summary.LastRecovery != "" {
+				fmt.Printf("  %s %s\n", ui.Bold("Last recovery:"), ui.Dim(summary.LastRecovery))
+			}
+		}
+		fmt.Println()
+	}
 	fmt.Println(string(data))
 	return nil
+}
+
+func summaryField(summary *runtimeStateSummary, get func(*runtimeStateSummary) string) string {
+	if summary == nil {
+		return ""
+	}
+	return get(summary)
+}
+
+func summaryIntField(summary *runtimeStateSummary, get func(*runtimeStateSummary) int) int {
+	if summary == nil {
+		return 0
+	}
+	return get(summary)
+}
+
+func summaryTokenField(summary *runtimeStateSummary) int64 {
+	if summary == nil {
+		return 0
+	}
+	return summary.Tokens.Total()
 }

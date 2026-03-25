@@ -1,14 +1,14 @@
 # Skills
 
-Skills are reusable capabilities that can be attached to agents. They're loaded into sessions as Claude Code skills, giving the agent additional instructions and tool access.
+Skills are reusable capabilities that can be attached to agents. They're resolved by toc and provisioned into the session runtime so the agent gets additional instructions and tool access.
 
 ## How skills work
 
 When an agent with skills is spawned, toc:
 
 1. Resolves each skill (local directory or Git URL)
-2. Copies skill files into the session's `.claude/skills/` directory
-3. Claude Code picks them up automatically
+2. Copies skill files into the runtime-specific skills directory for the session
+3. The runtime provider exposes them to the running agent
 
 Skills are defined by a `SKILL.md` file with YAML frontmatter and markdown instructions.
 

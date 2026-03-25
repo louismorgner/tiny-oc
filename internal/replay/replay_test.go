@@ -5,6 +5,10 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/tiny-oc/toc/internal/runtime"
+	"github.com/tiny-oc/toc/internal/runtimeinfo"
+	"github.com/tiny-oc/toc/internal/session"
 )
 
 func TestParseSessionJSONL(t *testing.T) {
@@ -65,7 +69,7 @@ func TestParseSessionJSONL(t *testing.T) {
 		{
 			"type": "user",
 			"message": map[string]interface{}{
-				"role": "user",
+				"role":    "user",
 				"content": "some user message — should be ignored",
 			},
 		},
@@ -81,10 +85,16 @@ func TestParseSessionJSONL(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	steps, err := parseSessionJSONL(path)
+	provider, err := runtime.Get(runtime.DefaultRuntime)
 	if err != nil {
 		t.Fatal(err)
 	}
+
+	parsed, err := provider.ParseSessionLog(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	steps := parsed.Steps
 
 	if len(steps) != 6 {
 		t.Fatalf("got %d steps, want 6", len(steps))
@@ -125,14 +135,19 @@ func TestParseSessionJSONL(t *testing.T) {
 }
 
 func TestParseSessionJSONL_MissingFile(t *testing.T) {
-	_, err := parseSessionJSONL("/nonexistent/file.jsonl")
+	provider, err := runtime.Get(runtime.DefaultRuntime)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = provider.ParseSessionLog("/nonexistent/file.jsonl")
 	if err == nil {
 		t.Error("expected error for missing file")
 	}
 }
 
 func TestCollectFilesChanged(t *testing.T) {
-	steps := []Step{
+	steps := []runtime.Step{
 		{Type: "tool", Tool: "Read", Path: "a.go"},
 		{Type: "tool", Tool: "Edit", Path: "a.go"},
 		{Type: "tool", Tool: "Write", Path: "b.go"},
@@ -145,6 +160,11 @@ func TestCollectFilesChanged(t *testing.T) {
 }
 
 func TestParseJSONLLine(t *testing.T) {
+	provider, err := runtime.Get(runtime.DefaultRuntime)
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	// Assistant message with a tool call
 	line, _ := json.Marshal(map[string]interface{}{
 		"type": "assistant",
@@ -155,9 +175,9 @@ func TestParseJSONLLine(t *testing.T) {
 			},
 		},
 	})
-	steps := ParseJSONLLine(line)
-	if len(steps) != 1 || steps[0].Tool != "Read" || steps[0].Path != "main.go" {
-		t.Errorf("ParseJSONLLine(assistant) = %+v, want [Read main.go]", steps)
+	events := provider.ParseSessionLogLineEvents(line)
+	if len(events) != 1 || events[0].Step.Tool != "Read" || events[0].Step.Path != "main.go" {
+		t.Errorf("ParseJSONLLineEvents(assistant) = %+v, want [Read main.go]", events)
 	}
 
 	// User message — should return nil
@@ -165,13 +185,13 @@ func TestParseJSONLLine(t *testing.T) {
 		"type":    "user",
 		"message": map[string]interface{}{"role": "user", "content": "hello"},
 	})
-	if steps := ParseJSONLLine(userLine); steps != nil {
-		t.Errorf("ParseJSONLLine(user) = %+v, want nil", steps)
+	if events := provider.ParseSessionLogLineEvents(userLine); events != nil {
+		t.Errorf("ParseJSONLLineEvents(user) = %+v, want nil", events)
 	}
 
 	// Invalid JSON — should return nil
-	if steps := ParseJSONLLine([]byte("not json")); steps != nil {
-		t.Errorf("ParseJSONLLine(invalid) = %+v, want nil", steps)
+	if events := provider.ParseSessionLogLineEvents([]byte("not json")); events != nil {
+		t.Errorf("ParseJSONLLineEvents(invalid) = %+v, want nil", events)
 	}
 
 	// Assistant message with thinking
@@ -184,9 +204,9 @@ func TestParseJSONLLine(t *testing.T) {
 			},
 		},
 	})
-	steps = ParseJSONLLine(thinkLine)
-	if len(steps) != 1 || steps[0].Type != "thinking" {
-		t.Errorf("ParseJSONLLine(thinking) = %+v, want [thinking]", steps)
+	events = provider.ParseSessionLogLineEvents(thinkLine)
+	if len(events) != 1 || events[0].Step.Type != "thinking" {
+		t.Errorf("ParseJSONLLineEvents(thinking) = %+v, want [thinking]", events)
 	}
 }
 
@@ -201,9 +221,55 @@ func TestTruncateThinking(t *testing.T) {
 		{"line one\nline two\nline three", 100, "line one line two line three"},
 	}
 	for _, tt := range tests {
-		got := TruncateThinking(tt.input, tt.maxLen)
+		got := runtime.TruncateThinking(tt.input, tt.maxLen)
 		if got != tt.want {
 			t.Errorf("TruncateThinking(%q, %d) = %q, want %q", tt.input, tt.maxLen, got, tt.want)
 		}
+	}
+}
+
+func TestForSession_IncludesNativeStateMetadata(t *testing.T) {
+	metaDir := t.TempDir()
+	sess := &session.Session{
+		ID:            "sess-native",
+		Agent:         "native-agent",
+		Runtime:       runtimeinfo.NativeRuntime,
+		MetadataDir:   metaDir,
+		WorkspacePath: t.TempDir(),
+		Status:        session.StatusCompletedError,
+	}
+	if err := runtime.AppendEvent(sess, runtime.Event{Step: runtime.Step{Type: "error", Content: "failed upstream"}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := runtime.SaveState(sess, &runtime.State{
+		Runtime:     runtimeinfo.NativeRuntime,
+		SessionID:   sess.ID,
+		Agent:       sess.Agent,
+		Model:       "openai/gpt-4o-mini",
+		ResumeCount: 2,
+		LastError:   "failed upstream",
+		Usage: runtime.TokenUsageSnapshot{
+			InputTokens:  12,
+			OutputTokens: 8,
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	r, err := ForSession(sess)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.Runtime != runtimeinfo.NativeRuntime || r.Model != "openai/gpt-4o-mini" {
+		t.Fatalf("runtime/model = %q/%q", r.Runtime, r.Model)
+	}
+	if r.Status != session.StatusCompletedError {
+		t.Fatalf("status = %q", r.Status)
+	}
+	if r.ResumeCount != 2 || r.LastError != "failed upstream" {
+		t.Fatalf("resume_count/last_error = %d/%q", r.ResumeCount, r.LastError)
+	}
+	if r.Tokens.InputTokens != 12 || r.Tokens.OutputTokens != 8 {
+		t.Fatalf("tokens = %#v", r.Tokens)
 	}
 }

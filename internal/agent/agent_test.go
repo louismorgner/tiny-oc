@@ -144,6 +144,30 @@ func TestValidate_PermissionLevels(t *testing.T) {
 	}
 }
 
+func TestValidate_NativeCustomModelRequiresOverride(t *testing.T) {
+	cfg := &AgentConfig{
+		Name:    "test",
+		Runtime: "toc-native",
+		Model:   "meta-llama/unknown",
+	}
+	problems := cfg.Validate()
+	if len(problems) == 0 {
+		t.Fatal("expected validation error for unsupported custom native model")
+	}
+}
+
+func TestValidate_NativeCustomModelAllowedWithOverride(t *testing.T) {
+	cfg := &AgentConfig{
+		Name:                   "test",
+		Runtime:                "toc-native",
+		Model:                  "meta-llama/unknown",
+		AllowCustomNativeModel: true,
+	}
+	problems := cfg.Validate()
+	if len(problems) != 0 {
+		t.Fatalf("expected override to allow custom native model, got %v", problems)
+	}
+}
 
 func TestSubAgentPermission(t *testing.T) {
 	cfg := &AgentConfig{

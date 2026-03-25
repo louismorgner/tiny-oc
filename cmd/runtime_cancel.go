@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"syscall"
+	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/tiny-oc/toc/internal/audit"
@@ -52,7 +53,7 @@ var runtimeCancelCmd = &cobra.Command{
 		}
 
 		// Send SIGTERM to the process group (negative PID kills the group).
-		// This ensures both the wrapper script and claude are terminated.
+		// This ensures both the wrapper script and runtime process are terminated.
 		killed := false
 		if err := syscall.Kill(-pid, syscall.SIGTERM); err != nil {
 			// If group kill fails, try killing just the process
@@ -77,6 +78,31 @@ var runtimeCancelCmd = &cobra.Command{
 			markerPath := filepath.Join(s.WorkspacePath, "toc-cancelled.txt")
 			_ = os.WriteFile(markerPath, []byte(fmt.Sprintf("cancelled by parent session %s\n", ctx.SessionID)), 0644)
 		}
+		_ = session.UpdateStatusInWorkspace(ctx.Workspace, s.ID, session.StatusCancelled)
+		state, err := runtime.LoadState(s)
+		if err != nil && os.IsNotExist(err) {
+			state = &runtime.State{
+				Runtime:    s.RuntimeName(),
+				SessionID:  s.ID,
+				Agent:      s.Agent,
+				Workspace:  ctx.Workspace,
+				SessionDir: s.WorkspacePath,
+				Status:     session.StatusCancelled,
+			}
+			err = nil
+		}
+		if err == nil && state != nil {
+			state.Status = session.StatusCancelled
+			state.LastError = fmt.Sprintf("session cancelled by parent session %s", ctx.SessionID)
+			_ = runtime.SaveState(s, state)
+		}
+		_ = runtime.AppendEvent(s, runtime.Event{
+			Timestamp: time.Now().UTC(),
+			Step: runtime.Step{
+				Type:    "error",
+				Content: fmt.Sprintf("session cancelled by parent session %s", ctx.SessionID),
+			},
+		})
 
 		_ = audit.LogFromWorkspace(ctx.Workspace, "runtime.cancel", map[string]interface{}{
 			"parent_session": ctx.SessionID,

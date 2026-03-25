@@ -7,6 +7,10 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/tiny-oc/toc/internal/runtime"
+	"github.com/tiny-oc/toc/internal/runtimeinfo"
+	"github.com/tiny-oc/toc/internal/session"
 )
 
 // TokenUsage holds aggregated token counts for a session.
@@ -37,17 +41,33 @@ func (u TokenUsage) FormatTotal() string {
 	return fmt.Sprintf("%d tokens", t)
 }
 
-// ForSession reads Claude Code's local session data and sums up token usage.
-// workspacePath is the session's working directory (e.g. /tmp/toc-sessions/agent-123).
-// sessionID is the Claude session UUID.
-func ForSession(workspacePath, sessionID string) TokenUsage {
-	projectDir := claudeProjectDir(workspacePath)
-	if projectDir == "" {
+// ForSession reads local session data and sums up token usage for the runtime.
+func ForSession(sess *session.Session) TokenUsage {
+	if sess == nil {
 		return TokenUsage{}
 	}
 
-	jsonlPath := filepath.Join(projectDir, sessionID+".jsonl")
-	return parseJSONL(jsonlPath)
+	switch sess.RuntimeName() {
+	case "", runtime.DefaultRuntime:
+		projectDir := claudeProjectDir(sess.WorkspacePath)
+		if projectDir == "" {
+			return TokenUsage{}
+		}
+		return parseJSONL(filepath.Join(projectDir, sess.ID+".jsonl"))
+	case runtimeinfo.NativeRuntime:
+		state, err := runtime.LoadState(sess)
+		if err != nil {
+			return TokenUsage{}
+		}
+		return TokenUsage{
+			InputTokens:  state.Usage.InputTokens,
+			OutputTokens: state.Usage.OutputTokens,
+			CacheRead:    state.Usage.CacheRead,
+			CacheCreate:  state.Usage.CacheCreate,
+		}
+	default:
+		return TokenUsage{}
+	}
 }
 
 // claudeProjectDir derives the ~/.claude/projects/<encoded-path>/ directory
@@ -73,9 +93,9 @@ func claudeProjectDir(workspacePath string) string {
 type jsonlMessage struct {
 	Message *struct {
 		Usage *struct {
-			InputTokens             int64 `json:"input_tokens"`
-			OutputTokens            int64 `json:"output_tokens"`
-			CacheReadInputTokens    int64 `json:"cache_read_input_tokens"`
+			InputTokens              int64 `json:"input_tokens"`
+			OutputTokens             int64 `json:"output_tokens"`
+			CacheReadInputTokens     int64 `json:"cache_read_input_tokens"`
 			CacheCreationInputTokens int64 `json:"cache_creation_input_tokens"`
 		} `json:"usage"`
 	} `json:"message"`

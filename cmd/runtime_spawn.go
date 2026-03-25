@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"os"
 
 	"github.com/spf13/cobra"
 	"github.com/tiny-oc/toc/internal/audit"
@@ -40,13 +41,21 @@ var runtimeSpawnCmd = &cobra.Command{
 		targetName := args[0]
 
 		// Load parent agent and check permissions
-		parentCfg, err := ctx.LoadAgentConfig()
-		if err != nil {
-			return fmt.Errorf("failed to load parent agent config: %w", err)
-		}
-
-		if !parentCfg.CanSpawn(targetName) {
-			return fmt.Errorf("agent '%s' is not allowed to spawn '%s' — check sub-agents config in oc-agent.yaml", ctx.Agent, targetName)
+		manifest, manifestErr := runtime.LoadPermissionManifestInWorkspace(ctx.Workspace, ctx.SessionID)
+		if manifestErr == nil {
+			if !runtime.CanSpawnFromManifest(manifest, targetName) {
+				return fmt.Errorf("agent '%s' is not allowed to spawn '%s' for this session", ctx.Agent, targetName)
+			}
+		} else if !os.IsNotExist(manifestErr) {
+			return fmt.Errorf("failed to load session permissions: %w", manifestErr)
+		} else {
+			parentCfg, err := ctx.LoadAgentConfig()
+			if err != nil {
+				return fmt.Errorf("failed to load parent agent config: %w", err)
+			}
+			if !parentCfg.CanSpawn(targetName) {
+				return fmt.Errorf("agent '%s' is not allowed to spawn '%s' — check sub-agents config in oc-agent.yaml", ctx.Agent, targetName)
+			}
 		}
 
 		// Resume flow

@@ -1,10 +1,9 @@
 package sync
 
 import (
-	"strings"
+	"os"
+	"path/filepath"
 	"testing"
-
-	"github.com/tiny-oc/toc/internal/agent"
 )
 
 func TestMatchesAny(t *testing.T) {
@@ -73,76 +72,40 @@ func joinPatterns(p []string) string {
 	return s
 }
 
-func TestPermissionScript_ContainsDecisions(t *testing.T) {
-	perms := agent.Permissions{
-		Filesystem: agent.FilesystemPermissions{
-			Read:    agent.PermOn,
-			Write:   agent.PermAsk,
-			Execute: agent.PermOff,
+func TestSyncBackWithOptions_MapsInstructionFileAndSkipsDirs(t *testing.T) {
+	sessionDir := t.TempDir()
+	agentDir := t.TempDir()
+
+	if err := os.MkdirAll(filepath.Join(sessionDir, ".hidden"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sessionDir, ".hidden", "skip.md"), []byte("skip"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sessionDir, "CLAUDE.md"), []byte("instruction"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	synced, err := SyncBackWithOptions(sessionDir, agentDir, []string{"agent.md"}, Options{
+		PathMapper: func(rel string) string {
+			if rel == "CLAUDE.md" {
+				return "agent.md"
+			}
+			return rel
 		},
-		Integrations: map[string][]string{
-			"slack":  {"send_message:*"},
-			"github": {"issues.read:*"},
-		},
-	}
-
-	script := PermissionScript(perms, "test-agent")
-
-	// Check filesystem decisions are embedded
-	if !strings.Contains(script, `local LEVEL="on"`) {
-		t.Error("expected read level 'on' in script")
-	}
-	if !strings.Contains(script, `local LEVEL="ask"`) {
-		t.Error("expected write level 'ask' in script")
-	}
-	if !strings.Contains(script, `local LEVEL="off"`) {
-		t.Error("expected execute level 'off' in script")
-	}
-
-	// Integration permissions are now enforced by the gateway, not hook scripts.
-	// Verify integration patterns are NOT in the script.
-	if strings.Contains(script, "mcp__slack__") {
-		t.Error("integration patterns should not be in hook script (enforced by gateway)")
-	}
-
-	// Check it's valid bash (starts with shebang)
-	if !strings.HasPrefix(script, "#!/usr/bin/env bash") {
-		t.Error("expected bash shebang")
-	}
-}
-
-func TestHookSettingsWithPermissions(t *testing.T) {
-	data, err := HookSettingsWithPermissions("/path/sync.sh", "persist context", "/path/perms.sh")
+		SkipDirs: map[string]bool{".hidden": true},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	s := string(data)
-
-	if !strings.Contains(s, "PreToolUse") {
-		t.Error("expected PreToolUse hook in settings")
+	if len(synced) != 1 || synced[0] != "agent.md" {
+		t.Fatalf("synced = %#v", synced)
 	}
-	if !strings.Contains(s, "PostToolUse") {
-		t.Error("expected PostToolUse hook in settings")
-	}
-	if !strings.Contains(s, "SessionEnd") {
-		t.Error("expected SessionEnd hook in settings")
-	}
-	if !strings.Contains(s, "/path/perms.sh") {
-		t.Error("expected permission script path in settings")
-	}
-}
-
-func TestHookSettingsWithPermissions_PermissionsOnly(t *testing.T) {
-	data, err := HookSettingsWithPermissions("", "", "/path/perms.sh")
+	data, err := os.ReadFile(filepath.Join(agentDir, "agent.md"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	s := string(data)
-
-	if !strings.Contains(s, "PreToolUse") {
-		t.Error("expected PreToolUse hook in settings")
-	}
-	if strings.Contains(s, "PostToolUse") {
-		t.Error("did not expect PostToolUse hook when no sync script")
+	if string(data) != "instruction" {
+		t.Fatalf("agent.md = %q", string(data))
 	}
 }

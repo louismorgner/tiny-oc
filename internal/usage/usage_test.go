@@ -4,6 +4,10 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/tiny-oc/toc/internal/runtime"
+	"github.com/tiny-oc/toc/internal/runtimeinfo"
+	"github.com/tiny-oc/toc/internal/session"
 )
 
 func TestParseJSONL(t *testing.T) {
@@ -68,5 +72,31 @@ func TestClaudeProjectDir(t *testing.T) {
 	want := filepath.Join(home, ".claude", "projects", "-private-tmp-toc-sessions-buddy-123")
 	if dir != want {
 		t.Errorf("claudeProjectDir = %q, want %q", dir, want)
+	}
+}
+
+func TestForSession_NativeStateUsage(t *testing.T) {
+	sess := &session.Session{
+		ID:          "sess-native",
+		Runtime:     runtimeinfo.NativeRuntime,
+		MetadataDir: t.TempDir(),
+	}
+	if err := runtime.SaveState(sess, &runtime.State{
+		Runtime:   runtimeinfo.NativeRuntime,
+		SessionID: sess.ID,
+		Agent:     "native-agent",
+		Usage: runtime.TokenUsageSnapshot{
+			InputTokens:  111,
+			OutputTokens: 222,
+			CacheRead:    333,
+			CacheCreate:  444,
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	u := ForSession(sess)
+	if u.InputTokens != 111 || u.OutputTokens != 222 || u.CacheRead != 333 || u.CacheCreate != 444 {
+		t.Fatalf("usage = %#v", u)
 	}
 }

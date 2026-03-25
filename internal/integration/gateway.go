@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"os"
@@ -98,6 +99,11 @@ type InvokeRequest struct {
 	Params      map[string]string
 	Credential  *Credential
 	Definition  *Definition
+
+	// ChannelResolver is set for Slack integrations to translate channel names to IDs.
+	ChannelResolver *SlackChannelResolver
+	// Workspace is set when token refresh is possible, to allow credential updates.
+	Workspace string
 }
 
 // InvokeResponse contains the filtered response from the gateway.
@@ -137,6 +143,26 @@ func Invoke(req *InvokeRequest) (*InvokeResponse, error) {
 		}
 	}
 
+	// Slack: resolve channel names to IDs
+	if req.Integration == "slack" && req.ChannelResolver != nil {
+		if ch, ok := req.Params["channel"]; ok {
+			resolved, err := req.ChannelResolver.Resolve(ch)
+			if err != nil {
+				return nil, err
+			}
+			req.Params["channel"] = resolved
+		}
+	}
+
+	// OAuth2: check token expiry and refresh if needed
+	if req.Credential.IsExpired(30*time.Second) && req.Credential.RefreshToken != "" && req.Workspace != "" {
+		refreshed, err := refreshCredentialForIntegration(req.Integration, req.Credential, req.Workspace)
+		if err != nil {
+			return nil, fmt.Errorf("token refresh failed: %w", err)
+		}
+		req.Credential = refreshed
+	}
+
 	// Build HTTP request
 	httpReq, err := buildHTTPRequest(actionDef, req.Credential, req.Params)
 	if err != nil {
@@ -166,6 +192,16 @@ func Invoke(req *InvokeRequest) (*InvokeResponse, error) {
 		}, nil
 	}
 
+	// Slack: check for ok:false error responses before filtering
+	if req.Integration == "slack" {
+		if err := CheckSlackResponse(resp.StatusCode, rawResponse); err != nil {
+			return &InvokeResponse{
+				StatusCode: resp.StatusCode,
+				Error:      err.Error(),
+			}, nil
+		}
+	}
+
 	// Filter through field whitelist
 	filtered := filterAnyResponse(rawResponse, actionDef.Returns)
 
@@ -173,6 +209,36 @@ func Invoke(req *InvokeRequest) (*InvokeResponse, error) {
 		StatusCode: resp.StatusCode,
 		Data:       filtered,
 	}, nil
+}
+
+// refreshCredentialForIntegration refreshes the OAuth2 token for the given integration.
+func refreshCredentialForIntegration(integrationName string, cred *Credential, workspace string) (*Credential, error) {
+	clientCfg, err := LoadOAuth2ClientConfigFromWorkspace(workspace, integrationName)
+	if err != nil {
+		return nil, fmt.Errorf("no OAuth2 client config stored for '%s': %w", integrationName, err)
+	}
+
+	// Determine token URL based on integration
+	var tokenURL string
+	switch integrationName {
+	case "slack":
+		tokenURL = "https://slack.com/api/oauth.v2.access"
+	default:
+		return nil, fmt.Errorf("token refresh not supported for integration '%s'", integrationName)
+	}
+
+	refreshed, err := RefreshAccessToken(tokenURL, clientCfg.ClientID, clientCfg.ClientSecret, cred.RefreshToken)
+	if err != nil {
+		return nil, err
+	}
+
+	// Persist the refreshed credential — non-fatal if this fails since the
+	// token still works for the current request.
+	if err := StoreCredentialInWorkspace(workspace, integrationName, refreshed); err != nil {
+		log.Printf("warning: failed to persist refreshed credential for '%s': %v", integrationName, err)
+	}
+
+	return refreshed, nil
 }
 
 func buildHTTPRequest(action *Action, cred *Credential, params map[string]string) (*http.Request, error) {

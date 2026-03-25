@@ -95,14 +95,22 @@ Examples:
 		}
 
 		// Step 6: Make the call
-		resp, err := integration.Invoke(&integration.InvokeRequest{
+		invokeReq := &integration.InvokeRequest{
 			SessionID:   ctx.SessionID,
 			Integration: integrationName,
 			Action:      actionName,
 			Params:      params,
 			Credential:  cred,
 			Definition:  def,
-		})
+			Workspace:   ctx.Workspace,
+		}
+
+		// Slack: set up channel resolver for transparent name-to-ID translation
+		if integrationName == "slack" {
+			invokeReq.ChannelResolver = integration.NewSlackChannelResolver(cred.AccessToken)
+		}
+
+		resp, err := integration.Invoke(invokeReq)
 		if err != nil {
 			return fmt.Errorf("invocation failed: %w", err)
 		}

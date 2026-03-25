@@ -1,7 +1,11 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
+	"os/exec"
+	"runtime"
+	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/tiny-oc/toc/internal/config"
@@ -47,32 +51,28 @@ var integrateAddCmd = &cobra.Command{
 		}
 		fmt.Println()
 
-		var token string
+		var cred *integration.Credential
+
 		switch def.Auth.Method {
 		case "token", "api_key":
-			token, err = ui.Prompt("Enter access token (PAT)", "")
+			token, err := ui.Prompt("Enter access token (PAT)", "")
 			if err != nil {
 				return err
 			}
 			if token == "" {
 				return fmt.Errorf("token cannot be empty")
 			}
+			cred = &integration.Credential{AccessToken: token}
+
 		case "oauth2":
-			// For OAuth2, we still accept a PAT for now (v1 simplification)
-			ui.Info("OAuth2 flow not yet implemented — enter a personal access token instead.")
-			token, err = ui.Prompt("Enter access token", "")
+			var err error
+			cred, err = runOAuth2Flow(name, def)
 			if err != nil {
 				return err
 			}
-			if token == "" {
-				return fmt.Errorf("token cannot be empty")
-			}
+
 		default:
 			return fmt.Errorf("unsupported auth method: %s", def.Auth.Method)
-		}
-
-		cred := &integration.Credential{
-			AccessToken: token,
 		}
 
 		if err := integration.StoreCredential(name, cred); err != nil {
@@ -91,4 +91,97 @@ var integrateAddCmd = &cobra.Command{
 		fmt.Println()
 		return nil
 	},
+}
+
+func runOAuth2Flow(name string, def *integration.Definition) (*integration.Credential, error) {
+	ui.Info("This integration uses OAuth2. You'll need your app's Client ID and Client Secret.")
+	if def.Auth.SetupURL != "" {
+		ui.Info("Create an app at: %s", ui.Cyan(def.Auth.SetupURL))
+	}
+	fmt.Println()
+
+	clientID, err := ui.Prompt("Enter Client ID", "")
+	if err != nil {
+		return nil, err
+	}
+	if clientID == "" {
+		return nil, fmt.Errorf("client ID cannot be empty")
+	}
+
+	clientSecret, err := ui.Prompt("Enter Client Secret", "")
+	if err != nil {
+		return nil, err
+	}
+	if clientSecret == "" {
+		return nil, fmt.Errorf("client secret cannot be empty")
+	}
+
+	// For non-slack integrations, fall back to PAT until we add provider-specific configs
+	if name != "slack" {
+		ui.Info("Generic OAuth2 flow — enter a personal access token instead.")
+		token, err := ui.Prompt("Enter access token", "")
+		if err != nil {
+			return nil, err
+		}
+		if token == "" {
+			return nil, fmt.Errorf("token cannot be empty")
+		}
+		return &integration.Credential{AccessToken: token}, nil
+	}
+
+	oauth2Cfg := integration.SlackOAuth2Config(clientID, clientSecret, def.Auth.RequiredScopes)
+
+	authURL := oauth2Cfg.AuthorizationURL()
+	fmt.Println()
+	ui.Info("Opening browser for authorization...")
+	ui.Info("If the browser doesn't open, visit: %s", ui.Cyan(authURL))
+	fmt.Println()
+
+	// Open browser
+	openBrowser(authURL)
+
+	// Start callback server with 5-minute timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+
+	ui.Info("Waiting for OAuth callback on localhost:%d...", oauth2Cfg.RedirectPort)
+
+	code, err := oauth2Cfg.RunCallbackServer(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("OAuth2 authorization failed: %w", err)
+	}
+
+	ui.Info("Authorization code received, exchanging for tokens...")
+
+	cred, err := oauth2Cfg.ExchangeCode(code)
+	if err != nil {
+		return nil, fmt.Errorf("token exchange failed: %w", err)
+	}
+
+	// Store client credentials separately for future token refresh
+	clientCfg := &integration.OAuth2ClientConfig{
+		ClientID:     clientID,
+		ClientSecret: clientSecret,
+	}
+	if err := integration.StoreOAuth2ClientConfig(name, clientCfg); err != nil {
+		ui.Warn("Could not store client info for token refresh: %s", err)
+	}
+
+	return cred, nil
+}
+
+func openBrowser(url string) {
+	var cmd *exec.Cmd
+	switch runtime.GOOS {
+	case "darwin":
+		cmd = exec.Command("open", url)
+	case "linux":
+		cmd = exec.Command("xdg-open", url)
+	case "windows":
+		cmd = exec.Command("cmd", "/c", "start", url)
+	default:
+		fmt.Printf("Unsupported platform — please open the URL manually.\n")
+		return
+	}
+	_ = cmd.Start()
 }

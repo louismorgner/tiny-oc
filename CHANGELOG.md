@@ -11,23 +11,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Integration system: API gateway with rate limiting, credential vault, and permission scoping for external services (#38).
 - Slack integration with OAuth2 flow, channel resolution, and error handling (#49).
-- `toc runtime watch` to live-tail sub-agent sessions (#50).
+- `toc runtime watch` to live-tail sub-agent sessions (#52).
 - Sub-agent resume capability — resume interrupted sub-agent sessions (#45).
 - Session replay with `toc runtime replay` and `--json` output for runtime commands (#29).
 - `toc update` command for CLI self-update (#35).
 - `toc agent show` command and improved `toc agent create` wizard (#22).
 - `toc init --name` flag for non-interactive workspace initialization.
-- Token usage display per session in `toc status` (#18).
-- `on_end` session hooks for running prompts when sessions close (#16).
-- Mini-claw agent template with compose system, template variables, and first-run bootstrap (#14, #21).
+- Mini-claw agent template with compose system, template variables, and first-run bootstrap (#21).
 - Agent template improvements based on replay observations (#34).
 
 ### Changed
 
 - Unified permission model with hook enforcement — permissions are now declared in `oc-agent.yaml` and enforced consistently (#27).
 - Runtime CLI hardened: status tracking, cancel support, partial output, file locking (#48).
-- Security hardening: git hook injection prevention, HTTPS-only URLs, safe temp dirs, 0600 file permissions (#13).
-- Skill/agent install is now type-explicit with auto-detection and cross-type error messages (#17).
 
 ### Fixed
 

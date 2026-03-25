@@ -236,20 +236,25 @@ func launchClaudeDetached(dir, model, prompt, workspace, agentName, sessionID, o
 	}
 
 	// Build claude command that reads prompt from the file.
-	args := fmt.Sprintf("claude --dangerously-skip-permissions --print -p \"$(cat %q)\"", promptPath)
+	args := fmt.Sprintf("claude --dangerously-skip-permissions -p \"$(cat %q)\"", promptPath)
 	if model != "" {
 		args += fmt.Sprintf(" --model %s", model)
 	}
 
 	// Write a wrapper script that runs claude and captures output.
-	// The existence of toc-output.txt signals completion (checked by ResolvedStatus).
+	// We write to a .tmp file first, then atomically rename to the final path.
+	// This prevents a race: shell `>` creates the file immediately (empty),
+	// but ResolvedStatus checks for toc-output.txt existence as the completion signal.
+	// Without the rename, the parent sees "completed" before claude even starts.
+	tmpOutputPath := outputPath + ".tmp"
 	scriptContent := fmt.Sprintf(`#!/bin/sh
 cd %q
 export TOC_WORKSPACE=%q
 export TOC_AGENT=%q
 export TOC_SESSION_ID=%q
-%s > %q 2>&1
-`, dir, workspace, agentName, sessionID, args, outputPath)
+%s < /dev/null > %q 2>&1
+mv %q %q
+`, dir, workspace, agentName, sessionID, args, tmpOutputPath, tmpOutputPath, outputPath)
 
 	scriptPath := filepath.Join(dir, "toc-run.sh")
 	if err := os.WriteFile(scriptPath, []byte(scriptContent), 0755); err != nil {

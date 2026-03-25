@@ -171,10 +171,14 @@ func printStaticStatus(cfg *config.WorkspaceConfig) error {
 			}
 			tokens := usage.ForSession(s.WorkspacePath, s.ID)
 			tokenStr := tokens.FormatTotal()
+			nameStr := ""
+			if s.Name != "" {
+				nameStr = "  " + ui.Cyan(s.Name)
+			}
 			if tokenStr != "" {
-				fmt.Printf("    %s  %s  %s  %s  %s\n", badge, ui.Cyan(s.Agent), ui.Dim(age), ui.Dim(s.ID[:8]), ui.Dim(tokenStr))
+				fmt.Printf("    %s  %s  %s  %s%s  %s\n", badge, ui.Cyan(s.Agent), ui.Dim(age), ui.Dim(s.ID[:8]), nameStr, ui.Dim(tokenStr))
 			} else {
-				fmt.Printf("    %s  %s  %s  %s\n", badge, ui.Cyan(s.Agent), ui.Dim(age), ui.Dim(s.ID[:8]))
+				fmt.Printf("    %s  %s  %s  %s%s\n", badge, ui.Cyan(s.Agent), ui.Dim(age), ui.Dim(s.ID[:8]), nameStr)
 			}
 		}
 	}

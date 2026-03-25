@@ -16,6 +16,7 @@ import (
 	"github.com/tiny-oc/toc/internal/fileutil"
 	"github.com/tiny-oc/toc/internal/gitutil"
 	"github.com/tiny-oc/toc/internal/integration"
+	"github.com/tiny-oc/toc/internal/naming"
 	"github.com/tiny-oc/toc/internal/registry"
 	"github.com/tiny-oc/toc/internal/session"
 	"github.com/tiny-oc/toc/internal/skill"
@@ -212,6 +213,7 @@ func SpawnSubSession(cfg *agent.AgentConfig, opts SubSpawnOpts) (*SpawnResult, e
 
 	if err := session.AddInWorkspace(opts.WorkspaceDir, session.Session{
 		ID:              sessionID,
+		Name:            naming.FromPrompt(opts.Prompt),
 		Agent:           cfg.Name,
 		CreatedAt:       time.Now(),
 		WorkspacePath:   workDir,

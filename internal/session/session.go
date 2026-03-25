@@ -24,6 +24,7 @@ const (
 
 type Session struct {
 	ID              string    `yaml:"id"`
+	Name            string    `yaml:"name,omitempty"`
 	Agent           string    `yaml:"agent"`
 	CreatedAt       time.Time `yaml:"created_at"`
 	WorkspacePath   string    `yaml:"workspace_path"`

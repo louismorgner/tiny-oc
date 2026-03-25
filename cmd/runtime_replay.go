@@ -18,6 +18,7 @@ func init() {
 	runtimeReplayCmd.Flags().Bool("thinking-only", false, "Show only thinking/reasoning steps")
 	runtimeReplayCmd.Flags().Bool("actions-only", false, "Show only tool calls and skills")
 	runtimeReplayCmd.Flags().Bool("compact", false, "One line per action, no thinking")
+	runtimeReplayCmd.Flags().Bool("full", false, "Show all steps including tool calls (default hides them)")
 	runtimeCmd.AddCommand(runtimeReplayCmd)
 }
 
@@ -64,8 +65,9 @@ var runtimeReplayCmd = &cobra.Command{
 		thinkingOnly, _ := cmd.Flags().GetBool("thinking-only")
 		actionsOnly, _ := cmd.Flags().GetBool("actions-only")
 		compact, _ := cmd.Flags().GetBool("compact")
+		full, _ := cmd.Flags().GetBool("full")
 
-		return printReplayHuman(r, thinkingOnly, actionsOnly, compact)
+		return printReplayHuman(r, thinkingOnly, actionsOnly, compact, full)
 	},
 }
 
@@ -78,7 +80,7 @@ func printReplayJSON(r *replay.Replay) error {
 	return nil
 }
 
-func printReplayHuman(r *replay.Replay, thinkingOnly, actionsOnly, compact bool) error {
+func printReplayHuman(r *replay.Replay, thinkingOnly, actionsOnly, compact, full bool) error {
 	tokenStr := r.Tokens.FormatTotal()
 	if tokenStr == "" {
 		tokenStr = "0 tokens"
@@ -102,6 +104,10 @@ func printReplayHuman(r *replay.Replay, thinkingOnly, actionsOnly, compact bool)
 			continue
 		}
 		if compact && step.Type == "thinking" {
+			continue
+		}
+		// Default: hide tool calls (implementation noise). Show with --full or --actions-only.
+		if step.Type == "tool" && !full && !actionsOnly {
 			continue
 		}
 

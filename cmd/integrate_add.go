@@ -63,8 +63,6 @@ var integrateAddCmd = &cobra.Command{
 					fmt.Println("  " + line)
 				}
 				fmt.Println()
-			} else if def.Auth.SetupURL != "" {
-				ui.Info("Create or configure your app at: %s", ui.Cyan(def.Auth.SetupURL))
 			}
 			if len(def.Auth.RequiredScopes) > 0 {
 				ui.Info("Required scopes: %s", ui.Bold(strings.Join(def.Auth.RequiredScopes, ", ")))

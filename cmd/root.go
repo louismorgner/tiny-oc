@@ -8,6 +8,7 @@ import (
 	"github.com/tiny-oc/toc/internal/agent"
 	"github.com/tiny-oc/toc/internal/audit"
 	"github.com/tiny-oc/toc/internal/config"
+	"github.com/tiny-oc/toc/internal/ui"
 )
 
 func init() {
@@ -54,6 +55,13 @@ func knownCommands() map[string]bool {
 	cmds["help"] = true
 	cmds["completion"] = true
 	return cmds
+}
+
+// auditLog wraps audit.Log and warns on failure rather than silently discarding errors.
+func auditLog(action string, details map[string]interface{}) {
+	if err := audit.Log(action, details); err != nil {
+		ui.Warn("audit log failed: %s", err)
+	}
 }
 
 func Execute() {

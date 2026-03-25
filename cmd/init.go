@@ -4,7 +4,6 @@ import (
 	"fmt"
 
 	"github.com/spf13/cobra"
-	"github.com/tiny-oc/toc/internal/audit"
 	"github.com/tiny-oc/toc/internal/config"
 	"github.com/tiny-oc/toc/internal/ui"
 )
@@ -35,7 +34,7 @@ var initCmd = &cobra.Command{
 			return err
 		}
 
-		_ = audit.Log("workspace.init", map[string]interface{}{"name": name})
+		auditLog("workspace.init", map[string]interface{}{"name": name})
 
 		fmt.Println()
 		ui.Success("Initialized workspace %s", ui.Bold(name))

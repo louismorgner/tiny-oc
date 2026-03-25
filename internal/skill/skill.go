@@ -58,8 +58,9 @@ func Exists(name string) bool {
 }
 
 // IsURL returns true if the entry looks like a URL skill reference.
+// Only HTTPS URLs are accepted to prevent man-in-the-middle attacks.
 func IsURL(entry string) bool {
-	return strings.HasPrefix(entry, "https://") || strings.HasPrefix(entry, "http://")
+	return strings.HasPrefix(entry, "https://")
 }
 
 // ParseSkillMD reads a SKILL.md file and extracts the YAML frontmatter.

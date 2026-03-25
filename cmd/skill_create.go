@@ -6,7 +6,6 @@ import (
 
 	"charm.land/huh/v2"
 	"github.com/spf13/cobra"
-	"github.com/tiny-oc/toc/internal/audit"
 	"github.com/tiny-oc/toc/internal/config"
 	"github.com/tiny-oc/toc/internal/skill"
 	"github.com/tiny-oc/toc/internal/ui"
@@ -89,7 +88,7 @@ var skillCreateCmd = &cobra.Command{
 			return err
 		}
 
-		_ = audit.Log("skill.create", map[string]interface{}{
+		auditLog("skill.create", map[string]interface{}{
 			"skill": name,
 		})
 

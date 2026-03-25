@@ -5,7 +5,6 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
-	"github.com/tiny-oc/toc/internal/audit"
 	"github.com/tiny-oc/toc/internal/config"
 	"github.com/tiny-oc/toc/internal/registry"
 	"github.com/tiny-oc/toc/internal/ui"
@@ -43,7 +42,7 @@ var registryInstallCmd = &cobra.Command{
 			return err
 		}
 
-		_ = audit.Log("registry.install", map[string]interface{}{
+		auditLog("registry.install", map[string]interface{}{
 			"name": entry.Name,
 			"type": entry.Type,
 		})

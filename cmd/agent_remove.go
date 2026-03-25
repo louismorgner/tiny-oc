@@ -5,7 +5,6 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/tiny-oc/toc/internal/agent"
-	"github.com/tiny-oc/toc/internal/audit"
 	"github.com/tiny-oc/toc/internal/config"
 	"github.com/tiny-oc/toc/internal/session"
 	"github.com/tiny-oc/toc/internal/ui"
@@ -47,7 +46,7 @@ var agentRemoveCmd = &cobra.Command{
 			return err
 		}
 
-		_ = audit.Log("agent.remove", map[string]interface{}{"agent": name})
+		auditLog("agent.remove", map[string]interface{}{"agent": name})
 
 		fmt.Println()
 		ui.Success("Removed agent %s and its sessions", ui.Bold(name))

@@ -9,8 +9,10 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/tiny-oc/toc/internal/agent"
+	"github.com/tiny-oc/toc/internal/fileutil"
 	"github.com/tiny-oc/toc/internal/skill"
 	"gopkg.in/yaml.v3"
 )
@@ -70,8 +72,10 @@ func FetchIndex() (*Index, error) {
 	return index, nil
 }
 
+var httpClient = &http.Client{Timeout: 30 * time.Second}
+
 func fetchYAML[T any](url string) (*T, error) {
-	resp, err := http.Get(url)
+	resp, err := httpClient.Get(url)
 	if err != nil {
 		return nil, err
 	}
@@ -218,7 +222,7 @@ func cloneRegistryDir(registryPath, destDir string) error {
 	}
 	defer os.RemoveAll(tmpDir)
 
-	gitCmd := exec.Command("git", "clone", "--depth", "1", "--filter=blob:none", "--sparse", RepoURL, tmpDir)
+	gitCmd := exec.Command("git", "-c", "core.hooksPath=/dev/null", "clone", "--depth", "1", "--filter=blob:none", "--sparse", RepoURL, tmpDir)
 	gitCmd.Stdout = io.Discard
 	gitCmd.Stderr = io.Discard
 	if err := gitCmd.Run(); err != nil {
@@ -237,7 +241,7 @@ func cloneRegistryDir(registryPath, destDir string) error {
 		return fmt.Errorf("'%s' not found in registry", registryPath)
 	}
 
-	return copyDir(srcDir, destDir)
+	return fileutil.CopyDir(srcDir, destDir)
 }
 
 // FormatJSON returns entries as formatted JSON.
@@ -247,32 +251,4 @@ func FormatJSON(entries []Entry) (string, error) {
 		return "", err
 	}
 	return string(data), nil
-}
-
-func copyDir(src, dst string) error {
-	if err := os.MkdirAll(dst, 0755); err != nil {
-		return err
-	}
-	entries, err := os.ReadDir(src)
-	if err != nil {
-		return err
-	}
-	for _, entry := range entries {
-		srcPath := filepath.Join(src, entry.Name())
-		dstPath := filepath.Join(dst, entry.Name())
-		if entry.IsDir() {
-			if err := copyDir(srcPath, dstPath); err != nil {
-				return err
-			}
-		} else {
-			data, err := os.ReadFile(srcPath)
-			if err != nil {
-				return err
-			}
-			if err := os.WriteFile(dstPath, data, 0644); err != nil {
-				return err
-			}
-		}
-	}
-	return nil
 }

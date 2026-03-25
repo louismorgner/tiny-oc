@@ -26,6 +26,7 @@ type AuthConfig struct {
 	Method            string   `yaml:"method"` // oauth2, api_key, token
 	SetupURL          string   `yaml:"setup_url,omitempty"`
 	RequiredScopes    []string `yaml:"required_scopes,omitempty"`
+	UserScopes        []string `yaml:"user_scopes,omitempty"`
 	SetupInstructions string   `yaml:"setup_instructions,omitempty"`
 }
 

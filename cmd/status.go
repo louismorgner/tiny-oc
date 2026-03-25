@@ -11,6 +11,7 @@ import (
 	"github.com/tiny-oc/toc/internal/session"
 	"github.com/tiny-oc/toc/internal/skill"
 	"github.com/tiny-oc/toc/internal/ui"
+	"github.com/tiny-oc/toc/internal/usage"
 )
 
 func init() {
@@ -110,7 +111,13 @@ var statusCmd = &cobra.Command{
 				case "stale":
 					badge = ui.Yellow("◌ stale")
 				}
-				fmt.Printf("    %s  %s  %s  %s\n", badge, ui.Cyan(s.Agent), ui.Dim(age), ui.Dim(s.ID[:8]))
+				tokens := usage.ForSession(s.WorkspacePath, s.ID)
+				tokenStr := tokens.FormatTotal()
+				if tokenStr != "" {
+					fmt.Printf("    %s  %s  %s  %s  %s\n", badge, ui.Cyan(s.Agent), ui.Dim(age), ui.Dim(s.ID[:8]), ui.Dim(tokenStr))
+				} else {
+					fmt.Printf("    %s  %s  %s  %s\n", badge, ui.Cyan(s.Agent), ui.Dim(age), ui.Dim(s.ID[:8]))
+				}
 			}
 		}
 		fmt.Println()

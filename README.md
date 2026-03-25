@@ -77,8 +77,9 @@ When you run `toc agent spawn`, it:
 | `toc agent skills <name>` | Manage skills for an agent |
 | `toc skill create` | Create a new local skill |
 | `toc skill list` | List available skills |
-| `toc skill add <url>` | Install a skill from a Git URL |
+| `toc skill add <name-or-url>` | Install a skill from a Git URL or the registry |
 | `toc skill remove <name>` | Remove a skill |
+| `toc agent add <name>` | Install an agent template from the registry |
 | `toc registry search [query]` | Browse skills and agent templates |
 | `toc registry install <name>` | Install a skill or agent from the registry |
 | `toc audit` | View the audit log |

@@ -64,35 +64,45 @@ toc agent spawn pr-reviewer
 ```
 ├── main.go                    # Entry point
 ├── cmd/                       # CLI commands (Cobra)
-│   ├── root.go                # Root command, version flag
+│   ├── root.go                # Root command, version flag, agent shorthand
 │   ├── init.go                # toc init
 │   ├── status.go              # toc status
 │   ├── audit.go               # toc audit
 │   ├── completion.go          # toc completion
-│   └── agent/                 # toc agent subcommands
-│       ├── create.go
-│       ├── list.go
-│       ├── spawn.go
-│       ├── remove.go
-│       └── skills.go
-│   └── skill/                 # toc skill subcommands
-│       ├── create.go
-│       ├── list.go
-│       ├── add.go
-│       └── remove.go
+│   ├── agent.go               # toc agent (parent command)
+│   ├── agent_create.go        # toc agent create
+│   ├── agent_list.go          # toc agent list
+│   ├── agent_spawn.go         # toc agent spawn (with --resume)
+│   ├── agent_remove.go        # toc agent remove
+│   ├── agent_skills.go        # toc agent skills
+│   ├── agent_add.go           # toc agent add (from registry)
+│   ├── skill.go               # toc skill (parent command)
+│   ├── skill_create.go        # toc skill create
+│   ├── skill_list.go          # toc skill list
+│   ├── skill_add.go           # toc skill add (URL or registry name)
+│   ├── skill_remove.go        # toc skill remove
+│   ├── registry.go            # toc registry (parent command)
+│   ├── registry_search.go     # toc registry search
+│   ├── registry_install.go    # toc registry install
+│   ├── runtime.go             # toc runtime (parent command, agent-facing)
+│   ├── runtime_list.go        # toc runtime list
+│   ├── runtime_spawn.go       # toc runtime spawn
+│   ├── runtime_status.go      # toc runtime status
+│   └── runtime_output.go      # toc runtime output
 ├── internal/
-│   ├── agent/                 # Agent config: load, save, validate
+│   ├── agent/                 # Agent config: load, save, validate, sub-agent permissions
 │   ├── audit/                 # Append-only JSON Lines audit log
 │   ├── config/                # Workspace config and paths
-│   ├── registry/              # Remote skill registry (GitHub)
-│   ├── session/               # Session tracking (sessions.yaml)
+│   ├── registry/              # Remote registry: fetch, search, install skills and agents
+│   ├── runtime/               # Runtime context: env var resolution for agent sessions
+│   ├── session/               # Session tracking (sessions.yaml), parent-child relationships
 │   ├── skill/                 # Skill management: local + URL
-│   ├── spawn/                 # Session orchestration
+│   ├── spawn/                 # Session orchestration, sub-agent spawning
 │   ├── sync/                  # Context sync: patterns, hooks, file copy
 │   └── ui/                    # Terminal output helpers (colors, prompts)
 ├── registry/                  # Built-in skills and agent templates
-│   ├── agents/
-│   └── skills/
+│   ├── agents/                # cto, mini-claw
+│   └── skills/                # open-source-cto, agentic-memory
 ├── Makefile                   # build, test, lint targets
 └── install.sh                 # Build + symlink to PATH
 ```
@@ -114,6 +124,10 @@ Handles bidirectional file sync between session temp directories and agent templ
 ### Audit (`internal/audit/`)
 
 Append-only logger. Each event is a single JSON line written to `.toc/audit.log`. The actor and hostname are resolved once from `$USER` and `os.Hostname()`.
+
+### Runtime (`internal/runtime/`)
+
+Provides session context for `toc runtime` commands. Reads `TOC_WORKSPACE`, `TOC_AGENT`, and `TOC_SESSION_ID` environment variables (injected at launch time) to resolve the workspace, load agent configs, and enforce sub-agent permissions from within a running session.
 
 ### Skills (`internal/skill/`)
 

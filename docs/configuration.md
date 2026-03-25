@@ -33,6 +33,8 @@ on_end: >
 compose:
   - soul.md
   - user.md
+sub-agents:
+  - "*"
 ```
 
 ### Fields
@@ -47,6 +49,7 @@ compose:
 | `skills` | list | no | — | Skill names (local) or Git URLs (remote) |
 | `on_end` | string | no | — | Prompt run as a Claude Code `SessionEnd` hook (see below) |
 | `compose` | list | no | — | Files to append after `agent.md` when building `CLAUDE.md` (see below) |
+| `sub-agents` | list | no | — | Agent names this agent can spawn as sub-agents. Use `["*"]` for all agents |
 
 ### Agent instructions
 
@@ -70,6 +73,34 @@ Both `agent.md` and compose files support template variables that are replaced a
 | `{{.SessionID}}` | Unique session UUID |
 | `{{.Date}}` | Today's date (`YYYY-MM-DD`) |
 | `{{.Model}}` | The model being used |
+
+## Sub-agents
+
+The `sub-agents` field controls which other agents this agent is allowed to spawn as background tasks during a session. Agents without this field cannot spawn sub-agents.
+
+```yaml
+sub-agents:
+  - "*"              # allow spawning any agent in the workspace
+```
+
+Or restrict to specific agents:
+
+```yaml
+sub-agents:
+  - researcher
+  - test-writer
+```
+
+During a session, agents use `toc runtime` commands to manage sub-agents:
+
+| Command | Description |
+|---|---|
+| `toc runtime list` | List agents available to spawn |
+| `toc runtime spawn <name> -p "..."` | Spawn a sub-agent in the background |
+| `toc runtime status [session-id]` | Check sub-agent progress |
+| `toc runtime output <session-id>` | Read completed sub-agent output |
+
+Sub-agents run with `claude --print` in a detached process, capturing output to `toc-output.txt` in the session workspace. Parent-child relationships are tracked in `sessions.yaml`.
 
 ## Context sync patterns
 
@@ -157,6 +188,8 @@ Each entry contains:
 | `skill.create` | `toc skill create` |
 | `skill.add` | `toc skill add` |
 | `skill.remove` | `toc skill remove` |
+| `agent.add` | `toc agent add` (registry install) |
+| `runtime.spawn` | Sub-agent spawned during a session |
 
 No secrets or file contents are logged.
 

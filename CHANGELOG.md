@@ -5,6 +5,37 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2026-03-25
+
+### Added
+
+- Integration system: API gateway with rate limiting, credential vault, and permission scoping for external services (#38).
+- Slack integration with OAuth2 flow, channel resolution, and error handling (#49).
+- `toc runtime watch` to live-tail sub-agent sessions (#50).
+- Sub-agent resume capability — resume interrupted sub-agent sessions (#45).
+- Session replay with `toc runtime replay` and `--json` output for runtime commands (#29).
+- `toc update` command for CLI self-update (#35).
+- `toc agent show` command and improved `toc agent create` wizard (#22).
+- `toc init --name` flag for non-interactive workspace initialization.
+- Token usage display per session in `toc status` (#18).
+- `on_end` session hooks for running prompts when sessions close (#16).
+- Mini-claw agent template with compose system, template variables, and first-run bootstrap (#14, #21).
+- Agent template improvements based on replay observations (#34).
+
+### Changed
+
+- Unified permission model with hook enforcement — permissions are now declared in `oc-agent.yaml` and enforced consistently (#27).
+- Runtime CLI hardened: status tracking, cancel support, partial output, file locking (#48).
+- Security hardening: git hook injection prevention, HTTPS-only URLs, safe temp dirs, 0600 file permissions (#13).
+- Skill/agent install is now type-explicit with auto-detection and cross-type error messages (#17).
+
+### Fixed
+
+- Sub-agent output capture race condition (#23).
+- JSONL path resolution for sub-agent replay (#31).
+- Status command now sorts sessions by most recent first (#42).
+- Gateway array filtering, URL param leaking, rate limiter persistence, and permission matching (#48).
+
 ## [0.2.0] - 2026-03-24
 
 ### Added
@@ -50,6 +81,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `toc completion` for bash, zsh, and fish with dynamic completion of agent names and session IDs.
 - `install.sh` for building and symlinking the binary to PATH.
 
-[unreleased]: https://github.com/louismorgner/tiny-oc/compare/v0.2.0...HEAD
+[unreleased]: https://github.com/louismorgner/tiny-oc/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/louismorgner/tiny-oc/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/louismorgner/tiny-oc/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/louismorgner/tiny-oc/releases/tag/v0.1.0

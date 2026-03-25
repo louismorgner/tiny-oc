@@ -32,9 +32,17 @@ var runtimeListCmd = &cobra.Command{
 			return nil
 		}
 
-		targets, err := parentCfg.AllowedTargets()
+		// Resolve targets via runtime context so agent.List() sees the workspace
+		allAgents, err := ctx.ListAgents()
 		if err != nil {
-			return err
+			return fmt.Errorf("failed to list agents: %w", err)
+		}
+
+		var targets []string
+		for _, a := range allAgents {
+			if a.Name != ctx.Agent && parentCfg.CanSpawn(a.Name) {
+				targets = append(targets, a.Name)
+			}
 		}
 
 		if len(targets) == 0 {

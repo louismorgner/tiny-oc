@@ -198,38 +198,52 @@ func SpawnSubSession(cfg *agent.AgentConfig, opts SubSpawnOpts) (*SpawnResult, e
 		return nil, fmt.Errorf("failed to track session: %w", err)
 	}
 
-	// Launch claude in background with --print mode
+	// Launch claude as a detached background process so it survives after toc exits
 	outputPath := filepath.Join(workDir, "toc-output.txt")
-	workspace := opts.WorkspaceDir
-	go func() {
-		launchClaudePrint(workDir, cfg.Model, opts.Prompt, workspace, cfg.Name, sessionID, outputPath)
-		_ = session.UpdateStatusInWorkspace(workspace, sessionID, session.StatusCompleted)
-	}()
+	if err := launchClaudeDetached(workDir, cfg.Model, opts.Prompt, opts.WorkspaceDir, cfg.Name, sessionID, outputPath); err != nil {
+		return nil, fmt.Errorf("failed to launch sub-agent: %w", err)
+	}
 
 	return &SpawnResult{SessionID: sessionID, FailedSkills: failedSkills}, nil
 }
 
-// launchClaudePrint runs claude in non-interactive --print mode, capturing output.
-func launchClaudePrint(dir, model, prompt, workspace, agentName, sessionID, outputPath string) {
-	args := []string{"--dangerously-skip-permissions", "--print", "-p", prompt}
+// launchClaudeDetached starts claude in a detached process via a wrapper script
+// so the sub-agent outlives the parent toc process.
+func launchClaudeDetached(dir, model, prompt, workspace, agentName, sessionID, outputPath string) error {
+	// Build claude command
+	args := fmt.Sprintf("claude --dangerously-skip-permissions --print -p %q", prompt)
 	if model != "" {
-		args = append(args, "--model", model)
+		args += fmt.Sprintf(" --model %s", model)
 	}
 
-	cmd := exec.Command("claude", args...)
+	// Write a wrapper script that runs claude and captures output.
+	// The existence of toc-output.txt signals completion (checked by ResolvedStatus).
+	scriptContent := fmt.Sprintf(`#!/bin/sh
+cd %q
+export TOC_WORKSPACE=%q
+export TOC_AGENT=%q
+export TOC_SESSION_ID=%q
+%s > %q 2>&1
+`, dir, workspace, agentName, sessionID, args, outputPath)
+
+	scriptPath := filepath.Join(dir, "toc-run.sh")
+	if err := os.WriteFile(scriptPath, []byte(scriptContent), 0755); err != nil {
+		return err
+	}
+
+	cmd := exec.Command("sh", scriptPath)
 	cmd.Dir = dir
-	cmd.Env = append(os.Environ(),
-		"TOC_WORKSPACE="+workspace,
-		"TOC_AGENT="+agentName,
-		"TOC_SESSION_ID="+sessionID,
-	)
+	cmd.Stdout = nil
+	cmd.Stderr = nil
+	cmd.Stdin = nil
 
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		output = append(output, []byte(fmt.Sprintf("\n[toc] claude exited with error: %s\n", err))...)
+	// Start the process detached
+	if err := cmd.Start(); err != nil {
+		return err
 	}
 
-	_ = os.WriteFile(outputPath, output, 0644)
+	// Release the process so it's not waited on
+	return cmd.Process.Release()
 }
 
 func setupContextHooks(workDir, agentDir string, patterns []string) error {

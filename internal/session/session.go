@@ -3,6 +3,7 @@ package session
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/tiny-oc/toc/internal/config"
@@ -25,9 +26,17 @@ type Session struct {
 }
 
 // ResolvedStatus returns the display status, checking workspace existence.
+// For sub-agent sessions (ParentSessionID set), it also checks for toc-output.txt
+// as a completion signal since the background process can't update sessions.yaml.
 func (s *Session) ResolvedStatus() string {
 	if _, err := os.Stat(s.WorkspacePath); os.IsNotExist(err) {
 		return "stale"
+	}
+	if s.Status == StatusActive && s.ParentSessionID != "" {
+		// Sub-agent: check if output file exists (means claude --print finished)
+		if _, err := os.Stat(filepath.Join(s.WorkspacePath, "toc-output.txt")); err == nil {
+			return "completed"
+		}
 	}
 	if s.Status == StatusActive {
 		return "active"

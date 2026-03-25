@@ -19,6 +19,7 @@ type SessionLLMConfig struct {
 
 type SessionRuntimeOptions struct {
 	EnabledTools              []string `json:"enabled_tools,omitempty"`
+	MaxIterations             int      `json:"max_iterations,omitempty"`
 	CompactionTriggerChars    int      `json:"compaction_trigger_chars,omitempty"`
 	CompactionKeepRecent      int      `json:"compaction_keep_recent,omitempty"`
 	CompactionMaxSummaryChars int      `json:"compaction_max_summary_chars,omitempty"`
@@ -65,6 +66,10 @@ func ResolveSessionConfig(cfg *agent.AgentConfig) *SessionConfig {
 	}
 	if cfg.Runtime == runtimeinfo.NativeRuntime {
 		sessionCfg.RuntimeConfig.EnabledTools = NativeToolNames()
+		sessionCfg.RuntimeConfig.MaxIterations = defaultMaxIterations
+		if cfg.MaxIterations > 0 {
+			sessionCfg.RuntimeConfig.MaxIterations = cfg.MaxIterations
+		}
 		sessionCfg.RuntimeConfig.CompactionTriggerChars = 24000
 		sessionCfg.RuntimeConfig.CompactionKeepRecent = 12
 		sessionCfg.RuntimeConfig.CompactionMaxSummaryChars = 6000

@@ -42,6 +42,7 @@ type AgentConfig struct {
 	Description            string       `yaml:"description,omitempty"`
 	Model                  string       `yaml:"model"`
 	AllowCustomNativeModel bool         `yaml:"allow_custom_native_model,omitempty"`
+	MaxIterations          int          `yaml:"max_iterations,omitempty"`
 	Context                []string     `yaml:"context,omitempty"`
 	Skills                 []string     `yaml:"skills,omitempty"`
 	Perms                  *Permissions `yaml:"permissions,omitempty"`

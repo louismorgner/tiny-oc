@@ -7,7 +7,7 @@
 
 ## Medium priority
 
-- **File locking** — `session.Add()`, `skill.AddRef()`, `skill.RemoveRef()` do read-then-write without locking. Concurrent spawns can lose data. Consider `flock` or atomic write-rename.
+- **File locking (sessions)** — ✅ Fixed. `session.Add()` and all session write operations now use `flock`-based file locking. `skill.AddRef()` and `skill.RemoveRef()` still need the same treatment.
 - **isDir heuristic** — `sync.isDir()` guesses by checking no extension + no glob chars. Breaks for `Makefile`, `Dockerfile`, or dirs named `data.v2`. Needs a better approach or documentation.
 
 ## Low priority

@@ -188,7 +188,12 @@ func Exists(name string) bool {
 }
 
 func Load(name string) (*AgentConfig, error) {
-	data, err := os.ReadFile(filepath.Join(Dir(name), "oc-agent.yaml"))
+	return LoadFrom(filepath.Join(Dir(name), "oc-agent.yaml"), name)
+}
+
+// LoadFrom loads an agent config from a specific file path.
+func LoadFrom(path, name string) (*AgentConfig, error) {
+	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("agent '%s' not found: %w", name, err)
 	}

@@ -4,6 +4,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
+	"syscall"
 	"time"
 
 	"github.com/tiny-oc/toc/internal/config"
@@ -11,8 +14,12 @@ import (
 )
 
 const (
-	StatusActive    = "active"
-	StatusCompleted = "completed"
+	StatusActive         = "active"
+	StatusCompleted      = "completed"
+	StatusCompletedOK    = "completed-success"
+	StatusCompletedError = "completed-error"
+	StatusZombie         = "zombie"
+	StatusCancelled      = "cancelled"
 )
 
 type Session struct {
@@ -25,19 +32,18 @@ type Session struct {
 	Prompt          string    `yaml:"prompt,omitempty"`
 }
 
-// ResolvedStatus returns the display status, checking workspace existence.
-// For sub-agent sessions (ParentSessionID set), it also checks for toc-output.txt
-// as a completion signal since the background process can't update sessions.yaml.
+// ResolvedStatus returns the display status, checking filesystem signals.
+// For sub-agent sessions it checks PID liveness, exit code, and cancellation markers
+// since the background process can't update sessions.yaml directly.
 func (s *Session) ResolvedStatus() string {
 	if _, err := os.Stat(s.WorkspacePath); os.IsNotExist(err) {
 		return "stale"
 	}
+
 	if s.Status == StatusActive && s.ParentSessionID != "" {
-		// Sub-agent: check if output file exists (means claude --print finished)
-		if _, err := os.Stat(filepath.Join(s.WorkspacePath, "toc-output.txt")); err == nil {
-			return "completed"
-		}
+		return s.resolveSubAgentStatus()
 	}
+
 	if s.Status == StatusActive {
 		return "active"
 	}
@@ -48,19 +54,87 @@ func (s *Session) ResolvedStatus() string {
 	return "completed"
 }
 
+// resolveSubAgentStatus determines the status of a sub-agent session by
+// inspecting filesystem markers written by the wrapper script.
+func (s *Session) resolveSubAgentStatus() string {
+	// Check cancellation marker first
+	if _, err := os.Stat(filepath.Join(s.WorkspacePath, "toc-cancelled.txt")); err == nil {
+		return StatusCancelled
+	}
+
+	// Check if output file exists (means the process completed and mv succeeded)
+	outputExists := false
+	if _, err := os.Stat(filepath.Join(s.WorkspacePath, "toc-output.txt")); err == nil {
+		outputExists = true
+	}
+
+	if outputExists {
+		// Process finished — check exit code for success vs error
+		exitCode, err := s.ReadExitCode()
+		if err == nil {
+			if exitCode == 0 {
+				return StatusCompletedOK
+			}
+			return StatusCompletedError
+		}
+		// Exit code file missing (legacy session) — fall back to "completed"
+		return "completed"
+	}
+
+	// Output file doesn't exist — check if process is still alive
+	pid, err := s.ReadPID()
+	if err != nil {
+		// No PID file — legacy session or hasn't started yet
+		return "active"
+	}
+
+	if isProcessAlive(pid) {
+		return "active"
+	}
+
+	// Process is dead but never wrote output — zombie
+	return StatusZombie
+}
+
+// ReadPID reads the process ID from toc-pid.txt in the session workspace.
+func (s *Session) ReadPID() (int, error) {
+	data, err := os.ReadFile(filepath.Join(s.WorkspacePath, "toc-pid.txt"))
+	if err != nil {
+		return 0, err
+	}
+	return strconv.Atoi(strings.TrimSpace(string(data)))
+}
+
+// ReadExitCode reads the exit code from toc-exit-code.txt in the session workspace.
+func (s *Session) ReadExitCode() (int, error) {
+	data, err := os.ReadFile(filepath.Join(s.WorkspacePath, "toc-exit-code.txt"))
+	if err != nil {
+		return 0, err
+	}
+	return strconv.Atoi(strings.TrimSpace(string(data)))
+}
+
+// isProcessAlive checks if a process with the given PID is still running.
+func isProcessAlive(pid int) bool {
+	err := syscall.Kill(pid, 0)
+	return err == nil || err == syscall.EPERM
+}
+
 // UpdateStatus sets the status of a session by ID.
 func UpdateStatus(id, status string) error {
-	sf, err := Load()
-	if err != nil {
-		return err
-	}
-	for i := range sf.Sessions {
-		if sf.Sessions[i].ID == id {
-			sf.Sessions[i].Status = status
-			return Save(sf)
+	return withFileLock(config.SessionsPath(), func() error {
+		sf, err := Load()
+		if err != nil {
+			return err
 		}
-	}
-	return fmt.Errorf("session '%s' not found", id)
+		for i := range sf.Sessions {
+			if sf.Sessions[i].ID == id {
+				sf.Sessions[i].Status = status
+				return Save(sf)
+			}
+		}
+		return fmt.Errorf("session '%s' not found", id)
+	})
 }
 
 type SessionsFile struct {
@@ -91,12 +165,14 @@ func Save(sf *SessionsFile) error {
 }
 
 func Add(s Session) error {
-	sf, err := Load()
-	if err != nil {
-		return err
-	}
-	sf.Sessions = append(sf.Sessions, s)
-	return Save(sf)
+	return withFileLock(config.SessionsPath(), func() error {
+		sf, err := Load()
+		if err != nil {
+			return err
+		}
+		sf.Sessions = append(sf.Sessions, s)
+		return Save(sf)
+	})
 }
 
 func ListByAgent(agentName string) ([]Session, error) {
@@ -114,18 +190,20 @@ func ListByAgent(agentName string) ([]Session, error) {
 }
 
 func RemoveByAgent(agentName string) error {
-	sf, err := Load()
-	if err != nil {
-		return err
-	}
-	var kept []Session
-	for _, s := range sf.Sessions {
-		if s.Agent != agentName {
-			kept = append(kept, s)
+	return withFileLock(config.SessionsPath(), func() error {
+		sf, err := Load()
+		if err != nil {
+			return err
 		}
-	}
-	sf.Sessions = kept
-	return Save(sf)
+		var kept []Session
+		for _, s := range sf.Sessions {
+			if s.Agent != agentName {
+				kept = append(kept, s)
+			}
+		}
+		sf.Sessions = kept
+		return Save(sf)
+	})
 }
 
 func ListByParent(parentID string) ([]Session, error) {
@@ -159,41 +237,45 @@ func FindByID(id string) (*Session, error) {
 // AddInWorkspace adds a session record using a specific workspace path.
 func AddInWorkspace(workspace string, s Session) error {
 	path := workspace + "/.toc/sessions.yaml"
-	data, err := os.ReadFile(path)
-	var sf SessionsFile
-	if err == nil {
-		_ = yaml.Unmarshal(data, &sf)
-	}
-	sf.Sessions = append(sf.Sessions, s)
-	out, err := yaml.Marshal(sf)
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(path, out, 0600)
+	return withFileLock(path, func() error {
+		data, err := os.ReadFile(path)
+		var sf SessionsFile
+		if err == nil {
+			_ = yaml.Unmarshal(data, &sf)
+		}
+		sf.Sessions = append(sf.Sessions, s)
+		out, err := yaml.Marshal(sf)
+		if err != nil {
+			return err
+		}
+		return os.WriteFile(path, out, 0600)
+	})
 }
 
 // UpdateStatusInWorkspace updates session status using a specific workspace path.
 func UpdateStatusInWorkspace(workspace, id, status string) error {
 	path := workspace + "/.toc/sessions.yaml"
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return err
-	}
-	var sf SessionsFile
-	if err := yaml.Unmarshal(data, &sf); err != nil {
-		return err
-	}
-	for i := range sf.Sessions {
-		if sf.Sessions[i].ID == id {
-			sf.Sessions[i].Status = status
-			out, err := yaml.Marshal(sf)
-			if err != nil {
-				return err
-			}
-			return os.WriteFile(path, out, 0600)
+	return withFileLock(path, func() error {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
 		}
-	}
-	return fmt.Errorf("session '%s' not found", id)
+		var sf SessionsFile
+		if err := yaml.Unmarshal(data, &sf); err != nil {
+			return err
+		}
+		for i := range sf.Sessions {
+			if sf.Sessions[i].ID == id {
+				sf.Sessions[i].Status = status
+				out, err := yaml.Marshal(sf)
+				if err != nil {
+					return err
+				}
+				return os.WriteFile(path, out, 0600)
+			}
+		}
+		return fmt.Errorf("session '%s' not found", id)
+	})
 }
 
 func FindByIDInWorkspace(workspace, id string) (*Session, error) {

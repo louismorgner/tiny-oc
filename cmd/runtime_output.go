@@ -14,6 +14,7 @@ import (
 
 func init() {
 	runtimeOutputCmd.Flags().Bool("json", false, "Output structured JSON")
+	runtimeOutputCmd.Flags().Bool("partial", false, "Read partial output from a running session")
 	runtimeCmd.AddCommand(runtimeOutputCmd)
 }
 
@@ -28,6 +29,8 @@ var runtimeOutputCmd = &cobra.Command{
 		}
 
 		sessionID := args[0]
+		jsonFlag, _ := cmd.Flags().GetBool("json")
+		partialFlag, _ := cmd.Flags().GetBool("partial")
 
 		s, err := session.FindByIDInWorkspace(ctx.Workspace, sessionID)
 		if err != nil {
@@ -38,38 +41,61 @@ var runtimeOutputCmd = &cobra.Command{
 			return fmt.Errorf("session '%s' is not a sub-agent of this session", sessionID)
 		}
 
+		status := s.ResolvedStatus()
+
+		// Try reading the final output file first
 		outputPath := filepath.Join(s.WorkspacePath, "toc-output.txt")
 		data, err := os.ReadFile(outputPath)
-		if err != nil {
-			if os.IsNotExist(err) {
-				status := s.ResolvedStatus()
-				if status == "active" {
-					jsonFlag, _ := cmd.Flags().GetBool("json")
-					if jsonFlag {
-						out, _ := json.Marshal(map[string]string{"status": "running", "output": ""})
-						fmt.Println(string(out))
-						return nil
-					}
-					ui.Info("Sub-agent is still running. Output will be available when it completes.")
-					return nil
-				}
-				return fmt.Errorf("no output found for session '%s'", sessionID)
-			}
+		if err == nil {
+			return printOutput(jsonFlag, sessionID, status, data)
+		}
+
+		if !os.IsNotExist(err) {
 			return err
 		}
 
-		jsonFlag, _ := cmd.Flags().GetBool("json")
-		if jsonFlag {
-			out, _ := json.Marshal(map[string]string{
-				"session_id": sessionID,
-				"status":     s.ResolvedStatus(),
-				"output":     string(data),
-			})
-			fmt.Println(string(out))
+		// Final output doesn't exist — try partial output if requested or still active
+		if partialFlag || status == "active" {
+			tmpPath := filepath.Join(s.WorkspacePath, "toc-output.txt.tmp")
+			partialData, tmpErr := os.ReadFile(tmpPath)
+			if tmpErr == nil && len(partialData) > 0 {
+				if partialFlag {
+					return printOutput(jsonFlag, sessionID, status, partialData)
+				}
+				// Active but not --partial: hint the user
+				if jsonFlag {
+					out, _ := json.Marshal(map[string]string{"status": "running", "output": ""})
+					fmt.Println(string(out))
+					return nil
+				}
+				ui.Info("Sub-agent is still running. Use --partial to read output so far.")
+				return nil
+			}
+
+			// No partial output yet
+			if jsonFlag {
+				out, _ := json.Marshal(map[string]string{"status": "running", "output": ""})
+				fmt.Println(string(out))
+				return nil
+			}
+			ui.Info("Sub-agent is still running. No output yet.")
 			return nil
 		}
 
-		fmt.Println(string(data))
-		return nil
+		return fmt.Errorf("no output found for session '%s'", sessionID)
 	},
+}
+
+func printOutput(jsonFlag bool, sessionID, status string, data []byte) error {
+	if jsonFlag {
+		out, _ := json.Marshal(map[string]string{
+			"session_id": sessionID,
+			"status":     status,
+			"output":     string(data),
+		})
+		fmt.Println(string(out))
+		return nil
+	}
+	fmt.Println(string(data))
+	return nil
 }

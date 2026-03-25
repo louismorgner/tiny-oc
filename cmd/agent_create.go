@@ -121,6 +121,16 @@ var agentCreateCmd = &cobra.Command{
 		compose := parseLines(composeRaw)
 		subAgents := parseLines(subAgentsRaw)
 
+		var perms *agent.Permissions
+		if len(subAgents) > 0 {
+			perms = &agent.Permissions{
+				SubAgents: make(map[string]agent.PermissionLevel),
+			}
+			for _, sa := range subAgents {
+				perms.SubAgents[sa] = agent.PermOn
+			}
+		}
+
 		cfg := agent.AgentConfig{
 			Runtime:     "claude-code",
 			Name:        name,
@@ -128,7 +138,7 @@ var agentCreateCmd = &cobra.Command{
 			Model:       model,
 			Context:     contextPatterns,
 			Skills:      skills,
-			SubAgents:   subAgents,
+			Perms:       perms,
 			OnEnd:       strings.TrimSpace(onEnd),
 			Compose:     compose,
 		}

@@ -59,14 +59,8 @@ func SpawnSession(cfg *agent.AgentConfig) (*SpawnResult, error) {
 		failedSkills = resolveSkills(workDir, cfg.Skills)
 	}
 
-	if len(cfg.Context) > 0 {
-		if err := setupContextHooks(workDir, srcDir, cfg.Context, cfg.OnEnd); err != nil {
-			return nil, fmt.Errorf("failed to setup context sync hooks: %w", err)
-		}
-	} else if cfg.OnEnd != "" {
-		if err := setupOnEndHook(workDir, cfg.OnEnd); err != nil {
-			return nil, fmt.Errorf("failed to setup on_end hook: %w", err)
-		}
+	if err := setupHooks(workDir, srcDir, cfg); err != nil {
+		return nil, fmt.Errorf("failed to setup hooks: %w", err)
 	}
 
 	if err := session.Add(session.Session{
@@ -93,6 +87,9 @@ func SpawnSession(cfg *agent.AgentConfig) (*SpawnResult, error) {
 	}
 	if cfg.OnEnd != "" {
 		ui.Info("On end: %s", ui.Dim("session end hook enabled"))
+	}
+	if cfg.Perms != nil {
+		ui.Info("Permissions: %s", ui.Dim("enforced via hooks"))
 	}
 	fmt.Println()
 
@@ -133,14 +130,8 @@ func ResumeSession(s *session.Session) (*SpawnResult, error) {
 	}
 
 	// Re-setup hooks in case they were cleaned up
-	if len(cfg.Context) > 0 {
-		if err := setupContextHooks(s.WorkspacePath, srcDir, cfg.Context, cfg.OnEnd); err != nil {
-			return nil, fmt.Errorf("failed to setup context sync hooks: %w", err)
-		}
-	} else if cfg.OnEnd != "" {
-		if err := setupOnEndHook(s.WorkspacePath, cfg.OnEnd); err != nil {
-			return nil, fmt.Errorf("failed to setup on_end hook: %w", err)
-		}
+	if err := setupHooks(s.WorkspacePath, srcDir, cfg); err != nil {
+		return nil, fmt.Errorf("failed to setup hooks: %w", err)
 	}
 
 	fmt.Println()
@@ -276,36 +267,40 @@ mv %q %q
 	return cmd.Process.Release()
 }
 
-func setupContextHooks(workDir, agentDir string, patterns []string, onEnd string) error {
+// setupHooks generates .claude/settings.json with all hooks: context sync,
+// on_end, and permission enforcement. This is the single entry point for hook setup.
+func setupHooks(workDir, agentDir string, cfg *agent.AgentConfig) error {
 	claudeDir := filepath.Join(workDir, ".claude")
 	if err := os.MkdirAll(claudeDir, 0755); err != nil {
 		return err
 	}
 
-	// Write sync script
-	scriptPath := filepath.Join(claudeDir, "toc-sync.sh")
-	script := tocsync.SyncScript(workDir, agentDir, patterns)
-	if err := os.WriteFile(scriptPath, []byte(script), 0755); err != nil {
-		return err
+	var syncScriptPath string
+	if len(cfg.Context) > 0 {
+		syncScriptPath = filepath.Join(claudeDir, "toc-sync.sh")
+		script := tocsync.SyncScript(workDir, agentDir, cfg.Context)
+		if err := os.WriteFile(syncScriptPath, []byte(script), 0755); err != nil {
+			return err
+		}
 	}
 
-	// Write settings.json with hook config (includes SessionEnd if on_end is set)
+	var permScriptPath string
+	if cfg.Perms != nil {
+		perms := cfg.EffectivePermissions()
+		permScriptPath = filepath.Join(claudeDir, "toc-permissions.sh")
+		script := tocsync.PermissionScript(perms, cfg.Name)
+		if err := os.WriteFile(permScriptPath, []byte(script), 0755); err != nil {
+			return err
+		}
+	}
+
+	// Only write settings if we have hooks to configure
+	if syncScriptPath == "" && cfg.OnEnd == "" && permScriptPath == "" {
+		return nil
+	}
+
 	settingsPath := filepath.Join(claudeDir, "settings.json")
-	settings, err := tocsync.HookSettings(scriptPath, onEnd)
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(settingsPath, settings, 0644)
-}
-
-func setupOnEndHook(workDir, onEnd string) error {
-	claudeDir := filepath.Join(workDir, ".claude")
-	if err := os.MkdirAll(claudeDir, 0755); err != nil {
-		return err
-	}
-
-	settingsPath := filepath.Join(claudeDir, "settings.json")
-	settings, err := tocsync.OnEndHookSettings(onEnd)
+	settings, err := tocsync.HookSettingsWithPermissions(syncScriptPath, cfg.OnEnd, permScriptPath)
 	if err != nil {
 		return err
 	}

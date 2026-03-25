@@ -12,6 +12,29 @@ import (
 
 var validName = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*$`)
 
+// PermissionLevel represents the three-level permission model.
+type PermissionLevel string
+
+const (
+	PermOn  PermissionLevel = "on"
+	PermAsk PermissionLevel = "ask"
+	PermOff PermissionLevel = "off"
+)
+
+// FilesystemPermissions controls file and shell access.
+type FilesystemPermissions struct {
+	Read    PermissionLevel `yaml:"read,omitempty"`
+	Write   PermissionLevel `yaml:"write,omitempty"`
+	Execute PermissionLevel `yaml:"execute,omitempty"`
+}
+
+// Permissions is the unified permission spec for an agent.
+type Permissions struct {
+	Filesystem   FilesystemPermissions  `yaml:"filesystem,omitempty"`
+	Integrations map[string]PermissionLevel `yaml:"integrations,omitempty"`
+	SubAgents    map[string]PermissionLevel `yaml:"sub-agents,omitempty"`
+}
+
 type AgentConfig struct {
 	Runtime     string   `yaml:"runtime"`
 	Name        string   `yaml:"name"`
@@ -19,24 +42,78 @@ type AgentConfig struct {
 	Model       string   `yaml:"model"`
 	Context     []string `yaml:"context,omitempty"`
 	Skills      []string `yaml:"skills,omitempty"`
-	SubAgents   []string `yaml:"sub-agents,omitempty"`
+	Perms       *Permissions `yaml:"permissions,omitempty"`
 	OnEnd       string   `yaml:"on_end,omitempty"`
 	Compose     []string `yaml:"compose,omitempty"`
 }
 
+// EffectivePermissions returns the resolved permission spec. If no permissions
+// block exists, returns permissive defaults.
+func (cfg *AgentConfig) EffectivePermissions() Permissions {
+	p := Permissions{
+		Filesystem: FilesystemPermissions{
+			Read:    PermOn,
+			Write:   PermOn,
+			Execute: PermOn,
+		},
+		Integrations: make(map[string]PermissionLevel),
+		SubAgents:    make(map[string]PermissionLevel),
+	}
+
+	if cfg.Perms != nil {
+		if cfg.Perms.Filesystem.Read != "" {
+			p.Filesystem.Read = cfg.Perms.Filesystem.Read
+		}
+		if cfg.Perms.Filesystem.Write != "" {
+			p.Filesystem.Write = cfg.Perms.Filesystem.Write
+		}
+		if cfg.Perms.Filesystem.Execute != "" {
+			p.Filesystem.Execute = cfg.Perms.Filesystem.Execute
+		}
+		for k, v := range cfg.Perms.Integrations {
+			p.Integrations[k] = v
+		}
+		for k, v := range cfg.Perms.SubAgents {
+			p.SubAgents[k] = v
+		}
+	}
+
+	return p
+}
+
 // CanSpawn checks if this agent is allowed to spawn the given target agent.
 func (cfg *AgentConfig) CanSpawn(target string) bool {
-	for _, entry := range cfg.SubAgents {
-		if entry == "*" || entry == target {
-			return true
-		}
+	perms := cfg.EffectivePermissions()
+	if level, ok := perms.SubAgents[target]; ok {
+		return level != PermOff
+	}
+	if level, ok := perms.SubAgents["*"]; ok {
+		return level != PermOff
 	}
 	return false
 }
 
 // CanSpawnAny returns true if the agent has any sub-agent permissions.
 func (cfg *AgentConfig) CanSpawnAny() bool {
-	return len(cfg.SubAgents) > 0
+	perms := cfg.EffectivePermissions()
+	for _, level := range perms.SubAgents {
+		if level != PermOff {
+			return true
+		}
+	}
+	return false
+}
+
+// SubAgentPermission returns the permission level for spawning a specific sub-agent.
+func (cfg *AgentConfig) SubAgentPermission(target string) PermissionLevel {
+	perms := cfg.EffectivePermissions()
+	if level, ok := perms.SubAgents[target]; ok {
+		return level
+	}
+	if level, ok := perms.SubAgents["*"]; ok {
+		return level
+	}
+	return PermOff
 }
 
 func ValidateName(name string) error {
@@ -48,6 +125,10 @@ func ValidateName(name string) error {
 
 var validRuntimes = map[string]bool{"claude-code": true}
 var validModels = map[string]bool{"sonnet": true, "opus": true, "haiku": true}
+
+func validPermissionLevel(l PermissionLevel) bool {
+	return l == PermOn || l == PermAsk || l == PermOff
+}
 
 // Validate checks the agent config for errors. Returns a list of problems found.
 func (cfg *AgentConfig) Validate() []string {
@@ -67,6 +148,33 @@ func (cfg *AgentConfig) Validate() []string {
 	} else if !validModels[cfg.Model] {
 		problems = append(problems, fmt.Sprintf("unknown model: %s (expected sonnet, opus, or haiku)", cfg.Model))
 	}
+
+	// Validate permissions block
+	if cfg.Perms != nil {
+		for _, pair := range []struct {
+			name  string
+			level PermissionLevel
+		}{
+			{"filesystem.read", cfg.Perms.Filesystem.Read},
+			{"filesystem.write", cfg.Perms.Filesystem.Write},
+			{"filesystem.execute", cfg.Perms.Filesystem.Execute},
+		} {
+			if pair.level != "" && !validPermissionLevel(pair.level) {
+				problems = append(problems, fmt.Sprintf("invalid permission level for %s: %s (expected on, ask, or off)", pair.name, pair.level))
+			}
+		}
+		for name, level := range cfg.Perms.Integrations {
+			if !validPermissionLevel(level) {
+				problems = append(problems, fmt.Sprintf("invalid permission level for integrations.%s: %s", name, level))
+			}
+		}
+		for name, level := range cfg.Perms.SubAgents {
+			if !validPermissionLevel(level) {
+				problems = append(problems, fmt.Sprintf("invalid permission level for sub-agents.%s: %s", name, level))
+			}
+		}
+	}
+
 	return problems
 }
 

@@ -48,6 +48,12 @@ func SpawnSession(cfg *agent.AgentConfig) (*SpawnResult, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to create session directory: %w", err)
 	}
+	spawnOK := false
+	defer func() {
+		if !spawnOK {
+			os.RemoveAll(workDir)
+		}
+	}()
 
 	srcDir, err := filepath.Abs(agent.Dir(cfg.Name))
 	if err != nil {
@@ -87,6 +93,7 @@ func SpawnSession(cfg *agent.AgentConfig) (*SpawnResult, error) {
 	}); err != nil {
 		return nil, fmt.Errorf("failed to track session: %w", err)
 	}
+	spawnOK = true // session tracked — keep workspace on disk
 
 	fmt.Println()
 	ui.Info("Agent: %s", ui.Bold(sessionCfg.Agent))
@@ -225,6 +232,12 @@ func SpawnSubSession(cfg *agent.AgentConfig, opts SubSpawnOpts) (*SpawnResult, e
 	if err != nil {
 		return nil, fmt.Errorf("failed to create session directory: %w", err)
 	}
+	spawnOK := false
+	defer func() {
+		if !spawnOK {
+			os.RemoveAll(workDir)
+		}
+	}()
 
 	// Use workspace-relative agent dir
 	agentDir := filepath.Join(opts.WorkspaceDir, ".toc", "agents", cfg.Name)
@@ -263,6 +276,7 @@ func SpawnSubSession(cfg *agent.AgentConfig, opts SubSpawnOpts) (*SpawnResult, e
 	}); err != nil {
 		return nil, fmt.Errorf("failed to track session: %w", err)
 	}
+	spawnOK = true // session tracked — keep workspace on disk
 
 	// Launch the runtime as a detached background process so it survives after toc exits.
 	outputPath := filepath.Join(workDir, "toc-output.txt")
@@ -473,12 +487,6 @@ func printFailedSkills(failed []string) {
 // the running session keeps its original permissions even if oc-agent.yaml changes.
 func writePermissionManifest(metadataDir, sessionID string, cfg *runtime.SessionConfig) error {
 	perms := cfg.Permissions
-	if len(perms.Integrations) == 0 && len(perms.SubAgents) == 0 &&
-		perms.Filesystem.Read == agent.PermOn &&
-		perms.Filesystem.Write == agent.PermOn &&
-		perms.Filesystem.Execute == agent.PermOn {
-		return nil
-	}
 
 	manifest := integration.PermissionManifest{
 		SessionID:    sessionID,

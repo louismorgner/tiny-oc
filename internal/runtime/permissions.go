@@ -33,6 +33,9 @@ func LoadPermissionManifestInWorkspace(workspace, sessionID string) (*integratio
 	return LoadPermissionManifest(sess)
 }
 
+// FilesystemPermissionLevel returns the permission level for the given filesystem
+// operation kind. A nil manifest returns PermOn (the default), matching the
+// permissive defaults from AgentConfig.EffectivePermissions().
 func FilesystemPermissionLevel(manifest *integration.PermissionManifest, kind string) agent.PermissionLevel {
 	if manifest == nil {
 		return agent.PermOn
@@ -59,6 +62,12 @@ func FilesystemPermissionLevel(manifest *integration.PermissionManifest, kind st
 	}
 }
 
+// CanSpawnFromManifest checks whether the manifest allows spawning the named
+// sub-agent. A nil manifest returns false (the default), matching the deny-by-
+// default sub-agent policy from AgentConfig.EffectivePermissions() which
+// produces an empty SubAgents map. This is intentionally different from
+// FilesystemPermissionLevel's nil→allow behavior: filesystem defaults to
+// permissive, sub-agent spawning defaults to restrictive.
 func CanSpawnFromManifest(manifest *integration.PermissionManifest, target string) bool {
 	if manifest == nil {
 		return false

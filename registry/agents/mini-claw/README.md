@@ -8,9 +8,18 @@ mini-claw treats each session as a continuation, not a cold start. It bootstraps
 
 ## Core behaviors
 
-### Bootstrap
+### First-run bootstrap (`BOOTSTRAP.md`)
 
-Every session starts with a silent bootstrap sequence:
+On first launch, the agent finds `BOOTSTRAP.md` and enters a conversational setup mode — inspired by [OpenClaw's BOOTSTRAP template](https://docs.openclaw.ai/reference/templates/BOOTSTRAP). Instead of starting with empty placeholder files, the agent and user establish identity together:
+
+1. The agent introduces itself and asks who the user is
+2. They agree on name, personality, vibe, and emoji
+3. The agent writes what it learned into `soul.md` and `user.md`
+4. `BOOTSTRAP.md` is deleted — future sessions skip this step
+
+### Session bootstrap
+
+After the first run, every session starts with a silent bootstrap sequence:
 1. Review identity (`soul.md`) and user profile (`user.md`)
 2. Read today's memory log (and yesterday's if present)
 3. Read long-term memory (`MEMORY.md`)
@@ -47,6 +56,7 @@ The agent knows it's a fresh instance with no built-in memory of past sessions. 
 
 | File | Purpose |
 |---|---|
+| `BOOTSTRAP.md` | First-run conversational setup — deleted after identity is established |
 | `agent.md` | Core instructions — bootstrap, session awareness, operating principles |
 | `soul.md` | Agent identity — tone, boundaries, personality |
 | `user.md` | User profile — preferences and working style |
@@ -57,7 +67,8 @@ The agent knows it's a fresh instance with no built-in memory of past sessions. 
 | OpenClaw concept | mini-claw equivalent |
 |---|---|
 | `SOUL.md` | `soul.md` — agent identity, evolves over time |
-| `AGENTS.md` bootstrap | Bootstrap sequence in `agent.md` |
+| `BOOTSTRAP.md` template | `BOOTSTRAP.md` — first-run conversational identity setup |
+| `AGENTS.md` bootstrap | Session bootstrap sequence in `agent.md` |
 | `USER.md` | `user.md` — observed user profile |
 | Daily memory logs | `memory/YYYY-MM-DD.md` |
 | `MEMORY.md` long-term store | `memory/MEMORY.md` |

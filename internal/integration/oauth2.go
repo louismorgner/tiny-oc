@@ -49,7 +49,7 @@ func SlackOAuth2Config(clientID, clientSecret string, scopes []string) *OAuth2Co
 func (c *OAuth2Config) AuthorizationURL() string {
 	params := url.Values{
 		"client_id":    {c.ClientID},
-		"scope":        {strings.Join(c.Scopes, ",")},
+		"scope":        {strings.Join(c.Scopes, " ")},
 		"redirect_uri": {fmt.Sprintf("http://localhost:%d/callback", c.RedirectPort)},
 	}
 	return c.AuthURL + "?" + params.Encode()

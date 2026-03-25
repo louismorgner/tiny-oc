@@ -116,11 +116,8 @@ func runOAuth2Flow(name string, def *integration.Definition) (*integration.Crede
 		return nil, fmt.Errorf("client secret cannot be empty")
 	}
 
-	oauth2Cfg := integration.SlackOAuth2Config(clientID, clientSecret, def.Auth.RequiredScopes)
-
-	// For non-slack integrations we could add more configs here in the future
+	// For non-slack integrations, fall back to PAT until we add provider-specific configs
 	if name != "slack" {
-		// Generic OAuth2 fallback — ask for PAT instead
 		ui.Info("Generic OAuth2 flow — enter a personal access token instead.")
 		token, err := ui.Prompt("Enter access token", "")
 		if err != nil {
@@ -131,6 +128,8 @@ func runOAuth2Flow(name string, def *integration.Definition) (*integration.Crede
 		}
 		return &integration.Credential{AccessToken: token}, nil
 	}
+
+	oauth2Cfg := integration.SlackOAuth2Config(clientID, clientSecret, def.Auth.RequiredScopes)
 
 	authURL := oauth2Cfg.AuthorizationURL()
 	fmt.Println()
@@ -159,31 +158,16 @@ func runOAuth2Flow(name string, def *integration.Definition) (*integration.Crede
 		return nil, fmt.Errorf("token exchange failed: %w", err)
 	}
 
-	// Store client ID and secret alongside the tokens by encoding them
-	// into a secondary credential file for token refresh
-	if err := storeOAuth2ClientInfo(name, clientID, clientSecret); err != nil {
+	// Store client credentials separately for future token refresh
+	clientCfg := &integration.OAuth2ClientConfig{
+		ClientID:     clientID,
+		ClientSecret: clientSecret,
+	}
+	if err := integration.StoreOAuth2ClientConfig(name, clientCfg); err != nil {
 		ui.Warn("Could not store client info for token refresh: %s", err)
 	}
 
 	return cred, nil
-}
-
-func storeOAuth2ClientInfo(name, clientID, clientSecret string) error {
-	// Store as a separate credential with a known suffix
-	info := &integration.Credential{
-		AccessToken:  clientID,
-		RefreshToken: clientSecret,
-	}
-	return integration.StoreCredential(name+"-oauth2-client", info)
-}
-
-// LoadOAuth2ClientInfo loads the stored client ID and secret for an integration.
-func LoadOAuth2ClientInfo(name string) (clientID, clientSecret string, err error) {
-	info, err := integration.LoadCredential(name + "-oauth2-client")
-	if err != nil {
-		return "", "", err
-	}
-	return info.AccessToken, info.RefreshToken, nil
 }
 
 func openBrowser(url string) {
@@ -193,7 +177,10 @@ func openBrowser(url string) {
 		cmd = exec.Command("open", url)
 	case "linux":
 		cmd = exec.Command("xdg-open", url)
+	case "windows":
+		cmd = exec.Command("cmd", "/c", "start", url)
 	default:
+		fmt.Printf("Unsupported platform — please open the URL manually.\n")
 		return
 	}
 	_ = cmd.Start()

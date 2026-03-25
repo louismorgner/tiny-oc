@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"os"
@@ -212,17 +213,13 @@ func Invoke(req *InvokeRequest) (*InvokeResponse, error) {
 
 // refreshCredentialForIntegration refreshes the OAuth2 token for the given integration.
 func refreshCredentialForIntegration(integrationName string, cred *Credential, workspace string) (*Credential, error) {
-	// Load client info
-	clientInfo, err := LoadCredentialFromWorkspace(workspace, integrationName+"-oauth2-client")
+	clientCfg, err := LoadOAuth2ClientConfigFromWorkspace(workspace, integrationName)
 	if err != nil {
-		return nil, fmt.Errorf("no OAuth2 client info stored for '%s': %w", integrationName, err)
+		return nil, fmt.Errorf("no OAuth2 client config stored for '%s': %w", integrationName, err)
 	}
 
-	clientID := clientInfo.AccessToken
-	clientSecret := clientInfo.RefreshToken
-
 	// Determine token URL based on integration
-	tokenURL := ""
+	var tokenURL string
 	switch integrationName {
 	case "slack":
 		tokenURL = "https://slack.com/api/oauth.v2.access"
@@ -230,15 +227,15 @@ func refreshCredentialForIntegration(integrationName string, cred *Credential, w
 		return nil, fmt.Errorf("token refresh not supported for integration '%s'", integrationName)
 	}
 
-	refreshed, err := RefreshAccessToken(tokenURL, clientID, clientSecret, cred.RefreshToken)
+	refreshed, err := RefreshAccessToken(tokenURL, clientCfg.ClientID, clientCfg.ClientSecret, cred.RefreshToken)
 	if err != nil {
 		return nil, err
 	}
 
-	// Persist the refreshed credential
+	// Persist the refreshed credential — non-fatal if this fails since the
+	// token still works for the current request.
 	if err := StoreCredentialInWorkspace(workspace, integrationName, refreshed); err != nil {
-		// Non-fatal — the token still works for this request
-		_ = err
+		log.Printf("warning: failed to persist refreshed credential for '%s': %v", integrationName, err)
 	}
 
 	return refreshed, nil

@@ -29,6 +29,12 @@ type Credential struct {
 	ExpiresAt    *time.Time `json:"expires_at,omitempty"`
 }
 
+// OAuth2ClientConfig holds the client credentials needed for OAuth2 token refresh.
+type OAuth2ClientConfig struct {
+	ClientID     string `json:"client_id"`
+	ClientSecret string `json:"client_secret"`
+}
+
 // GetOrCreateMasterKey retrieves the master encryption key from the OS keychain,
 // or creates a new one if none exists.
 func GetOrCreateMasterKey() ([]byte, error) {
@@ -242,6 +248,90 @@ func LoadCredentialFromWorkspace(workspace, name string) (*Credential, error) {
 	}
 
 	return &cred, nil
+}
+
+// StoreOAuth2ClientConfig encrypts and saves OAuth2 client credentials for an integration.
+func StoreOAuth2ClientConfig(name string, cfg *OAuth2ClientConfig) error {
+	key, err := GetOrCreateMasterKey()
+	if err != nil {
+		return err
+	}
+
+	data, err := json.Marshal(cfg)
+	if err != nil {
+		return fmt.Errorf("failed to marshal OAuth2 client config: %w", err)
+	}
+
+	encrypted, err := Encrypt(data, key)
+	if err != nil {
+		return fmt.Errorf("failed to encrypt OAuth2 client config: %w", err)
+	}
+
+	dir := filepath.Join(config.IntegrationsDir(), name)
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return fmt.Errorf("failed to create integration directory: %w", err)
+	}
+
+	path := filepath.Join(dir, "oauth2_client.enc")
+	return os.WriteFile(path, encrypted, 0600)
+}
+
+// LoadOAuth2ClientConfig loads OAuth2 client credentials for an integration.
+func LoadOAuth2ClientConfig(name string) (*OAuth2ClientConfig, error) {
+	key, err := GetOrCreateMasterKey()
+	if err != nil {
+		return nil, err
+	}
+
+	path := filepath.Join(config.IntegrationsDir(), name, "oauth2_client.enc")
+	encrypted, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, fmt.Errorf("no OAuth2 client config found for integration '%s'", name)
+		}
+		return nil, fmt.Errorf("failed to read OAuth2 client config: %w", err)
+	}
+
+	data, err := Decrypt(encrypted, key)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decrypt OAuth2 client config: %w", err)
+	}
+
+	var cfg OAuth2ClientConfig
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		return nil, fmt.Errorf("failed to parse OAuth2 client config: %w", err)
+	}
+
+	return &cfg, nil
+}
+
+// LoadOAuth2ClientConfigFromWorkspace loads OAuth2 client credentials using an explicit workspace path.
+func LoadOAuth2ClientConfigFromWorkspace(workspace, name string) (*OAuth2ClientConfig, error) {
+	key, err := GetOrCreateMasterKey()
+	if err != nil {
+		return nil, err
+	}
+
+	path := filepath.Join(workspace, ".toc", "integrations", name, "oauth2_client.enc")
+	encrypted, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, fmt.Errorf("no OAuth2 client config found for integration '%s'", name)
+		}
+		return nil, fmt.Errorf("failed to read OAuth2 client config: %w", err)
+	}
+
+	data, err := Decrypt(encrypted, key)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decrypt OAuth2 client config: %w", err)
+	}
+
+	var cfg OAuth2ClientConfig
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		return nil, fmt.Errorf("failed to parse OAuth2 client config: %w", err)
+	}
+
+	return &cfg, nil
 }
 
 // StoreCredentialInWorkspace encrypts and saves a credential using an explicit workspace path.

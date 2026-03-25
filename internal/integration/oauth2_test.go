@@ -1,6 +1,7 @@
 package integration
 
 import (
+	"strings"
 	"testing"
 	"time"
 )
@@ -71,28 +72,15 @@ func TestSlackOAuth2Config_AuthorizationURL(t *testing.T) {
 	checks := []string{
 		"https://slack.com/oauth/v2/authorize",
 		"client_id=client123",
-		"scope=channels%3Aread%2Cchat%3Awrite",
+		"scope=channels%3Aread+chat%3Awrite",
 		"redirect_uri=http%3A%2F%2Flocalhost%3A8976%2Fcallback",
 	}
 
 	for _, check := range checks {
-		if !containsStr(url, check) {
+		if !strings.Contains(url, check) {
 			t.Errorf("AuthorizationURL() missing %q\ngot: %s", check, url)
 		}
 	}
-}
-
-func containsStr(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(s) > 0 && containsSubstring(s, substr))
-}
-
-func containsSubstring(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
 }
 
 func timePtr(t time.Time) *time.Time {

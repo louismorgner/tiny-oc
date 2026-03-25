@@ -59,33 +59,26 @@ var runtimeWatchCmd = &cobra.Command{
 			return watchCompleted(s, jsonFlag, status)
 		}
 
-		// Resolve JSONL path
+		// Resolve JSONL path — use existing file if available, otherwise
+		// construct the expected path so the tailer can poll for it.
 		jsonlPath := replay.SessionJSONLPath(s.WorkspacePath, s.ID)
+		if jsonlPath == "" {
+			jsonlPath = replay.ExpectedJSONLPath(s.WorkspacePath, s.ID)
+		}
 
 		// Set up signal handling
 		ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 		defer cancel()
 
-		if jsonlPath == "" {
+		if replay.SessionJSONLPath(s.WorkspacePath, s.ID) == "" {
 			ui.Info("Waiting for session %s to start...", shortID(s.ID))
 		} else {
 			ui.Info("Watching session %s (%s)...", shortID(s.ID), s.Agent)
 		}
 		fmt.Println()
 
-		// If JSONL doesn't exist yet, use workspace path — tailer will poll for it
-		tailPath := jsonlPath
-		if tailPath == "" {
-			// Construct a plausible path; the tailer will wait for it to appear
-			tailPath = replay.SessionJSONLPath(s.WorkspacePath, s.ID)
-			if tailPath == "" {
-				// Build a path that the tailer can poll for
-				tailPath = s.WorkspacePath + "/.jsonl-pending"
-			}
-		}
-
 		events, err := tail.Tail(ctx, tail.Options{
-			JSONLPath:     tailPath,
+			JSONLPath:     jsonlPath,
 			WorkspacePath: s.WorkspacePath,
 		})
 		if err != nil {
@@ -103,11 +96,16 @@ var runtimeWatchCmd = &cobra.Command{
 				return nil
 			}
 
+			// Compact mode: skip thinking steps for scannable output
+			if !jsonFlag && event.Step.Type == "thinking" {
+				continue
+			}
+
 			if jsonFlag {
 				data, _ := json.Marshal(event.Step)
 				fmt.Println(string(data))
 			} else {
-				printStep(event.Step, true) // compact mode for live tailing
+				printStep(event.Step, true)
 			}
 		}
 

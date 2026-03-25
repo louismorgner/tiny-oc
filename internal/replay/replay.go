@@ -100,9 +100,10 @@ func ForSession(sess *session.Session) (*Replay, error) {
 	}, nil
 }
 
-// SessionJSONLPath resolves the path to a Claude Code JSONL session log.
-// Returns "" if the file cannot be found.
-func SessionJSONLPath(workspacePath, sessionID string) string {
+// ExpectedJSONLPath returns the expected path to a Claude Code JSONL session log
+// without checking whether the file exists. Use this when you need to poll for
+// a file that may not exist yet (e.g., a session that just started).
+func ExpectedJSONLPath(workspacePath, sessionID string) string {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return ""
@@ -116,7 +117,39 @@ func SessionJSONLPath(workspacePath, sessionID string) string {
 	if resolved, err := filepath.EvalSymlinks(workspacePath); err == nil && resolved != workspacePath {
 		candidates = append(candidates, resolved)
 	}
-	// Also try with /private prefix if not already present (macOS)
+	if !strings.HasPrefix(workspacePath, "/private") {
+		candidates = append(candidates, "/private"+workspacePath)
+	}
+
+	// Return the first candidate whose project directory exists (or the primary
+	// candidate if none do). The exact JSONL file may not exist yet.
+	for _, path := range candidates {
+		encoded := strings.NewReplacer("/", "-", "_", "-").Replace(path)
+		projectDir := filepath.Join(projectsDir, encoded)
+		if _, err := os.Stat(projectDir); err == nil {
+			return filepath.Join(projectDir, sessionID+".jsonl")
+		}
+	}
+
+	// Fallback: use the primary workspace path even if the directory doesn't exist yet.
+	encoded := strings.NewReplacer("/", "-", "_", "-").Replace(workspacePath)
+	return filepath.Join(projectsDir, encoded, sessionID+".jsonl")
+}
+
+// SessionJSONLPath resolves the path to an existing Claude Code JSONL session log.
+// Returns "" if the file cannot be found.
+func SessionJSONLPath(workspacePath, sessionID string) string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+
+	projectsDir := filepath.Join(home, ".claude", "projects")
+
+	candidates := []string{workspacePath}
+	if resolved, err := filepath.EvalSymlinks(workspacePath); err == nil && resolved != workspacePath {
+		candidates = append(candidates, resolved)
+	}
 	if !strings.HasPrefix(workspacePath, "/private") {
 		candidates = append(candidates, "/private"+workspacePath)
 	}

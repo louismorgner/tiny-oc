@@ -144,6 +144,52 @@ func TestCollectFilesChanged(t *testing.T) {
 	}
 }
 
+func TestParseJSONLLine(t *testing.T) {
+	// Assistant message with a tool call
+	line, _ := json.Marshal(map[string]interface{}{
+		"type": "assistant",
+		"message": map[string]interface{}{
+			"role": "assistant",
+			"content": []map[string]interface{}{
+				{"type": "tool_use", "name": "Read", "input": map[string]string{"file_path": "main.go"}},
+			},
+		},
+	})
+	steps := ParseJSONLLine(line)
+	if len(steps) != 1 || steps[0].Tool != "Read" || steps[0].Path != "main.go" {
+		t.Errorf("ParseJSONLLine(assistant) = %+v, want [Read main.go]", steps)
+	}
+
+	// User message — should return nil
+	userLine, _ := json.Marshal(map[string]interface{}{
+		"type":    "user",
+		"message": map[string]interface{}{"role": "user", "content": "hello"},
+	})
+	if steps := ParseJSONLLine(userLine); steps != nil {
+		t.Errorf("ParseJSONLLine(user) = %+v, want nil", steps)
+	}
+
+	// Invalid JSON — should return nil
+	if steps := ParseJSONLLine([]byte("not json")); steps != nil {
+		t.Errorf("ParseJSONLLine(invalid) = %+v, want nil", steps)
+	}
+
+	// Assistant message with thinking
+	thinkLine, _ := json.Marshal(map[string]interface{}{
+		"type": "assistant",
+		"message": map[string]interface{}{
+			"role": "assistant",
+			"content": []map[string]interface{}{
+				{"type": "thinking", "thinking": "Let me think about this"},
+			},
+		},
+	})
+	steps = ParseJSONLLine(thinkLine)
+	if len(steps) != 1 || steps[0].Type != "thinking" {
+		t.Errorf("ParseJSONLLine(thinking) = %+v, want [thinking]", steps)
+	}
+}
+
 func TestTruncateThinking(t *testing.T) {
 	tests := []struct {
 		input  string

@@ -94,5 +94,7 @@ toc status
 ## Next steps
 
 - [Configuration reference](configuration.md) — all config fields and options
+- [Runtimes](runtimes.md) — Claude Code vs toc-native, hooks, model profiles
 - [Skills guide](skills.md) — add reusable capabilities to your agents
+- [Integrations](integrations.md) — connect agents to GitHub, Slack, and other APIs
 - [Architecture](architecture.md) — how toc works under the hood

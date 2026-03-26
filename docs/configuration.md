@@ -122,7 +122,45 @@ Both `agent.md` and compose files support template variables that are replaced a
 | `{{.Date}}` | Today's date (`YYYY-MM-DD`) |
 | `{{.Model}}` | The model being used |
 
-## Sub-agents
+## Permissions
+
+The `permissions` block controls what an agent is allowed to do. It has three areas: filesystem access, integration access, and sub-agent spawning.
+
+### Filesystem permissions
+
+Controls access to file and shell tools. Each level is `on` (allowed), `ask` (requires confirmation), or `off` (blocked). Defaults to all `on` if not specified.
+
+```yaml
+permissions:
+  filesystem:
+    read: "on"
+    write: "on"
+    execute: "ask"
+```
+
+| Level | Tools controlled |
+|---|---|
+| `read` | Read, Glob, Grep |
+| `write` | Edit, Write, MultiEdit, NotebookEdit |
+| `execute` | Bash |
+
+With the `claude-code` runtime, these are enforced via a `PreToolUse` hook script. With `toc-native`, they are checked directly before tool execution.
+
+### Integration permissions
+
+Controls which external API actions an agent can perform. See [Integrations](integrations.md) for the full system.
+
+```yaml
+permissions:
+  integrations:
+    github:
+      - "issues.read:*"
+      - "pulls.read:*"
+    slack:
+      - "send_message:#engineering"
+```
+
+### Sub-agents
 
 The `permissions.sub-agents` map controls which other agents this agent is allowed to spawn as background tasks during a session. Agents without this field cannot spawn sub-agents. Each entry maps an agent name to a permission level (`on`, `ask`, or `off`).
 
@@ -279,6 +317,9 @@ Each entry contains:
 | `skill.remove` | `toc skill remove` |
 | `agent.add` | `toc agent add` (registry install) |
 | `runtime.spawn` | Sub-agent spawned during a session |
+| `runtime.invoke` | Integration API call during a session |
+| `integrate.add` | Integration added |
+| `integrate.remove` | Integration removed |
 
 No secrets or file contents are logged.
 

@@ -206,7 +206,7 @@ func TestLoadOrResolveSessionConfig_PrefersPersistedConfig(t *testing.T) {
 		return &agent.AgentConfig{
 			Name:    "native-child",
 			Runtime: runtimeinfo.NativeRuntime,
-			Model:   "anthropic/claude-3.7-sonnet",
+			Model:   "anthropic/claude-sonnet-4",
 		}, nil
 	})
 	if err != nil {

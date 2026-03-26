@@ -68,44 +68,50 @@ toc agent spawn pr-reviewer
 ├── cmd/                       # CLI commands (Cobra)
 │   ├── root.go                # Root command, version flag, agent shorthand
 │   ├── init.go                # toc init
-│   ├── status.go              # toc status
+│   ├── config.go              # toc config (set/get workspace secrets)
+│   ├── status.go              # toc status (static + TUI dashboard)
+│   ├── status_tui.go          # BubbleTea interactive dashboard
 │   ├── audit.go               # toc audit
 │   ├── completion.go          # toc completion
-│   ├── agent.go               # toc agent (parent command)
-│   ├── agent_create.go        # toc agent create
-│   ├── agent_list.go          # toc agent list
-│   ├── agent_spawn.go         # toc agent spawn (with --resume)
-│   ├── agent_remove.go        # toc agent remove
-│   ├── agent_skills.go        # toc agent skills
-│   ├── agent_add.go           # toc agent add (from registry)
-│   ├── skill.go               # toc skill (parent command)
-│   ├── skill_create.go        # toc skill create
-│   ├── skill_list.go          # toc skill list
-│   ├── skill_add.go           # toc skill add (URL or registry name)
-│   ├── skill_remove.go        # toc skill remove
-│   ├── registry.go            # toc registry (parent command)
-│   ├── registry_search.go     # toc registry search
-│   ├── registry_install.go    # toc registry install
+│   ├── agent_*.go             # toc agent {create,list,spawn,show,inspect,remove,skills,add}
+│   ├── skill_*.go             # toc skill {create,list,add,remove}
+│   ├── registry_*.go          # toc registry {search,install}
+│   ├── integrate*.go          # toc integrate {add,test,remove,list} (test is integrate_test_cmd.go to avoid Go test runner)
 │   ├── runtime.go             # toc runtime (parent command, agent-facing)
 │   ├── runtime_list.go        # toc runtime list
 │   ├── runtime_spawn.go       # toc runtime spawn
 │   ├── runtime_status.go      # toc runtime status
-│   └── runtime_output.go      # toc runtime output
+│   ├── runtime_output.go      # toc runtime output
+│   ├── runtime_invoke.go      # toc runtime invoke (integration gateway)
+│   ├── runtime_watch.go       # toc runtime watch (live-tail session)
+│   ├── runtime_replay.go      # toc runtime replay (session playback)
+│   ├── runtime_cancel.go      # toc runtime cancel
+│   └── runtime_native_run.go  # toc __native-run (native runtime entry point)
 ├── internal/
-│   ├── agent/                 # Agent config: load, save, validate, sub-agent permissions
+│   ├── agent/                 # Agent config: load, save, validate, permissions
 │   ├── audit/                 # Append-only JSON Lines audit log
-│   ├── config/                # Workspace config and paths
+│   ├── config/                # Workspace config, paths, secrets
+│   ├── integration/           # API gateway: definitions, credentials, permissions, rate limiting
 │   ├── registry/              # Remote registry: fetch, search, install skills and agents
-│   ├── runtime/               # Runtime context + provider implementations
+│   ├── runtime/               # Provider interface, Claude Code + native implementations
+│   ├── runtimeinfo/           # Runtime metadata, native model profiles
 │   ├── session/               # Session tracking (sessions.yaml), parent-child relationships
 │   ├── skill/                 # Skill management: local + URL
 │   ├── spawn/                 # Session orchestration, sub-agent spawning
-│   ├── sync/                  # Context sync: patterns and file copy primitives
-│   └── ui/                    # Terminal output helpers (colors, prompts)
-├── registry/                  # Built-in skills and agent templates
+│   ├── sync/                  # Snapshot sync: patterns and file copy primitives
+│   ├── tail/                  # Live output streaming from session logs
+│   ├── ui/                    # Terminal output helpers, TUI components
+│   ├── fileutil/              # Directory and file copy utilities
+│   ├── gitutil/               # Safe git clone (HTTPS only, hooks disabled)
+│   ├── naming/                # Session name generation from prompts
+│   └── usage/                 # Token usage parsing and formatting
+├── registry/                  # Built-in skills, agents, and integration definitions
 │   ├── agents/                # cto, mini-claw
-│   └── skills/                # open-source-cto, agentic-memory
-├── Makefile                   # build, test, lint targets
+│   ├── skills/                # open-source-cto, agentic-memory
+│   └── integrations/          # github, slack
+├── web/                       # OAuth callback worker (Cloudflare)
+├── e2e/                       # End-to-end smoke tests
+├── Makefile                   # build, test, lint, test-e2e targets
 └── install.sh                 # Build + symlink to PATH
 ```
 
@@ -113,11 +119,31 @@ toc agent spawn pr-reviewer
 
 ### Config (`internal/config/`)
 
-Manages workspace state. `config.Exists()` checks if `.toc/` is initialized. All paths (agents dir, skills dir, sessions file, audit log) are derived from the `.toc/` root.
+Manages workspace state. `config.Exists()` checks if `.toc/` is initialized. All paths (agents dir, skills dir, sessions file, audit log) are derived from the `.toc/` root. Also manages workspace secrets (`.toc/secrets.yaml`) for API keys like OpenRouter.
 
 ### Spawn (`internal/spawn/`)
 
-Orchestrates session creation. This is the core flow — copies the agent template, resolves declarative agent config into a toc-owned per-session contract, writes `.toc/sessions/<id>/session.json`, delegates runtime-specific session preparation to the provider, resolves skills into the provider's runtime directory, records the selected runtime in session metadata, and dispatches process launch through the runtime provider.
+Orchestrates session creation. This is the core flow — copies the agent template, resolves declarative agent config into a toc-owned per-session contract, writes `.toc/sessions/<id>/session.json`, delegates runtime-specific session preparation to the provider, resolves skills into the provider's runtime directory, writes the permission manifest, records the selected runtime in session metadata, and dispatches process launch through the runtime provider.
+
+### Runtime (`internal/runtime/`)
+
+The largest package. It owns:
+
+- **Provider interface** — the abstraction over execution backends (`claudeProvider`, `nativeProvider`)
+- **Claude Code provider** — launches `claude` CLI, generates hooks (`.claude/settings.json`), parses Claude Code's JSONL logs into normalized events
+- **Native provider** — launches the built-in agent loop, calls OpenRouter, manages state persistence and resume
+- **Session config** — the resolved per-session contract (`session.json`) that freezes agent config at spawn time
+- **Permission enforcement** — validates filesystem and sub-agent permissions at tool execution time
+- **Events** — append-only `events.jsonl` log in toc's normalized format, shared across runtimes
+- **State** — persistent session state for native runtime (`state.json`) with message history, token usage, and turn checkpoints
+
+The native runtime's tool set is intentionally limited to local tools. Integrations remain outside the native tool loop until they are promoted into the runtime as first-class tools with the same session contract and observability semantics.
+
+Environment variables `TOC_WORKSPACE`, `TOC_AGENT`, and `TOC_SESSION_ID` are injected at launch time and used by `toc runtime` commands to resolve context from within a running session.
+
+### Integration (`internal/integration/`)
+
+API gateway for external services. Handles credential encryption (AES-256-GCM with keychain-backed master key), permission checking against the session manifest, file-backed per-session rate limiting, HTTP request construction with parameter templating, and response field filtering. See [Integrations](integrations.md).
 
 ### Sync (`internal/sync/`)
 
@@ -126,12 +152,6 @@ Handles snapshot sync between session temp directories and parent agent template
 ### Audit (`internal/audit/`)
 
 Append-only logger. Each event is a single JSON line written to `.toc/audit.log`. The actor and hostname are resolved once from `$USER` and `os.Hostname()`.
-
-### Runtime (`internal/runtime/`)
-
-Provides session context for `toc runtime` commands and the runtime provider boundary. It reads `TOC_WORKSPACE`, `TOC_AGENT`, and `TOC_SESSION_ID` environment variables (injected at launch time) to resolve the workspace, load session metadata, and enforce sub-agent permissions from within a running session. It also owns the resolved session contract, runtime-specific launch and observability behavior, detached-process wrappers, and translation into toc-owned normalized events stored under `.toc/sessions/<id>/events.jsonl`.
-
-For the current `toc-native` beta path, the native runtime scope is intentionally limited to local tools. Integrations remain outside the native tool loop until they are promoted into the runtime as first-class tools with the same session contract and observability semantics.
 
 ### Skills (`internal/skill/`)
 

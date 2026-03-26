@@ -131,7 +131,7 @@ type toolDescriptor struct {
 }
 
 type promptTokensDetails struct {
-	CachedTokens    int64 `json:"cached_tokens,omitempty"`
+	CachedTokens     int64 `json:"cached_tokens,omitempty"`
 	CacheWriteTokens int64 `json:"cache_write_tokens,omitempty"`
 }
 
@@ -143,9 +143,9 @@ type chatResponse struct {
 		FinishReason string  `json:"finish_reason"`
 	} `json:"choices"`
 	Usage struct {
-		PromptTokens        int64              `json:"prompt_tokens"`
-		CompletionTokens    int64              `json:"completion_tokens"`
-		TotalTokens         int64              `json:"total_tokens"`
+		PromptTokens        int64                `json:"prompt_tokens"`
+		CompletionTokens    int64                `json:"completion_tokens"`
+		TotalTokens         int64                `json:"total_tokens"`
 		PromptTokensDetails *promptTokensDetails `json:"prompt_tokens_details,omitempty"`
 	} `json:"usage"`
 	Error *struct {
@@ -162,9 +162,9 @@ type chatStreamChunk struct {
 		FinishReason string          `json:"finish_reason"`
 	} `json:"choices"`
 	Usage struct {
-		PromptTokens        int64              `json:"prompt_tokens"`
-		CompletionTokens    int64              `json:"completion_tokens"`
-		TotalTokens         int64              `json:"total_tokens"`
+		PromptTokens        int64                `json:"prompt_tokens"`
+		CompletionTokens    int64                `json:"completion_tokens"`
+		TotalTokens         int64                `json:"total_tokens"`
 		PromptTokensDetails *promptTokensDetails `json:"prompt_tokens_details,omitempty"`
 	} `json:"usage"`
 	Error *struct {

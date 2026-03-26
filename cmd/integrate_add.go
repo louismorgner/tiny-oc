@@ -16,6 +16,10 @@ import (
 
 func init() {
 	integrateAddCmd.Flags().Bool("manual", false, "Manually paste the authorization code instead of using a local callback server")
+	integrateAddCmd.Flags().String("token", "", "Access token (skip interactive prompt)")
+	integrateAddCmd.Flags().String("client-id", "", "OAuth2 client ID (skip interactive prompt)")
+	integrateAddCmd.Flags().String("client-secret", "", "OAuth2 client secret (skip interactive prompt)")
+	integrateAddCmd.Flags().BoolP("force", "f", false, "Replace existing credentials without confirmation")
 	integrateCmd.AddCommand(integrateAddCmd)
 }
 
@@ -37,7 +41,8 @@ var integrateAddCmd = &cobra.Command{
 		}
 
 		// Check if already configured
-		if integration.CredentialExists(name) {
+		force, _ := cmd.Flags().GetBool("force")
+		if integration.CredentialExists(name) && !force {
 			replace, err := ui.Confirm(fmt.Sprintf("Integration '%s' already configured. Replace credentials?", name), false)
 			if err != nil || !replace {
 				return nil
@@ -57,22 +62,26 @@ var integrateAddCmd = &cobra.Command{
 
 		switch def.Auth.Method {
 		case "token", "api_key":
-			// Print setup instructions if available
-			if def.Auth.SetupInstructions != "" {
-				ui.Header("Setup instructions")
-				for _, line := range strings.Split(strings.TrimSpace(def.Auth.SetupInstructions), "\n") {
-					fmt.Println("  " + line)
+			token, _ := cmd.Flags().GetString("token")
+			if token == "" {
+				// Print setup instructions if available
+				if def.Auth.SetupInstructions != "" {
+					ui.Header("Setup instructions")
+					for _, line := range strings.Split(strings.TrimSpace(def.Auth.SetupInstructions), "\n") {
+						fmt.Println("  " + line)
+					}
+					fmt.Println()
 				}
-				fmt.Println()
-			}
-			if len(def.Auth.RequiredScopes) > 0 {
-				ui.Info("Required scopes: %s", ui.Bold(strings.Join(def.Auth.RequiredScopes, ", ")))
-				fmt.Println()
-			}
+				if len(def.Auth.RequiredScopes) > 0 {
+					ui.Info("Required scopes: %s", ui.Bold(strings.Join(def.Auth.RequiredScopes, ", ")))
+					fmt.Println()
+				}
 
-			token, err := ui.Prompt("Paste your access token", "")
-			if err != nil {
-				return err
+				var err error
+				token, err = ui.Prompt("Paste your access token", "")
+				if err != nil {
+					return err
+				}
 			}
 			if token == "" {
 				return fmt.Errorf("token cannot be empty")
@@ -81,8 +90,11 @@ var integrateAddCmd = &cobra.Command{
 
 		case "oauth2":
 			manual, _ := cmd.Flags().GetBool("manual")
+			flagClientID, _ := cmd.Flags().GetString("client-id")
+			flagClientSecret, _ := cmd.Flags().GetString("client-secret")
+			flagToken, _ := cmd.Flags().GetString("token")
 			var err error
-			cred, err = runOAuth2Flow(name, def, manual)
+			cred, err = runOAuth2Flow(name, def, manual, flagClientID, flagClientSecret, flagToken)
 			if err != nil {
 				return err
 			}
@@ -109,24 +121,35 @@ var integrateAddCmd = &cobra.Command{
 	},
 }
 
-func runOAuth2Flow(name string, def *integration.Definition, manual bool) (*integration.Credential, error) {
-	ui.Info("This integration uses OAuth2. You'll need your app's Client ID and Client Secret.")
-	if def.Auth.SetupURL != "" {
-		ui.Info("Create an app at: %s", ui.Cyan(def.Auth.SetupURL))
-	}
-	fmt.Println()
+func runOAuth2Flow(name string, def *integration.Definition, manual bool, flagClientID, flagClientSecret, flagToken string) (*integration.Credential, error) {
+	clientID := flagClientID
+	clientSecret := flagClientSecret
 
-	clientID, err := ui.Prompt("Enter Client ID", "")
-	if err != nil {
-		return nil, err
+	if clientID == "" || clientSecret == "" {
+		ui.Info("This integration uses OAuth2. You'll need your app's Client ID and Client Secret.")
+		if def.Auth.SetupURL != "" {
+			ui.Info("Create an app at: %s", ui.Cyan(def.Auth.SetupURL))
+		}
+		fmt.Println()
+	}
+
+	if clientID == "" {
+		var err error
+		clientID, err = ui.Prompt("Enter Client ID", "")
+		if err != nil {
+			return nil, err
+		}
 	}
 	if clientID == "" {
 		return nil, fmt.Errorf("client ID cannot be empty")
 	}
 
-	clientSecret, err := ui.Prompt("Enter Client Secret", "")
-	if err != nil {
-		return nil, err
+	if clientSecret == "" {
+		var err error
+		clientSecret, err = ui.Prompt("Enter Client Secret", "")
+		if err != nil {
+			return nil, err
+		}
 	}
 	if clientSecret == "" {
 		return nil, fmt.Errorf("client secret cannot be empty")
@@ -134,10 +157,14 @@ func runOAuth2Flow(name string, def *integration.Definition, manual bool) (*inte
 
 	// For non-slack integrations, fall back to PAT until we add provider-specific configs
 	if name != "slack" {
-		ui.Info("Generic OAuth2 flow — enter a personal access token instead.")
-		token, err := ui.Prompt("Enter access token", "")
-		if err != nil {
-			return nil, err
+		token := flagToken
+		if token == "" {
+			ui.Info("Generic OAuth2 flow — enter a personal access token instead.")
+			var err error
+			token, err = ui.Prompt("Enter access token", "")
+			if err != nil {
+				return nil, err
+			}
 		}
 		if token == "" {
 			return nil, fmt.Errorf("token cannot be empty")
@@ -157,13 +184,14 @@ func runOAuth2Flow(name string, def *integration.Definition, manual bool) (*inte
 	}
 
 	var code string
+	var codeErr error
 	if manual {
-		code, err = runManualOAuth2Flow(authURL)
+		code, codeErr = runManualOAuth2Flow(authURL)
 	} else {
-		code, err = runAutoOAuth2Flow(oauth2Cfg, authURL)
+		code, codeErr = runAutoOAuth2Flow(oauth2Cfg, authURL)
 	}
-	if err != nil {
-		return nil, fmt.Errorf("OAuth2 authorization failed: %w", err)
+	if codeErr != nil {
+		return nil, fmt.Errorf("OAuth2 authorization failed: %w", codeErr)
 	}
 
 	ui.Info("Authorization code received, exchanging for tokens...")

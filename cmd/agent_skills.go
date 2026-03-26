@@ -13,6 +13,7 @@ import (
 )
 
 func init() {
+	agentSkillsCmd.Flags().StringSlice("set", nil, "set skills directly (comma-separated, skip interactive prompt)")
 	agentCmd.AddCommand(agentSkillsCmd)
 }
 
@@ -32,6 +33,29 @@ var agentSkillsCmd = &cobra.Command{
 			return err
 		}
 
+		setFlag, _ := cmd.Flags().GetStringSlice("set")
+
+		// Non-interactive mode: --set flag provided
+		if cmd.Flags().Changed("set") {
+			cfg.Skills = setFlag
+			if err := agent.Save(cfg); err != nil {
+				return err
+			}
+
+			auditLog("agent.skills.update", map[string]interface{}{
+				"agent":  name,
+				"skills": strings.Join(setFlag, ", "),
+			})
+
+			if len(setFlag) == 0 {
+				ui.Success("Cleared all skills for %s", ui.Bold(name))
+			} else {
+				ui.Success("Updated skills for %s: %s", ui.Bold(name), ui.Dim(strings.Join(setFlag, ", ")))
+			}
+			return nil
+		}
+
+		// Interactive mode
 		// Build list of available skills (local + url refs)
 		locals, _ := skill.ListLocal()
 		reg, _ := skill.LoadRegistry()

@@ -10,6 +10,7 @@ import (
 )
 
 func init() {
+	skillRemoveCmd.Flags().BoolP("force", "f", false, "skip confirmation prompt")
 	skillCmd.AddCommand(skillRemoveCmd)
 }
 
@@ -39,13 +40,16 @@ var skillRemoveCmd = &cobra.Command{
 			skillType = "url"
 		}
 
-		confirmed, err := ui.Confirm(fmt.Sprintf("Remove %s skill %s?", skillType, name), false)
-		if err != nil {
-			return err
-		}
-		if !confirmed {
-			ui.Info("Cancelled.")
-			return nil
+		force, _ := cmd.Flags().GetBool("force")
+		if !force {
+			confirmed, err := ui.Confirm(fmt.Sprintf("Remove %s skill %s?", skillType, name), false)
+			if err != nil {
+				return err
+			}
+			if !confirmed {
+				ui.Info("Cancelled.")
+				return nil
+			}
 		}
 
 		if isLocal {

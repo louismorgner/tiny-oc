@@ -139,6 +139,7 @@ The largest package. It owns:
 
 The native runtime's tool set is intentionally limited to local tools. Integrations remain outside the native tool loop until they are promoted into the runtime as first-class tools with the same session contract and observability semantics.
 
+
 Environment variables `TOC_WORKSPACE`, `TOC_AGENT`, and `TOC_SESSION_ID` are injected at launch time and used by `toc runtime` commands to resolve context from within a running session.
 
 ### Integration (`internal/integration/`)

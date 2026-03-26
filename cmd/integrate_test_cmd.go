@@ -44,7 +44,7 @@ var integrateTestCmd = &cobra.Command{
 		ui.Info("Testing %s credentials...", ui.Bold(name))
 
 		// Use the first GET action as the test, or fall back to a known test endpoint
-		testURL, authHeader := getTestEndpoint(name, def, cred)
+		testURL, headerName, headerValue := getTestEndpoint(name, def, cred)
 
 		// For Slack, use the shared auth test helper
 		if name == "slack" {
@@ -71,7 +71,7 @@ var integrateTestCmd = &cobra.Command{
 		if err != nil {
 			return fmt.Errorf("failed to create test request: %w", err)
 		}
-		req.Header.Set("Authorization", authHeader)
+		req.Header.Set(headerName, headerValue)
 		req.Header.Set("User-Agent", "toc/1.0")
 
 		client := &http.Client{Timeout: 10 * time.Second}
@@ -96,25 +96,36 @@ var integrateTestCmd = &cobra.Command{
 	},
 }
 
-func getTestEndpoint(name string, def *integration.Definition, cred *integration.Credential) (string, string) {
-	// Use well-known test endpoints per integration
+// getTestEndpoint returns the URL, header name, and header value for testing credentials.
+func getTestEndpoint(name string, def *integration.Definition, cred *integration.Credential) (string, string, string) {
 	switch name {
 	case "github":
-		authHeader := strings.ReplaceAll("Bearer {{token}}", "{{token}}", cred.AccessToken)
-		return "https://api.github.com/user", authHeader
+		return "https://api.github.com/user", "Authorization", "Bearer " + cred.AccessToken
 	case "slack":
-		authHeader := "Bearer " + cred.AccessToken
-		return "https://slack.com/api/auth.test", authHeader
+		return "https://slack.com/api/auth.test", "Authorization", "Bearer " + cred.AccessToken
+	case "exa":
+		return "https://api.exa.ai/search", "x-api-key", cred.AccessToken
 	default:
 		// Find the first GET action and use that
 		for _, action := range def.Actions {
 			if action.Method == "GET" {
-				authHeader := strings.ReplaceAll(action.AuthHeader, "{{token}}", cred.AccessToken)
-				return action.Endpoint, authHeader
+				headerName, headerValue := parseAuthHeader(action.AuthHeader, cred.AccessToken)
+				return action.Endpoint, headerName, headerValue
 			}
 		}
-		// Last resort
-		authHeader := strings.ReplaceAll("Bearer {{token}}", "{{token}}", cred.AccessToken)
-		return def.Auth.SetupURL, authHeader
+		return def.Auth.SetupURL, "Authorization", "Bearer " + cred.AccessToken
 	}
+}
+
+// parseAuthHeader splits an auth_header template into header name and value.
+// If the template contains ": ", the left side is the header name.
+// Otherwise, "Authorization" is used as the header name.
+func parseAuthHeader(template, token string) (string, string) {
+	if idx := strings.Index(template, ": "); idx > 0 {
+		name := template[:idx]
+		value := strings.ReplaceAll(template[idx+2:], "{{token}}", token)
+		return name, value
+	}
+	value := strings.ReplaceAll(template, "{{token}}", token)
+	return "Authorization", value
 }

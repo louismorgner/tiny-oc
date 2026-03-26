@@ -104,3 +104,140 @@ func TestSmoke_IntegrationGateway(t *testing.T) {
 		t.Error("admin.delete should be denied with items.*:* permission")
 	}
 }
+
+func TestSmoke_ExaIntegrationGateway(t *testing.T) {
+	// Start a fake Exa API server.
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Verify x-api-key header (not Authorization).
+		if r.Header.Get("x-api-key") != "exa-test-key-123" {
+			t.Errorf("expected x-api-key header 'exa-test-key-123', got: %q", r.Header.Get("x-api-key"))
+		}
+		if r.Header.Get("Authorization") != "" {
+			t.Errorf("expected no Authorization header for Exa, got: %q", r.Header.Get("Authorization"))
+		}
+
+		// Verify the request body is properly typed JSON.
+		var body map[string]interface{}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatalf("failed to decode request body: %v", err)
+		}
+
+		// query should be a string
+		if body["query"] != "semantic search test" {
+			t.Errorf("expected query 'semantic search test', got: %v", body["query"])
+		}
+
+		// numResults should be a number (float64 from JSON)
+		if body["numResults"] != float64(3) {
+			t.Errorf("expected numResults 3, got: %v (%T)", body["numResults"], body["numResults"])
+		}
+
+		// contents should be a nested object with highlights: true
+		contents, ok := body["contents"].(map[string]interface{})
+		if !ok {
+			t.Fatalf("expected contents to be object, got: %T", body["contents"])
+		}
+		if contents["highlights"] != true {
+			t.Errorf("expected contents.highlights true, got: %v", contents["highlights"])
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"requestId":  "req-123",
+			"searchType": "neural",
+			"results": []map[string]interface{}{
+				{
+					"title":         "Test Result",
+					"url":           "https://example.com/test",
+					"publishedDate": "2025-01-15",
+					"author":        "Test Author",
+					"highlights":    []string{"highlighted snippet"},
+					"score":         0.95,
+				},
+			},
+			"costDollars": map[string]interface{}{"total": 0.001},
+		})
+	}))
+	defer server.Close()
+
+	def := &integration.Definition{
+		Name:        "exa",
+		Description: "Exa API for e2e test",
+		Auth:        integration.AuthConfig{Method: "api_key"},
+		Actions: map[string]integration.Action{
+			"search": {
+				Description: "Semantic search",
+				Method:      "POST",
+				Endpoint:    server.URL + "/search",
+				AuthHeader:  "x-api-key: {{token}}",
+				BodyFormat:  "json",
+				Returns: []string{
+					"results[].title",
+					"results[].url",
+					"results[].publishedDate",
+					"results[].author",
+					"results[].highlights",
+				},
+			},
+		},
+	}
+
+	cred := &integration.Credential{
+		AccessToken: "exa-test-key-123",
+	}
+
+	resp, err := integration.Invoke(&integration.InvokeRequest{
+		SessionID:   "test-session-exa",
+		Integration: "exa",
+		Action:      "search",
+		Params: map[string]string{
+			"query":      "semantic search test",
+			"numResults": "3",
+		},
+		Credential: cred,
+		Definition: def,
+	})
+	if err != nil {
+		t.Fatalf("Invoke failed: %v", err)
+	}
+
+	if resp.StatusCode != 200 {
+		t.Errorf("expected status 200, got: %d", resp.StatusCode)
+	}
+
+	// Verify response was filtered.
+	// The gateway's results[].field notation extracts per-field arrays into a nested map.
+	data, ok := resp.Data.(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected map response, got: %T", resp.Data)
+	}
+
+	results, ok := data["results"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected results to be map (flattened by field), got: %T", data["results"])
+	}
+
+	// Each field should contain an array of extracted values.
+	titles, ok := results["title"].([]interface{})
+	if !ok || len(titles) != 1 || titles[0] != "Test Result" {
+		t.Errorf("expected results.title = ['Test Result'], got: %v", results["title"])
+	}
+	urls, ok := results["url"].([]interface{})
+	if !ok || len(urls) != 1 || urls[0] != "https://example.com/test" {
+		t.Errorf("expected results.url = ['https://example.com/test'], got: %v", results["url"])
+	}
+
+	// score should be filtered out (not in whitelist).
+	if _, ok := results["score"]; ok {
+		t.Error("score should have been filtered out")
+	}
+
+	// costDollars should be filtered out.
+	if _, ok := data["costDollars"]; ok {
+		t.Error("costDollars should have been filtered out")
+	}
+	// requestId should be filtered out.
+	if _, ok := data["requestId"]; ok {
+		t.Error("requestId should have been filtered out")
+	}
+}

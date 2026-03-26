@@ -163,8 +163,14 @@ func Invoke(req *InvokeRequest) (*InvokeResponse, error) {
 		req.Credential = refreshed
 	}
 
+	// Exa: build typed request body with nested objects and proper types
+	var customBody interface{}
+	if req.Integration == "exa" && actionDef.BodyFormat == "json" {
+		customBody = BuildExaRequestBody(req.Action, req.Params)
+	}
+
 	// Build HTTP request
-	httpReq, err := buildHTTPRequest(actionDef, req.Credential, req.Params)
+	httpReq, err := buildHTTPRequest(actionDef, req.Credential, req.Params, customBody)
 	if err != nil {
 		return nil, fmt.Errorf("failed to build HTTP request: %w", err)
 	}
@@ -241,7 +247,7 @@ func refreshCredentialForIntegration(integrationName string, cred *Credential, w
 	return refreshed, nil
 }
 
-func buildHTTPRequest(action *Action, cred *Credential, params map[string]string) (*http.Request, error) {
+func buildHTTPRequest(action *Action, cred *Credential, params map[string]string, customBody interface{}) (*http.Request, error) {
 	endpoint := action.Endpoint
 
 	// Replace template variables in endpoint and track which params were used
@@ -257,13 +263,19 @@ func buildHTTPRequest(action *Action, cred *Credential, params map[string]string
 	var bodyReader io.Reader
 	switch action.BodyFormat {
 	case "json":
-		bodyMap := make(map[string]interface{})
-		for k, v := range params {
-			if !templateParams[k] {
-				bodyMap[k] = v
+		var data []byte
+		var err error
+		if customBody != nil {
+			data, err = json.Marshal(customBody)
+		} else {
+			bodyMap := make(map[string]interface{})
+			for k, v := range params {
+				if !templateParams[k] {
+					bodyMap[k] = v
+				}
 			}
+			data, err = json.Marshal(bodyMap)
 		}
-		data, err := json.Marshal(bodyMap)
 		if err != nil {
 			return nil, err
 		}
@@ -289,13 +301,15 @@ func buildHTTPRequest(action *Action, cred *Credential, params map[string]string
 		return nil, err
 	}
 
-	// Set auth header
-	authHeader := strings.ReplaceAll(action.AuthHeader, "{{token}}", cred.AccessToken)
-	if strings.HasPrefix(authHeader, "Bearer ") || strings.HasPrefix(authHeader, "token ") {
-		req.Header.Set("Authorization", authHeader)
-	} else {
-		req.Header.Set("Authorization", authHeader)
+	// Set auth header. If auth_header contains ": ", treat the left side as the
+	// header name (e.g., "x-api-key: {{token}}"). Otherwise default to Authorization.
+	authValue := strings.ReplaceAll(action.AuthHeader, "{{token}}", cred.AccessToken)
+	headerName := "Authorization"
+	if idx := strings.Index(action.AuthHeader, ": "); idx > 0 {
+		headerName = action.AuthHeader[:idx]
+		authValue = strings.ReplaceAll(action.AuthHeader[idx+2:], "{{token}}", cred.AccessToken)
 	}
+	req.Header.Set(headerName, authValue)
 
 	if action.BodyFormat == "json" {
 		req.Header.Set("Content-Type", "application/json")

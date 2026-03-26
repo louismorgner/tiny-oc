@@ -66,7 +66,9 @@ When you run `toc agent spawn`, it:
 - [Core concepts](docs/core-concepts.md) — canonical vocabulary for sessions, snapshots, permissions, and instructions
 - [Getting started](docs/getting-started.md) — install, create your first agent, spawn a session
 - [Configuration reference](docs/configuration.md) — all config fields, snapshot sync patterns, audit log format
+- [Runtimes](docs/runtimes.md) — provider abstraction, Claude Code vs toc-native, hooks, model profiles
 - [Skills guide](docs/skills.md) — create, install, and attach reusable capabilities
+- [Integrations](docs/integrations.md) — API gateway, credential storage, permissions, built-in integrations
 - [Architecture](docs/architecture.md) — project structure and design decisions
 
 ## Commands
@@ -88,7 +90,12 @@ When you run `toc agent spawn`, it:
 | `toc agent add <name>` | Install an agent template from the registry |
 | `toc registry search [query]` | Browse skills and agent templates |
 | `toc registry install <name>` | Install a skill or agent from the registry |
+| `toc integrate add <name>` | Add an integration (GitHub, Slack) |
+| `toc integrate list` | List configured integrations |
+| `toc integrate test <name>` | Test an integration connection |
+| `toc integrate remove <name>` | Remove an integration |
 | `toc audit` | View the audit log |
+| `toc config set <key> <value>` | Set workspace config or secrets |
 | `toc completion <shell>` | Generate shell completion script |
 
 ### Runtime commands (for agents during sessions)
@@ -99,6 +106,10 @@ When you run `toc agent spawn`, it:
 | `toc runtime spawn <name> -p "..."` | Spawn a sub-agent in the background |
 | `toc runtime status [session-id]` | Check status of sub-agent sessions |
 | `toc runtime output <session-id>` | Read the output of a completed sub-agent |
+| `toc runtime invoke <integration> <action>` | Call an external API through the gateway |
+| `toc runtime watch <session-id>` | Live-tail a sub-agent's session |
+| `toc runtime replay <session-id>` | Replay session steps, tokens, and errors |
+| `toc runtime cancel <session-id>` | Cancel a running sub-agent |
 
 ## Roadmap
 
@@ -108,10 +119,11 @@ When you run `toc agent spawn`, it:
 - [x] Skills — reusable, shareable agent capabilities
 - [x] Registry — unified catalog of skills and agent templates with search and install
 - [x] Sub-agents — agents that spawn and coordinate other agents
+- [x] Integrations — API gateway with scoped permissions, credential vault, and rate limiting
+- [x] Native runtime (beta) — built-in agent loop via OpenRouter with pluggable models
 - [ ] Session sandbox — unforgeable identity and permissions ([#12](https://github.com/louismorgner/tiny-oc/issues/12))
 - [ ] Cost controls — per-agent and per-session spending limits
 - [ ] Git backing for `.toc/` and agent sync
-- [ ] Integrations and permissions — connect agents to external tools with scoped access
 - [ ] **v1 release**
 
 ## Contributing

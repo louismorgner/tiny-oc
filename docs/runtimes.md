@@ -1,0 +1,139 @@
+# Runtimes
+
+A runtime is the execution engine that runs an agent session. toc abstracts over runtimes through a provider interface, so the same agent definition can target different backends.
+
+## Supported runtimes
+
+| Runtime | Status | Description |
+|---|---|---|
+| `claude-code` | Stable | Launches Claude Code CLI sessions |
+| `toc-native` | Beta | Built-in agent loop via OpenRouter |
+
+Set the runtime in `oc-agent.yaml`:
+
+```yaml
+runtime: claude-code
+```
+
+## Provider interface
+
+All runtimes implement the same contract:
+
+- **PrepareSession** — materialize instructions, hooks, and runtime-specific files in the session workspace
+- **SkillsDir** — return the directory where skills should be placed for this runtime
+- **LaunchInteractive** — start an interactive session
+- **LaunchDetached** — start a background session (for sub-agents)
+- **PostSessionSync** — run the final snapshot sync pass after the session ends
+- **ParseSessionLog** — normalize runtime-specific logs into toc's `Event` format
+
+This means agents, permissions, skills, snapshot sync, and sub-agents work the same way regardless of runtime. The differences are in how the session is executed and how the model is called.
+
+## Claude Code runtime
+
+The default runtime. Delegates session execution to the `claude` CLI.
+
+### How it works
+
+1. **Instruction materialization**: `agent.md` + compose files are assembled into `CLAUDE.md` with template variable substitution
+2. **Hook generation**: toc writes `.claude/settings.json` with hooks for snapshot sync (`PostToolUse`), permission enforcement (`PreToolUse`), and end-of-session behavior (`SessionEnd`)
+3. **Launch**: executes `claude --model <model> --session-id <uuid>` as a subprocess
+4. **Skills**: placed in `.claude/skills/` where Claude Code discovers them automatically
+5. **Resume**: uses `claude --resume <session-id>`
+
+### Hooks
+
+The Claude Code runtime generates up to three hook types:
+
+| Hook | Event | Purpose |
+|---|---|---|
+| `PostToolUse` | After `Edit`, `Write`, `MultiEdit` | Copies matching files back to parent snapshot |
+| `PreToolUse` | Before any tool call | Enforces filesystem permissions (block/allow/ask) |
+| `SessionEnd` | Session closes | Runs the `on_end` prompt with full tool access |
+
+These hooks are shell scripts and JSON config generated in the session's `.claude/` directory. They don't affect your project.
+
+**PostToolUse sync script**: Reads the tool invocation payload from stdin, extracts the file path, checks it against context patterns, and copies matching files back to the agent template.
+
+**PreToolUse permission script**: Maps tools to permission categories (Read/Glob/Grep to `read`, Edit/Write to `write`, Bash to `execute`), checks the configured permission level, and outputs a JSON decision (`{"decision":"allow"}` or `{"decision":"block","reason":"..."}`).
+
+**SessionEnd hook**: If `on_end` is set, registers an `agent`-type hook that runs the prompt with full tool access before the session closes.
+
+### Models
+
+| Model | Description |
+|---|---|
+| `sonnet` | Claude Sonnet |
+| `opus` | Claude Opus |
+| `haiku` | Claude Haiku |
+
+## Native runtime (beta)
+
+`toc-native` is a built-in agent loop that calls models through OpenRouter. It runs the tool loop directly instead of delegating to an external CLI.
+
+### Current scope
+
+The native beta supports local tools only:
+
+- File reads and writes
+- File edits (string replacement)
+- Glob and grep
+- Shell execution
+- Skill reads
+- Sub-agent management
+
+External integrations (`toc runtime invoke`) are not yet part of the native tool loop.
+
+### How it works
+
+1. **Instruction materialization**: `agent.md` + compose files are written to `.toc-native/system-prompt.md`
+2. **No hooks**: permissions are enforced directly at tool execution time, not through external scripts
+3. **Launch**: runs the native agent loop as a subprocess (`toc __native-run`)
+4. **State**: persists full message history, token usage, and turn checkpoints to `.toc/sessions/<id>/state.json` for resume
+5. **Events**: writes directly to `.toc/sessions/<id>/events.jsonl` in toc's normalized format
+6. **Skills**: placed in `.toc-native/skills/`
+
+### Models
+
+Native runtime models are served through OpenRouter. Supported profiles:
+
+| Model ID | Label |
+|---|---|
+| `openai/gpt-4o-mini` | GPT-4o Mini (default) |
+| `openai/gpt-4o` | GPT-4o |
+| `anthropic/claude-3.7-sonnet` | Claude 3.7 Sonnet |
+
+To use a model outside this set, opt in explicitly:
+
+```yaml
+runtime: toc-native
+model: some/other-model
+allow_custom_native_model: true
+```
+
+Custom models must support tool calling to work with the native runtime.
+
+### Configuration
+
+The native runtime reads an OpenRouter API key from the environment (`OPENROUTER_API_KEY`) or from `.toc/secrets.yaml`:
+
+```bash
+toc config set openrouter_key sk-or-...
+```
+
+### State and resume
+
+The native runtime persists state after each model turn to `.toc/sessions/<id>/state.json`. This includes the full message history, token usage, and a turn checkpoint for crash recovery. Resume loads this state and continues the conversation.
+
+### Context window management
+
+When the message history exceeds a character threshold, the native runtime compacts older messages into a summary while keeping recent turns intact. This is controlled by session config defaults:
+
+- Compaction trigger: ~24,000 characters
+- Keep recent: 12 messages
+- Max summary: ~6,000 characters
+
+## Choosing a runtime
+
+Use `claude-code` when you want the full Claude Code experience — its native tools, MCP support, and interactive terminal UI. This is the stable, production-ready path.
+
+Use `toc-native` when you want to experiment with non-Anthropic models or want toc to own the full agent loop. The native runtime is in beta — expect rough edges and a narrower tool set.

@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"strings"
-	"time"
 
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/glamour"
@@ -35,10 +34,6 @@ var (
 				Bold(true).
 				Foreground(lipgloss.Color("2")) // green
 
-	// Separator between turns
-	turnSeparatorStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("8"))
-
 	// Tool call header
 	toolHeaderStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("8"))
@@ -63,9 +58,6 @@ var (
 			Foreground(lipgloss.Color("1")). // red
 			Bold(true)
 
-	// Timestamp style
-	timestampStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("8"))
 )
 
 // --- Markdown Rendering ---
@@ -116,37 +108,24 @@ func RenderMarkdown(text string) string {
 
 // --- Session UI Components ---
 
-// SessionBanner prints a styled banner when a native session starts.
+// SessionBanner prints a one-line banner when a native session starts.
 func SessionBanner(agentName, sessionID, model string) string {
-	var b strings.Builder
-
-	// Top border
-	b.WriteString("\n")
-
-	// Agent name header
-	header := fmt.Sprintf("  %s  %s", agentHeaderStyle.Render(agentName), sessionInfoStyle.Render(shortSessionID(sessionID)))
-	b.WriteString(header)
-	b.WriteString("\n")
-
-	// Model and session info
-	info := fmt.Sprintf("  %s  %s", sessionInfoStyle.Render("model:"), sessionInfoStyle.Render(model))
-	b.WriteString(info)
-	b.WriteString("\n")
-
-	// Separator
-	b.WriteString(TurnSeparator())
-	b.WriteString("\n")
-
-	return b.String()}
-
-// TurnSeparator returns a visual separator between conversation turns.
-func TurnSeparator() string {
-	return turnSeparatorStyle.Render("  " + strings.Repeat("─", 60))
+	parts := []string{agentHeaderStyle.Render(agentName)}
+	if model != "" {
+		parts = append(parts, sessionInfoStyle.Render(model))
+	}
+	parts = append(parts, sessionInfoStyle.Render(shortSessionID(sessionID)))
+	return "\n  " + strings.Join(parts, sessionInfoStyle.Render(" · ")) + "\n\n"
 }
 
-// UserPromptPrefix returns the styled prompt prefix for user input.
+// TurnSeparator returns a blank line between conversation turns.
+func TurnSeparator() string {
+	return ""
+}
+
+// UserPromptPrefix returns a minimal styled prompt prefix for user input.
 func UserPromptPrefix(agentName string) string {
-	return promptMarkerStyle.Render(agentName) + promptMarkerStyle.Render(" > ")
+	return promptMarkerStyle.Render("> ")
 }
 
 // PlainPromptPrefix returns a plain "> " for non-TTY output.
@@ -154,10 +133,9 @@ func PlainPromptPrefix() string {
 	return "> "
 }
 
-// AssistantHeader returns a styled header for assistant responses.
+// AssistantHeader returns an empty string — assistant labels are noise in interactive sessions.
 func AssistantHeader() string {
-	ts := timestampStyle.Render(time.Now().Format("15:04"))
-	return fmt.Sprintf("\n  %s  %s", Cyan("assistant"), ts)
+	return ""
 }
 
 // AssistantResponse formats and renders an assistant's text response.
@@ -168,15 +146,8 @@ func AssistantResponse(text string) string {
 	}
 
 	rendered := RenderMarkdown(text)
-	// Indent the rendered markdown slightly for visual hierarchy
-	lines := strings.Split(rendered, "\n")
-	var b strings.Builder
-	for _, line := range lines {
-		b.WriteString("  ")
-		b.WriteString(line)
-		b.WriteString("\n")
-	}
-	return b.String()}
+	return rendered + "\n"
+}
 
 // StreamingPrefix returns the prefix shown before streaming starts.
 func StreamingPrefix() string {
@@ -185,7 +156,7 @@ func StreamingPrefix() string {
 
 // --- Tool Call Formatting ---
 
-// FormatToolCallRich formats a tool call with better visual design.
+// FormatToolCallRich formats a tool call with clean, minimal design.
 func FormatToolCallRich(toolName, keyParam, output string, maxOutputLines int) string {
 	if !IsTTY(os.Stdout) {
 		return FormatToolCall(toolName, keyParam, output, maxOutputLines)
@@ -197,16 +168,15 @@ func FormatToolCallRich(toolName, keyParam, output string, maxOutputLines int) s
 
 	var b strings.Builder
 
-	// Tool header with icon
-	icon := toolIcon(toolName)
-	header := fmt.Sprintf("  %s %s", toolHeaderStyle.Render(icon), toolNameStyle.Render(toolName))
+	// Tool header: ● ToolName args
+	header := fmt.Sprintf("  %s %s", toolHeaderStyle.Render("●"), toolNameStyle.Render(toolName))
 	if keyParam != "" {
 		header += " " + sessionInfoStyle.Render(keyParam)
 	}
 	b.WriteString(header)
 	b.WriteByte('\n')
 
-	// Output preview
+	// Output preview (dimmed, indented)
 	output = strings.TrimRight(output, "\n\r ")
 	if output != "" {
 		lines := strings.Split(output, "\n")
@@ -228,26 +198,7 @@ func FormatToolCallRich(toolName, keyParam, output string, maxOutputLines int) s
 		}
 	}
 
-	return b.String()}
-
-// toolIcon returns a contextual icon for the tool type.
-func toolIcon(toolName string) string {
-	switch toolName {
-	case "Bash":
-		return "$"
-	case "Read":
-		return ">"
-	case "Write":
-		return "<"
-	case "Edit":
-		return "~"
-	case "Glob":
-		return "*"
-	case "Grep":
-		return "/"
-	default:
-		return "-"
-	}
+	return b.String()
 }
 
 // --- Step Formatting (for watch/replay) ---
@@ -329,7 +280,7 @@ func formatThinkingStep(content string, meta StepMeta) string {
 }
 
 func formatToolStep(content string, meta StepMeta) string {
-	icon := toolIcon(meta.ToolName)
+	icon := "●"
 	name := meta.ToolName
 	if name == "" {
 		name = "tool"
@@ -435,8 +386,6 @@ func FormatSessionSummary(model string, tokens string, resumeCount, recoveryCoun
 	var b strings.Builder
 
 	b.WriteString("\n")
-	b.WriteString(TurnSeparator())
-	b.WriteString("\n\n")
 
 	if model != "" {
 		b.WriteString(fmt.Sprintf("  %s %s\n", Bold("model:"), sessionInfoStyle.Render(model)))

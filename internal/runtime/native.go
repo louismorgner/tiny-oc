@@ -112,6 +112,11 @@ func (nativeProvider) LaunchInteractive(opts LaunchOptions) error {
 	}
 
 	if err := cmd.Run(); err != nil {
+		// Swallow ExitError (e.g. from Ctrl+C / SIGINT) so that the caller
+		// can proceed with post-session hooks, matching claude.go behavior.
+		if _, ok := err.(*exec.ExitError); ok {
+			return nil
+		}
 		return fmt.Errorf("failed to launch toc-native runtime: %w", err)
 	}
 	return nil

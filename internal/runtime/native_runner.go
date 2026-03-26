@@ -7,8 +7,10 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/tiny-oc/toc/internal/runtimeinfo"
@@ -102,6 +104,13 @@ func RunNativeSession(opts NativeRunOptions, stdin io.Reader, stdout io.Writer) 
 		fmt.Fprint(stdout, ui.SessionBanner(opts.Agent, opts.SessionID, modelName))
 	}
 
+	// Intercept SIGINT so Ctrl+C doesn't kill the process. Instead we
+	// treat it as a graceful exit and finalize the session, allowing
+	// post-session hooks (context sync, resume message) to run.
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGINT)
+	defer signal.Stop(sigCh)
+
 	reader := bufio.NewReader(stdin)
 	for {
 		if isTTY {
@@ -109,21 +118,46 @@ func RunNativeSession(opts NativeRunOptions, stdin io.Reader, stdout io.Writer) 
 		} else {
 			fmt.Fprint(stdout, ui.PlainPromptPrefix())
 		}
-		line, err := reader.ReadString('\n')
-		if err != nil {
-			if err == io.EOF {
+
+		// Read user input, but also watch for SIGINT.
+		type readResult struct {
+			line string
+			err  error
+		}
+		readCh := make(chan readResult, 1)
+		go func() {
+			line, err := reader.ReadString('\n')
+			readCh <- readResult{line, err}
+		}()
+
+		var line string
+		var readErr error
+		select {
+		case <-sigCh:
+			// Ctrl+C: finalize and exit gracefully
+			if isTTY {
+				fmt.Fprintln(stdout)
+			}
+			return finalizeNativeSession(client, state, sessionCfg, toolSpecs, profile, toolCtx, stdout, false)
+		case r := <-readCh:
+			line = r.line
+			readErr = r.err
+		}
+
+		if readErr != nil {
+			if readErr == io.EOF {
 				line = strings.TrimSpace(line)
 				if line == "" {
 					return finalizeNativeSession(client, state, sessionCfg, toolSpecs, profile, toolCtx, stdout, false)
 				}
 			} else {
-				return err
+				return finalizeNativeSession(client, state, sessionCfg, toolSpecs, profile, toolCtx, stdout, false)
 			}
 		}
 
 		line = strings.TrimSpace(line)
 		if line == "" {
-			if err == io.EOF {
+			if readErr == io.EOF {
 				return finalizeNativeSession(client, state, sessionCfg, toolSpecs, profile, toolCtx, stdout, false)
 			}
 			continue
@@ -131,16 +165,16 @@ func RunNativeSession(opts NativeRunOptions, stdin io.Reader, stdout io.Writer) 
 		if line == "/exit" || line == "/quit" {
 			if isTTY {
 				fmt.Fprintln(stdout)
-				fmt.Fprintln(stdout, ui.TurnSeparator())
-				ui.Info("Session ended")
 			}
 			return finalizeNativeSession(client, state, sessionCfg, toolSpecs, profile, toolCtx, stdout, false)
 		}
 
 		if err := runNativePrompt(client, state, toolSpecs, profile, line, toolCtx, stdout, false); err != nil {
+			// If a prompt fails, still finalize rather than bailing out
+			// without running post-session hooks.
 			return err
 		}
-		if err == io.EOF {
+		if readErr == io.EOF {
 			return finalizeNativeSession(client, state, sessionCfg, toolSpecs, profile, toolCtx, stdout, false)
 		}
 	}
@@ -403,7 +437,7 @@ func runNativeLoop(client *openRouterClient, state *State, toolSpecs []NativeToo
 				return err
 			}
 			if ui.IsTTY(os.Stdout) {
-				fmt.Fprintln(stdout, ui.AssistantHeader())
+				fmt.Fprint(stdout, "\n")
 				fmt.Fprint(stdout, ui.AssistantResponse(text))
 			} else {
 				if _, err := fmt.Fprintln(stdout, text); err != nil {
@@ -607,7 +641,7 @@ func (e *textStreamEmitter) Finish() error {
 		if e.wroteOutput {
 			text := strings.TrimSpace(e.fullBuffer.String())
 			if text != "" {
-				fmt.Fprintln(e.stdout, ui.AssistantHeader())
+				fmt.Fprint(e.stdout, "\n")
 				fmt.Fprint(e.stdout, ui.AssistantResponse(text))
 			}
 		}

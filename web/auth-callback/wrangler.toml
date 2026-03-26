@@ -1,0 +1,6 @@
+name = "toc-auth-callback"
+main = "worker.js"
+compatibility_date = "2024-01-01"
+
+[route]
+pattern = "toc.opencompany.cloud/slack/*"

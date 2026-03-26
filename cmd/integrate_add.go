@@ -188,7 +188,7 @@ func runOAuth2Flow(name string, def *integration.Definition, manual bool, flagCl
 	if manual {
 		code, codeErr = runManualOAuth2Flow(authURL)
 	} else {
-		code, codeErr = runAutoOAuth2Flow(oauth2Cfg, authURL)
+		code, codeErr = runHostedOAuth2Flow(authURL, oauth2Cfg)
 	}
 	if codeErr != nil {
 		return nil, fmt.Errorf("OAuth2 authorization failed: %w", codeErr)
@@ -208,35 +208,35 @@ func runOAuth2Flow(name string, def *integration.Definition, manual bool, flagCl
 	return cred, nil
 }
 
-// runAutoOAuth2Flow opens the browser and waits for the localhost callback.
-func runAutoOAuth2Flow(oauth2Cfg *integration.OAuth2Config, authURL string) (string, error) {
+// runHostedOAuth2Flow opens the browser and starts a localhost callback server.
+// The hosted HTTPS worker receives Slack's redirect and bounces the user back
+// to localhost where the code is captured automatically.
+func runHostedOAuth2Flow(authURL string, oauth2Cfg *integration.OAuth2Config) (string, error) {
 	ui.Info("Opening browser for authorization...")
 	ui.Info("If the browser doesn't open, visit: %s", ui.Cyan(authURL))
-	fmt.Println()
-	ui.Info("Tip: If localhost callback fails (e.g. remote/SSH session), re-run with %s", ui.Bold("--manual"))
 	fmt.Println()
 
 	openBrowser(authURL)
 
+	ui.Info("Waiting for authorization callback on localhost:%d...", oauth2Cfg.RedirectPort)
+
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
-
-	ui.Info("Waiting for OAuth callback on localhost:%d...", oauth2Cfg.RedirectPort)
 
 	return oauth2Cfg.RunCallbackServer(ctx)
 }
 
-// runManualOAuth2Flow displays the auth URL and prompts the user to paste the callback URL or code.
+// runManualOAuth2Flow displays the auth URL and prompts the user to paste the code.
+// Fallback for environments where the browser can't be opened automatically.
 func runManualOAuth2Flow(authURL string) (string, error) {
 	ui.Info("Open this URL in your browser to authorize:")
 	fmt.Println()
 	fmt.Println("  " + authURL)
 	fmt.Println()
-	ui.Info("After authorizing, Slack will redirect to a localhost URL.")
-	ui.Info("Copy the full URL from the browser address bar (or just the code) and paste it below.")
+	ui.Info("After authorizing, copy the code shown on the page and paste it here:")
 	fmt.Println()
 
-	raw, err := ui.Prompt("Paste callback URL or authorization code", "")
+	raw, err := ui.Prompt("Paste authorization code", "")
 	if err != nil {
 		return "", err
 	}

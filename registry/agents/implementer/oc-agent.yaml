@@ -1,7 +1,8 @@
 runtime: toc-native
 name: implementer
 description: Focused implementation agent — receives scoped tasks, executes precisely, reports results
-model: anthropic/claude-sonnet-4
+model: openai/gpt-5.3-codex
+allow_custom_native_model: true
 context:
   - BOOTSTRAP.md
 compose:

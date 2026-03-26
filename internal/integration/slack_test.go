@@ -109,8 +109,18 @@ func TestSlackChannelResolver_FallbackToRawID(t *testing.T) {
 	resolver := NewSlackChannelResolver("test-token")
 	resolver.ready = true // Mark as populated (empty cache)
 
-	// A channel ID that's not in cache should still work as a raw ID fallback
+	// A bare channel ID is caught by the early return (line 35)
 	id, err := resolver.Resolve("C01NOTINCACHE")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if id != "C01NOTINCACHE" {
+		t.Errorf("got %q, want C01NOTINCACHE", id)
+	}
+
+	// A #-prefixed channel ID that's not in cache should fall back
+	// to the stripped name since it looks like a valid channel ID.
+	id, err = resolver.Resolve("#C01NOTINCACHE")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -120,29 +130,35 @@ func TestSlackChannelResolver_FallbackToRawID(t *testing.T) {
 }
 
 func TestSlackChannelResolver_FallbackOnPopulateError(t *testing.T) {
-	// Use an invalid URL that will fail to populate
-	resolver := NewSlackChannelResolver("invalid-token-that-will-fail")
-	// Don't mark ready — force populate to be called
+	// Mock server that returns a Slack API error, causing populateCache to fail
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"ok":    false,
+			"error": "invalid_auth",
+		})
+	}))
+	defer server.Close()
 
-	// Passing a channel ID should fall back even if populate fails
-	// We can't easily test the HTTP failure path without a mock server,
-	// but we can test the logic after cache is ready with an ID format
-	resolver.ready = true
-	id, err := resolver.Resolve("D02ABCDEF")
+	resolver := NewSlackChannelResolver("bad-token")
+	resolver.baseURL = server.URL
+	// Don't mark ready — force populateCache to be called and fail
+
+	// Input like "#C02ABCDEF" is not itself a channel ID (has # prefix),
+	// so it won't be caught by the early return. After populate fails,
+	// the stripped name "C02ABCDEF" is a valid channel ID and should be
+	// returned as a fallback.
+	id, err := resolver.Resolve("#C02ABCDEF")
 	if err != nil {
-		t.Fatalf("unexpected error for DM channel ID: %v", err)
+		t.Fatalf("expected fallback to succeed, got error: %v", err)
 	}
-	if id != "D02ABCDEF" {
-		t.Errorf("got %q, want D02ABCDEF", id)
+	if id != "C02ABCDEF" {
+		t.Errorf("got %q, want C02ABCDEF", id)
 	}
 
-	// Group DM channel IDs should also work
-	id, err = resolver.Resolve("G03XYZ789")
-	if err != nil {
-		t.Fatalf("unexpected error for group channel ID: %v", err)
-	}
-	if id != "G03XYZ789" {
-		t.Errorf("got %q, want G03XYZ789", id)
+	// Non-ID name should return an error when populate fails
+	_, err = resolver.Resolve("#nonexistent")
+	if err == nil {
+		t.Error("expected error for non-ID channel name when populate fails")
 	}
 }
 

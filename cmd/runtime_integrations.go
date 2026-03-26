@@ -65,20 +65,10 @@ and the permitted actions with their scope restrictions.`,
 				continue
 			}
 
-			// Format permissions as a readable list
-			formatted := make([]string, 0, len(perms))
-			for _, p := range perms {
-				formatted = append(formatted, formatPermission(p))
-			}
-			fmt.Printf("    %s\n", strings.Join(formatted, "    "))
+			fmt.Printf("    %s\n", strings.Join(perms, "    "))
 		}
 
 		return nil
 	},
 }
 
-// formatPermission formats a raw permission string for display.
-// e.g. "send_message:*" → "send_message:*"
-func formatPermission(perm string) string {
-	return perm
-}

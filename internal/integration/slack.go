@@ -13,10 +13,11 @@ import (
 // SlackChannelResolver translates channel names (e.g. #general) to Slack channel IDs.
 // It caches the mapping per session to avoid repeated API calls.
 type SlackChannelResolver struct {
-	mu    sync.Mutex
-	cache map[string]string // name -> ID
-	token string
-	ready bool
+	mu      sync.Mutex
+	cache   map[string]string // name -> ID
+	token   string
+	ready   bool
+	baseURL string // override for testing; defaults to https://slack.com
 }
 
 // NewSlackChannelResolver creates a new resolver with the given access token.
@@ -50,9 +51,9 @@ func (r *SlackChannelResolver) Resolve(channel string) (string, error) {
 	// Populate cache if not done yet
 	if !r.ready {
 		if err := r.populateCache(); err != nil {
-			// Fallback: if the original input looks like a raw channel ID, use it directly
-			if isSlackChannelID(channel) {
-				return channel, nil
+			// Fallback: if the #-stripped name looks like a raw channel ID, use it directly
+			if isSlackChannelID(name) {
+				return name, nil
 			}
 			return "", fmt.Errorf("failed to resolve channel '%s': %w (hint: you can pass a raw channel ID like C01234ABCDE if name resolution is unavailable)", channel, err)
 		}
@@ -61,9 +62,9 @@ func (r *SlackChannelResolver) Resolve(channel string) (string, error) {
 
 	id, ok := r.cache[name]
 	if !ok {
-		// Fallback: if the input looks like a raw channel ID, use it directly
-		if isSlackChannelID(channel) {
-			return channel, nil
+		// Fallback: if the #-stripped name looks like a raw channel ID, use it directly
+		if isSlackChannelID(name) {
+			return name, nil
 		}
 		return "", fmt.Errorf("channel '%s' not found — use list_channels to see available channels", channel)
 	}
@@ -73,9 +74,14 @@ func (r *SlackChannelResolver) Resolve(channel string) (string, error) {
 func (r *SlackChannelResolver) populateCache() error {
 	client := &http.Client{Timeout: 15 * time.Second}
 
+	base := r.baseURL
+	if base == "" {
+		base = "https://slack.com"
+	}
+
 	cursor := ""
 	for {
-		url := "https://slack.com/api/conversations.list?types=public_channel,private_channel&limit=200"
+		url := base + "/api/conversations.list?types=public_channel,private_channel&limit=200"
 		if cursor != "" {
 			url += "&cursor=" + cursor
 		}

@@ -101,21 +101,6 @@ func joinActions(actions []string) string {
 	return result
 }
 
-// slackScopeMap maps Slack API error strings to the OAuth scope needed.
-var slackScopeMap = map[string]string{
-	"missing_scope":       "",
-	"channel_not_found":   "channels:read",
-	"not_in_channel":      "channels:read",
-	"not_authed":          "",
-	"invalid_auth":        "",
-	"account_inactive":    "",
-	"token_revoked":       "",
-	"no_permission":       "",
-	"ekm_access_denied":   "",
-	"is_archived":         "",
-	"channel_not_joined":  "channels:read",
-}
-
 // Slack action to required scope mapping.
 var slackActionScopeMap = map[string]string{
 	"send_message":    "chat:write",

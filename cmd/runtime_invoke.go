@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
-	"sort"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -163,9 +162,15 @@ Examples:
 }
 
 func hasHelpFlag(args []string) bool {
-	for _, a := range args {
+	for i := 0; i < len(args); i++ {
+		a := args[i]
 		if a == "--help" || a == "-h" {
 			return true
+		}
+		// Skip the value following a --key flag so we don't match
+		// help strings inside parameter values (e.g. --text "--help").
+		if strings.HasPrefix(a, "--") && !strings.Contains(a, "=") && i+1 < len(args) {
+			i++ // skip value
 		}
 	}
 	return false
@@ -186,7 +191,6 @@ func printIntegrationHelp(name string) error {
 	fmt.Println("Available actions:")
 
 	names := def.ActionNames()
-	sort.Strings(names)
 	for _, actionName := range names {
 		action := def.Actions[actionName]
 		fmt.Printf("  %-20s %s\n", actionName, action.Description)

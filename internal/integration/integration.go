@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -193,5 +194,6 @@ func (d *Definition) ActionNames() []string {
 	for name := range d.Actions {
 		names = append(names, name)
 	}
+	sort.Strings(names)
 	return names
 }

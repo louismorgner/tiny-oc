@@ -106,6 +106,29 @@ func nativeToolRegistry() []NativeToolSpec {
 			},
 			Handler: nativeSkill,
 		},
+		{
+			Name: "SubAgent",
+			Description: `Manage sub-agent sessions for multi-agent orchestration.
+
+Actions:
+- "list": List agents available to spawn as sub-agents. No additional parameters needed.
+- "spawn": Spawn a sub-agent in the background. Requires "agent" (agent name) and "prompt" (task description). Returns a session_id to track progress.
+- "status": Check sub-agent status. Optional "session_id" for a specific session; omit to list all sub-agents.
+- "output": Read the output of a completed or running sub-agent. Requires "session_id". Set "partial" to true to read partial output from a still-running session.
+- "cancel": Cancel a running sub-agent. Requires "session_id".`,
+			Parameters: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"action":     map[string]interface{}{"type": "string", "description": "The action to perform: list, spawn, status, output, or cancel"},
+					"agent":      map[string]interface{}{"type": "string", "description": "Agent name (required for spawn)"},
+					"prompt":     map[string]interface{}{"type": "string", "description": "Task prompt for the sub-agent (required for spawn)"},
+					"session_id": map[string]interface{}{"type": "string", "description": "Session ID (required for output and cancel, optional for status)"},
+					"partial":    map[string]interface{}{"type": "boolean", "description": "Read partial output from a running session (for output action)"},
+				},
+				"required": []string{"action"},
+			},
+			Handler: nativeSubAgent,
+		},
 	}
 }
 

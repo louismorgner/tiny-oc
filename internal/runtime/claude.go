@@ -63,6 +63,9 @@ func (claudeProvider) LaunchInteractive(opts LaunchOptions) error {
 	if opts.Model != "" {
 		args = append(args, "--model", opts.Model)
 	}
+	if opts.Prompt != "" {
+		args = append(args, "-p", opts.Prompt)
+	}
 	if opts.Resume {
 		args = append(args, "--resume", opts.SessionID)
 	} else {

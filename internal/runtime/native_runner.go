@@ -3,6 +3,7 @@ package runtime
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/tiny-oc/toc/internal/runtimeinfo"
 	"github.com/tiny-oc/toc/internal/session"
+	"github.com/tiny-oc/toc/internal/ui"
 )
 
 type NativeRunOptions struct {
@@ -23,6 +25,7 @@ type NativeRunOptions struct {
 	Model     string
 	Prompt    string
 	Resume    bool
+	SpawnFunc SubAgentSpawnFunc
 }
 
 func RunNativeSession(opts NativeRunOptions, stdin io.Reader, stdout io.Writer) error {
@@ -69,6 +72,7 @@ func RunNativeSession(opts NativeRunOptions, stdin io.Reader, stdout io.Writer) 
 		SessionID:  opts.SessionID,
 		Manifest:   manifest,
 		Config:     sessionCfg,
+		SpawnFunc:  opts.SpawnFunc,
 	}
 	toolSpecs := nativeToolSet(nil)
 	if sessionCfg != nil {
@@ -265,7 +269,7 @@ func runNativePrompt(client *openRouterClient, state *State, toolSpecs []NativeT
 		return err
 	}
 
-	err := runNativeLoop(client, state, toolSpecs, profile, toolCtx, sess, stdout)
+	err := runNativeLoop(client, state, toolSpecs, profile, toolCtx, sess, stdout, detached)
 	if err != nil {
 		state.Status = "failed"
 		state.LastError = err.Error()
@@ -296,7 +300,7 @@ func runNativePrompt(client *openRouterClient, state *State, toolSpecs []NativeT
 
 const defaultMaxIterations = 24
 
-func runNativeLoop(client *openRouterClient, state *State, toolSpecs []NativeToolSpec, profile runtimeinfo.NativeModelProfile, toolCtx nativeToolContext, sess *session.Session, stdout io.Writer) error {
+func runNativeLoop(client *openRouterClient, state *State, toolSpecs []NativeToolSpec, profile runtimeinfo.NativeModelProfile, toolCtx nativeToolContext, sess *session.Session, stdout io.Writer, detached bool) error {
 	maxIterations := defaultMaxIterations
 	if toolCtx.Config != nil && toolCtx.Config.RuntimeConfig.MaxIterations > 0 {
 		maxIterations = toolCtx.Config.RuntimeConfig.MaxIterations
@@ -389,6 +393,15 @@ func runNativeLoop(client *openRouterClient, state *State, toolSpecs []NativeToo
 
 		for _, call := range msg.ToolCalls {
 			result := executeNativeTool(toolSpecs, toolCtx, call)
+
+			if !detached {
+				var parsedArgs map[string]interface{}
+				_ = json.Unmarshal([]byte(call.Function.Arguments), &parsedArgs)
+				keyParam := ui.ToolCallKeyParam(call.Function.Name, parsedArgs)
+				viz := ui.FormatToolCall(call.Function.Name, keyParam, result.Message, 5)
+				fmt.Fprint(stdout, viz)
+			}
+
 			if err := AppendEvent(sess, Event{
 				Timestamp: time.Now().UTC(),
 				Step:      result.Step,

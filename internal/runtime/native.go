@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"syscall"
 
+	"github.com/tiny-oc/toc/internal/config"
 	"github.com/tiny-oc/toc/internal/runtimeinfo"
 	"github.com/tiny-oc/toc/internal/session"
 	tocsync "github.com/tiny-oc/toc/internal/sync"
@@ -82,6 +83,16 @@ func (nativeProvider) LaunchInteractive(opts LaunchOptions) error {
 		args = append(args, "--resume")
 	}
 
+	// When a prompt is provided, write it to a file and pass --prompt-file
+	// so the runtime runs non-interactively in the foreground.
+	if opts.Prompt != "" {
+		promptPath := filepath.Join(opts.Dir, "toc-prompt.txt")
+		if err := os.WriteFile(promptPath, []byte(opts.Prompt), 0644); err != nil {
+			return fmt.Errorf("failed to write prompt file: %w", err)
+		}
+		args = append(args, "--prompt-file", promptPath)
+	}
+
 	cmd := exec.Command(exe, args...)
 	cmd.Dir = opts.Dir
 	cmd.Stdin = os.Stdin
@@ -92,6 +103,13 @@ func (nativeProvider) LaunchInteractive(opts LaunchOptions) error {
 		"TOC_AGENT="+opts.AgentName,
 		"TOC_SESSION_ID="+opts.SessionID,
 	)
+
+	// Inject stored OpenRouter key if not already in the environment
+	if os.Getenv("OPENROUTER_API_KEY") == "" {
+		if key := config.OpenRouterKey(); key != "" {
+			cmd.Env = append(cmd.Env, "OPENROUTER_API_KEY="+key)
+		}
+	}
 
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("failed to launch toc-native runtime: %w", err)
@@ -142,17 +160,25 @@ func BuildNativeDetachedScript(executable string, opts DetachedOptions, promptPa
 		command += " --resume"
 	}
 
+	// Inject stored OpenRouter key into detached script if not in current env
+	openRouterExport := ""
+	if os.Getenv("OPENROUTER_API_KEY") == "" {
+		if key := config.OpenRouterKey(); key != "" {
+			openRouterExport = fmt.Sprintf("export OPENROUTER_API_KEY=%q\n", key)
+		}
+	}
+
 	return fmt.Sprintf(`#!/bin/sh
 echo $$ > %q
 cd %q
 export TOC_WORKSPACE=%q
 export TOC_AGENT=%q
 export TOC_SESSION_ID=%q
-%s < /dev/null > %q 2>&1
+%s%s < /dev/null > %q 2>&1
 TOC_EXIT=$?
 echo $TOC_EXIT > %q
 mv %q %q
-`, pidPath, opts.Dir, opts.Workspace, opts.AgentName, opts.SessionID, command, tmpOutputPath, exitCodePath, tmpOutputPath, opts.OutputPath)
+`, pidPath, opts.Dir, opts.Workspace, opts.AgentName, opts.SessionID, openRouterExport, command, tmpOutputPath, exitCodePath, tmpOutputPath, opts.OutputPath)
 }
 
 func nativeExecutable() (string, error) {

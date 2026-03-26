@@ -10,9 +10,15 @@ import (
 
 const tocDir = ".toc"
 const configFile = "config.yaml"
+const secretsFile = "secrets.yaml"
 
 type WorkspaceConfig struct {
 	Name string `yaml:"name"`
+}
+
+// Secrets holds sensitive values like API keys, stored separately from config.
+type Secrets struct {
+	OpenRouterKey string `yaml:"openrouter_key,omitempty"`
 }
 
 func TocDir() string {
@@ -21,6 +27,10 @@ func TocDir() string {
 
 func ConfigPath() string {
 	return filepath.Join(tocDir, configFile)
+}
+
+func SecretsPath() string {
+	return filepath.Join(tocDir, secretsFile)
 }
 
 func AgentsDir() string {
@@ -94,4 +104,41 @@ func Init(name string) error {
 		return fmt.Errorf("failed to create skills directory: %w", err)
 	}
 	return Save(&WorkspaceConfig{Name: name})
+}
+
+// LoadSecrets reads the secrets file. Returns an empty Secrets if the file does not exist.
+func LoadSecrets() (*Secrets, error) {
+	data, err := os.ReadFile(SecretsPath())
+	if err != nil {
+		if os.IsNotExist(err) {
+			return &Secrets{}, nil
+		}
+		return nil, fmt.Errorf("failed to read secrets: %w", err)
+	}
+	var s Secrets
+	if err := yaml.Unmarshal(data, &s); err != nil {
+		return nil, fmt.Errorf("failed to parse secrets: %w", err)
+	}
+	return &s, nil
+}
+
+// SaveSecrets writes the secrets file with restricted permissions (0600).
+func SaveSecrets(s *Secrets) error {
+	if err := os.MkdirAll(tocDir, 0755); err != nil {
+		return fmt.Errorf("failed to create toc directory: %w", err)
+	}
+	data, err := yaml.Marshal(s)
+	if err != nil {
+		return fmt.Errorf("failed to marshal secrets: %w", err)
+	}
+	return os.WriteFile(SecretsPath(), data, 0600)
+}
+
+// OpenRouterKey returns the stored OpenRouter API key, or empty string if not set.
+func OpenRouterKey() string {
+	s, err := LoadSecrets()
+	if err != nil {
+		return ""
+	}
+	return s.OpenRouterKey
 }

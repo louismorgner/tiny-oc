@@ -27,7 +27,16 @@ type SpawnResult struct {
 	FailedSkills []string
 }
 
-func SpawnSession(cfg *agent.AgentConfig) (*SpawnResult, error) {
+// SpawnOptions contains optional parameters for SpawnSession.
+type SpawnOptions struct {
+	Prompt string // If set, run non-interactively with this prompt
+}
+
+func SpawnSession(cfg *agent.AgentConfig, opts ...SpawnOptions) (*SpawnResult, error) {
+	var spawnOpts SpawnOptions
+	if len(opts) > 0 {
+		spawnOpts = opts[0]
+	}
 	sessionCfg := runtime.ResolveSessionConfig(cfg)
 	if err := runtime.ValidateSessionConfig(sessionCfg); err != nil {
 		return nil, err
@@ -119,6 +128,7 @@ func SpawnSession(cfg *agent.AgentConfig) (*SpawnResult, error) {
 	if err := provider.LaunchInteractive(runtime.LaunchOptions{
 		Dir: workDir, Model: sessionCfg.Model, SessionID: sessionID,
 		AgentName: sessionCfg.Agent, Workspace: workspace,
+		Prompt: spawnOpts.Prompt,
 	}); err != nil {
 		_ = session.UpdateStatus(sessionID, session.StatusCompletedError)
 		return nil, fmt.Errorf("failed to launch runtime session: %w", err)

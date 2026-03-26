@@ -55,6 +55,7 @@ type LaunchOptions struct {
 	AgentName string
 	Workspace string
 	Resume    bool
+	Prompt    string // If set, run this prompt non-interactively and exit
 }
 
 type DetachedOptions struct {

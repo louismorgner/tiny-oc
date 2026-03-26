@@ -27,6 +27,7 @@ type nativeToolContext struct {
 	SessionID  string
 	Manifest   *integration.PermissionManifest
 	Config     *SessionConfig
+	SpawnFunc  SubAgentSpawnFunc
 }
 
 type toolExecution struct {

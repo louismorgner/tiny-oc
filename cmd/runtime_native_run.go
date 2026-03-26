@@ -7,7 +7,9 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+	"github.com/tiny-oc/toc/internal/agent"
 	"github.com/tiny-oc/toc/internal/runtime"
+	"github.com/tiny-oc/toc/internal/spawn"
 )
 
 var (
@@ -56,6 +58,7 @@ var nativeRunCmd = &cobra.Command{
 			Model:     nativeRunModel,
 			Prompt:    prompt,
 			Resume:    nativeRunResume,
+			SpawnFunc: nativeSpawnSubAgent,
 		}, os.Stdin, os.Stdout)
 	},
 }
@@ -69,4 +72,27 @@ func loadNativePrompt(path string) (string, error) {
 		return "", err
 	}
 	return strings.TrimSpace(string(data)), nil
+}
+
+// nativeSpawnSubAgent is the callback that the native runtime uses to spawn sub-agents.
+// It bridges the runtime package (which cannot import spawn) with the spawn package.
+func nativeSpawnSubAgent(agentName, prompt, workspace, parentSessionID string) (*runtime.SubAgentSpawnResult, error) {
+	agentDir := filepath.Join(workspace, ".toc", "agents", agentName)
+	cfg, err := agent.LoadFrom(agentDir)
+	if err != nil {
+		return nil, fmt.Errorf("agent '%s' not found in workspace: %w", agentName, err)
+	}
+
+	result, err := spawn.SpawnSubSession(cfg, spawn.SubSpawnOpts{
+		ParentSessionID: parentSessionID,
+		Prompt:          prompt,
+		WorkspaceDir:    workspace,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return &runtime.SubAgentSpawnResult{
+		SessionID: result.SessionID,
+	}, nil
 }

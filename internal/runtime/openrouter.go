@@ -11,6 +11,8 @@ import (
 	"os"
 	"strings"
 	"time"
+
+	"github.com/tiny-oc/toc/internal/config"
 )
 
 const defaultOpenRouterBaseURL = "https://openrouter.ai/api/v1"
@@ -100,7 +102,14 @@ type streamToolCallDelta struct {
 func newOpenRouterClientFromEnv() (*openRouterClient, error) {
 	apiKey := strings.TrimSpace(os.Getenv("OPENROUTER_API_KEY"))
 	if apiKey == "" {
-		return nil, fmt.Errorf("OPENROUTER_API_KEY is not set")
+		// Fall back to stored key in workspace secrets
+		apiKey = config.OpenRouterKey()
+	}
+	if apiKey == "" {
+		return nil, fmt.Errorf("OpenRouter API key not found.\n\n" +
+			"  Set it with:  toc config set-key openrouter\n" +
+			"  Or export:    export OPENROUTER_API_KEY=sk-or-...\n\n" +
+			"  Get a key at: https://openrouter.ai/keys")
 	}
 
 	baseURL := strings.TrimRight(strings.TrimSpace(os.Getenv("OPENROUTER_BASE_URL")), "/")

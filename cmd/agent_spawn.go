@@ -10,10 +10,14 @@ import (
 	"github.com/tiny-oc/toc/internal/spawn"
 )
 
-var resumeSessionID string
+var (
+	resumeSessionID string
+	spawnPrompt     string
+)
 
 func init() {
 	agentSpawnCmd.Flags().StringVar(&resumeSessionID, "resume", "", "Resume an existing session by ID")
+	agentSpawnCmd.Flags().StringVarP(&spawnPrompt, "prompt", "p", "", "Run a single prompt non-interactively and exit")
 	agentSpawnCmd.RegisterFlagCompletionFunc("resume", completeSessionIDs)
 	agentCmd.AddCommand(agentSpawnCmd)
 }
@@ -57,7 +61,7 @@ var agentSpawnCmd = &cobra.Command{
 			return err
 		}
 
-		result, err := spawn.SpawnSession(cfg)
+		result, err := spawn.SpawnSession(cfg, spawn.SpawnOptions{Prompt: spawnPrompt})
 		if result != nil {
 			details := map[string]interface{}{
 				"agent":      agentName,

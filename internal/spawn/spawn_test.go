@@ -20,6 +20,61 @@ import (
 	"github.com/tiny-oc/toc/internal/session"
 )
 
+func TestIntegrationsSummary(t *testing.T) {
+	tests := []struct {
+		name string
+		cfg  *runtime.SessionConfig
+		want string
+	}{
+		{
+			name: "nil config",
+			cfg:  nil,
+			want: "none",
+		},
+		{
+			name: "no integrations",
+			cfg:  &runtime.SessionConfig{},
+			want: "none",
+		},
+		{
+			name: "single integration",
+			cfg: &runtime.SessionConfig{
+				Permissions: agent.Permissions{
+					Integrations: map[string]agent.IntegrationPermissions{
+						"slack": {
+							{Mode: agent.PermOn, Capability: "post:#eng"},
+							{Mode: agent.PermAsk, Capability: "post:channels/*"},
+							{Mode: agent.PermOn, Capability: "read:channels/*"},
+						},
+					},
+				},
+			},
+			want: "slack (3 action(s))",
+		},
+		{
+			name: "multiple integrations sorted",
+			cfg: &runtime.SessionConfig{
+				Permissions: agent.Permissions{
+					Integrations: map[string]agent.IntegrationPermissions{
+						"exa":   {{Mode: agent.PermOn, Capability: "search"}, {Mode: agent.PermOn, Capability: "find_similar"}, {Mode: agent.PermOn, Capability: "contents"}},
+						"slack":  {{Mode: agent.PermOn, Capability: "post:#eng"}},
+					},
+				},
+			},
+			want: "exa (3 action(s)), slack (1 action(s))",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := integrationsSummary(tt.cfg)
+			if got != tt.want {
+				t.Errorf("integrationsSummary() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestBuildDetachedScript_PIDTracking(t *testing.T) {
 	dir := t.TempDir()
 	promptPath := filepath.Join(dir, "toc-prompt.txt")

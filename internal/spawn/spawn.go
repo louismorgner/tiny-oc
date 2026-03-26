@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -120,6 +122,7 @@ func SpawnSession(cfg *agent.AgentConfig, opts ...SpawnOptions) (*SpawnResult, e
 	if sessionCfg.OnEnd != "" {
 		ui.Info("On end: %s", ui.Dim("session end hook enabled"))
 	}
+	ui.Info("Integrations: %s", ui.Dim(integrationsSummary(sessionCfg)))
 	if permissionsConfigured(sessionCfg) {
 		ui.Info("Permissions: %s", ui.Dim("enforced via hooks"))
 	}
@@ -190,6 +193,7 @@ func ResumeSession(s *session.Session) (*SpawnResult, error) {
 		resolved := len(sessionCfg.Skills) - len(failedSkills)
 		ui.Info("Skills: %s", ui.Dim(fmt.Sprintf("%d/%d resolved", resolved, len(sessionCfg.Skills))))
 	}
+	ui.Info("Integrations: %s", ui.Dim(integrationsSummary(sessionCfg)))
 	fmt.Println()
 
 	_ = session.UpdateStatus(s.ID, session.StatusActive)
@@ -524,6 +528,24 @@ func writePermissionManifest(metadataDir, sessionID string, cfg *runtime.Session
 // explicit workspace path. Used for sub-agent spawning.
 func writePermissionManifestInWorkspace(workspace, sessionID string, cfg *runtime.SessionConfig) error {
 	return writePermissionManifest(filepath.Join(workspace, ".toc", "sessions", sessionID), sessionID, cfg)
+}
+
+func integrationsSummary(cfg *runtime.SessionConfig) string {
+	if cfg == nil || len(cfg.Permissions.Integrations) == 0 {
+		return "none"
+	}
+	names := make([]string, 0, len(cfg.Permissions.Integrations))
+	for name := range cfg.Permissions.Integrations {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
+	parts := make([]string, len(names))
+	for i, name := range names {
+		n := len(cfg.Permissions.Integrations[name])
+		parts[i] = fmt.Sprintf("%s (%d action(s))", name, n)
+	}
+	return strings.Join(parts, ", ")
 }
 
 func permissionsConfigured(cfg *runtime.SessionConfig) bool {

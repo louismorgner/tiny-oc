@@ -257,14 +257,18 @@ func showSetupWizard(def *integration.Definition) {
 		fmt.Println()
 	}
 
-	for i, line := range lines {
+	// Filter out blank lines so the "last step" check is accurate.
+	var steps []string
+	for _, line := range lines {
 		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
+		if line != "" {
+			steps = append(steps, line)
 		}
+	}
 
+	for i, line := range steps {
 		// Highlight the redirect URL step
-		if strings.Contains(line, "Redirect URL") || strings.Contains(line, "redirect_uri") || strings.Contains(line, SlackOAuthCallbackURL()) {
+		if strings.Contains(line, "Redirect URL") || strings.Contains(line, "redirect_uri") || strings.Contains(line, integration.SlackOAuthCallbackURL) {
 			fmt.Println("  " + ui.Yellow(line))
 			fmt.Println()
 			ui.Warn("OAuth will fail if the redirect URL is not added exactly as shown above.")
@@ -275,16 +279,11 @@ func showSetupWizard(def *integration.Definition) {
 		}
 
 		// Pause between steps (except the last one, which is usually "run toc integrate add")
-		if i < len(lines)-1 {
+		if i < len(steps)-1 {
 			ui.WaitForEnter("Press Enter when ready for the next step...")
 			fmt.Println()
 		}
 	}
-}
-
-// SlackOAuthCallbackURL returns the callback URL for display purposes.
-func SlackOAuthCallbackURL() string {
-	return integration.SlackOAuthCallbackURL
 }
 
 // runHostedOAuth2Flow opens the browser and starts a localhost callback server.
@@ -326,45 +325,58 @@ func runManualOAuth2Flow(authURL string) (string, error) {
 // runInlineAuthTest calls Slack's auth.test endpoint immediately after OAuth
 // to verify the token works, so the user doesn't have to run a separate command.
 func runInlineAuthTest(cred *integration.Credential) error {
-	req, err := http.NewRequest("GET", "https://slack.com/api/auth.test", nil)
+	data, err := callSlackAuthTest(cred.AccessToken)
 	if err != nil {
 		return err
 	}
-	req.Header.Set("Authorization", "Bearer "+cred.AccessToken)
+	user, _ := data["user"].(string)
+	team, _ := data["team"].(string)
+	ui.Success("Authenticated as %s in workspace %s", ui.Bold(user), ui.Bold(team))
+	return nil
+}
+
+// callSlackAuthTest calls Slack's auth.test API and returns the parsed response.
+// On Slack API errors it returns a descriptive error with guidance.
+func callSlackAuthTest(token string) (map[string]interface{}, error) {
+	req, err := http.NewRequest("GET", "https://slack.com/api/auth.test", nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("User-Agent", "toc/1.0")
 
 	client := &http.Client{Timeout: 10 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
-		return fmt.Errorf("connection failed: %w", err)
+		return nil, fmt.Errorf("connection failed: %w", err)
 	}
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return fmt.Errorf("failed to read response: %w", err)
+		return nil, fmt.Errorf("failed to read response: %w", err)
 	}
 
 	var data map[string]interface{}
 	if err := json.Unmarshal(body, &data); err != nil {
-		return fmt.Errorf("invalid response from Slack")
+		return nil, fmt.Errorf("invalid response from Slack")
 	}
 
 	if err := integration.CheckSlackResponse(resp.StatusCode, data); err != nil {
 		errStr := err.Error()
 		if strings.Contains(errStr, "invalid_auth") {
-			return fmt.Errorf("%s — the token may have been revoked or is malformed", errStr)
+			return nil, fmt.Errorf("%s — the token may have been revoked or is malformed", errStr)
 		}
 		if strings.Contains(errStr, "missing_scope") {
-			return fmt.Errorf("%s — re-add the integration with the correct scopes", errStr)
+			return nil, fmt.Errorf("%s — re-add the integration with the correct scopes", errStr)
 		}
-		return err
+		if strings.Contains(errStr, "not_authed") {
+			return nil, fmt.Errorf("%s — no authentication token was provided", errStr)
+		}
+		return nil, err
 	}
 
-	user, _ := data["user"].(string)
-	team, _ := data["team"].(string)
-	ui.Success("Authenticated as %s in workspace %s", ui.Bold(user), ui.Bold(team))
-	return nil
+	return data, nil
 }
 
 func openBrowser(url string) {

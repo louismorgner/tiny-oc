@@ -170,6 +170,10 @@ func TestValidateSlackClientID(t *testing.T) {
 		{"token xoxp prefix", "xoxp-1234-abcdef", true},
 		{"contains letters", "abc123", true},
 		{"contains dash", "123-456", true},
+		{"empty string", "", true},
+		{"single dot", ".", true},
+		{"triple dot", "...", true},
+		{"too short", "12345", true},
 	}
 
 	for _, tt := range tests {
@@ -193,6 +197,7 @@ func TestValidateSlackClientSecret(t *testing.T) {
 		{"token xoxb prefix", "xoxb-fake-test", true},
 		{"token xoxp prefix", "xoxp-fake-test", true},
 		{"too short", "abcdef", true},
+		{"empty string", "", true},
 		{"contains non-hex", "abcdef1234567890abcdef123456789g", true},
 		{"contains dash", "abcdef1234567890-bcdef1234567890", true},
 	}

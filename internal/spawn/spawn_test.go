@@ -263,9 +263,9 @@ func TestNativeDetachedSubSession_FailureThenResume(t *testing.T) {
 		switch requests {
 		case 1:
 			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusInternalServerError)
+			w.WriteHeader(http.StatusBadRequest)
 			_ = json.NewEncoder(w).Encode(map[string]interface{}{
-				"error": map[string]interface{}{"message": "temporary upstream failure"},
+				"error": map[string]interface{}{"message": "simulated non-retryable failure"},
 			})
 		case 2:
 			w.Header().Set("Content-Type", "text/event-stream")

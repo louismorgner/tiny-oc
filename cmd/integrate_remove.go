@@ -10,6 +10,7 @@ import (
 )
 
 func init() {
+	integrateRemoveCmd.Flags().BoolP("force", "f", false, "skip confirmation prompt")
 	integrateCmd.AddCommand(integrateRemoveCmd)
 }
 
@@ -28,9 +29,12 @@ var integrateRemoveCmd = &cobra.Command{
 			return fmt.Errorf("integration '%s' is not configured", name)
 		}
 
-		confirm, err := ui.Confirm(fmt.Sprintf("Remove integration '%s' and delete its credentials?", name), false)
-		if err != nil || !confirm {
-			return nil
+		force, _ := cmd.Flags().GetBool("force")
+		if !force {
+			confirm, err := ui.Confirm(fmt.Sprintf("Remove integration '%s' and delete its credentials?", name), false)
+			if err != nil || !confirm {
+				return nil
+			}
 		}
 
 		if err := integration.RemoveCredential(name); err != nil {

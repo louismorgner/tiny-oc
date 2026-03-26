@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"os"
 	"strings"
 
 	"charm.land/huh/v2"
@@ -12,6 +13,9 @@ import (
 )
 
 func init() {
+	skillCreateCmd.Flags().String("name", "", "skill name (skip interactive prompt)")
+	skillCreateCmd.Flags().String("description", "", "skill description")
+	skillCreateCmd.Flags().String("instructions", "", "skill instructions (or @file to read from file)")
 	skillCmd.AddCommand(skillCreateCmd)
 }
 
@@ -23,9 +27,56 @@ var skillCreateCmd = &cobra.Command{
 			return err
 		}
 
+		name, _ := cmd.Flags().GetString("name")
+		description, _ := cmd.Flags().GetString("description")
+		instructionsFlag, _ := cmd.Flags().GetString("instructions")
+
+		// If --name is provided, run in non-interactive mode
+		if name != "" {
+			if err := skill.ValidateName(name); err != nil {
+				return err
+			}
+			if skill.Exists(name) {
+				return fmt.Errorf("skill '%s' already exists", name)
+			}
+			if description == "" {
+				return fmt.Errorf("--description is required in non-interactive mode")
+			}
+
+			instructions := instructionsFlag
+			if strings.HasPrefix(instructions, "@") {
+				data, err := os.ReadFile(strings.TrimPrefix(instructions, "@"))
+				if err != nil {
+					return fmt.Errorf("failed to read instructions file: %w", err)
+				}
+				instructions = string(data)
+			}
+
+			meta := skill.SkillMeta{
+				Name:        name,
+				Description: description,
+			}
+
+			body := ""
+			if strings.TrimSpace(instructions) != "" {
+				body = strings.TrimSpace(instructions)
+			}
+
+			if err := skill.CreateFromMeta(meta, body); err != nil {
+				return err
+			}
+
+			auditLog("skill.create", map[string]interface{}{
+				"skill": name,
+			})
+
+			ui.Success("Created skill %s", ui.Bold(name))
+			return nil
+		}
+
+		// Interactive mode
 		ui.Header("Create a new skill")
 
-		var name, description string
 		var instructions string
 
 		form := huh.NewForm(

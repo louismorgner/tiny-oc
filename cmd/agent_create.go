@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"os"
 	"strings"
 
 	"charm.land/huh/v2"
@@ -13,6 +14,15 @@ import (
 )
 
 func init() {
+	agentCreateCmd.Flags().String("name", "", "agent name (skip interactive prompt)")
+	agentCreateCmd.Flags().String("description", "", "agent description")
+	agentCreateCmd.Flags().String("model", "", "model: sonnet, opus, or haiku")
+	agentCreateCmd.Flags().StringSlice("skills", nil, "comma-separated skill names or URLs")
+	agentCreateCmd.Flags().StringSlice("context", nil, "comma-separated context sync patterns")
+	agentCreateCmd.Flags().String("instructions", "", "agent instructions (or @file to read from file)")
+	agentCreateCmd.Flags().StringSlice("compose", nil, "comma-separated compose file paths")
+	agentCreateCmd.Flags().StringSlice("sub-agents", nil, "comma-separated sub-agent names (or * for all)")
+	agentCreateCmd.Flags().String("on-end", "", "on-end hook prompt")
 	agentCmd.AddCommand(agentCreateCmd)
 }
 
@@ -24,11 +34,83 @@ var agentCreateCmd = &cobra.Command{
 			return err
 		}
 
+		name, _ := cmd.Flags().GetString("name")
+		desc, _ := cmd.Flags().GetString("description")
+		model, _ := cmd.Flags().GetString("model")
+		skills, _ := cmd.Flags().GetStringSlice("skills")
+		contextPatterns, _ := cmd.Flags().GetStringSlice("context")
+		instructionsFlag, _ := cmd.Flags().GetString("instructions")
+		compose, _ := cmd.Flags().GetStringSlice("compose")
+		subAgents, _ := cmd.Flags().GetStringSlice("sub-agents")
+		onEnd, _ := cmd.Flags().GetString("on-end")
+
+		// If --name is provided, run in non-interactive mode
+		if name != "" {
+			if model == "" {
+				model = "sonnet"
+			}
+			if err := agent.ValidateName(name); err != nil {
+				return err
+			}
+			if agent.Exists(name) {
+				return fmt.Errorf("agent '%s' already exists", name)
+			}
+
+			instructions := instructionsFlag
+			if strings.HasPrefix(instructions, "@") {
+				data, err := os.ReadFile(strings.TrimPrefix(instructions, "@"))
+				if err != nil {
+					return fmt.Errorf("failed to read instructions file: %w", err)
+				}
+				instructions = string(data)
+			}
+
+			var perms *agent.Permissions
+			if len(subAgents) > 0 {
+				perms = &agent.Permissions{
+					SubAgents: make(map[string]agent.PermissionLevel),
+				}
+				for _, sa := range subAgents {
+					perms.SubAgents[sa] = agent.PermOn
+				}
+			}
+
+			cfg := agent.AgentConfig{
+				Runtime:     "claude-code",
+				Name:        name,
+				Description: desc,
+				Model:       model,
+				Context:     contextPatterns,
+				Skills:      skills,
+				Perms:       perms,
+				OnEnd:       strings.TrimSpace(onEnd),
+				Compose:     compose,
+			}
+
+			agentMD := ""
+			if strings.TrimSpace(instructions) != "" {
+				agentMD = strings.TrimSpace(instructions)
+			}
+
+			if err := agent.CreateWithInstructions(cfg, agentMD); err != nil {
+				return err
+			}
+
+			auditLog("agent.create", map[string]interface{}{
+				"agent":   name,
+				"model":   model,
+				"runtime": "claude-code",
+			})
+
+			ui.Success("Created agent %s", ui.Bold(name))
+			return nil
+		}
+
+		// Interactive mode
 		ui.Header("Create a new agent")
 
-		var name, desc, model string
-		var contextRaw, skillsRaw, instructions string
-		var onEnd, composeRaw, subAgentsRaw string
+		var skillsRaw, contextRaw, instructions string
+		var composeRaw, subAgentsRaw string
 		model = runtimeinfo.DefaultModel(runtimeinfo.DefaultRuntime)
 
 		modelOptions := make([]huh.Option[string], 0, len(runtimeinfo.ModelOptions(runtimeinfo.DefaultRuntime)))
@@ -124,10 +206,10 @@ var agentCreateCmd = &cobra.Command{
 			return result
 		}
 
-		contextPatterns := parseLines(contextRaw)
-		skills := parseLines(skillsRaw)
-		compose := parseLines(composeRaw)
-		subAgents := parseLines(subAgentsRaw)
+		contextPatterns = parseLines(contextRaw)
+		skills = parseLines(skillsRaw)
+		compose = parseLines(composeRaw)
+		subAgents = parseLines(subAgentsRaw)
 
 		var perms *agent.Permissions
 		if len(subAgents) > 0 {

@@ -334,6 +334,85 @@ func TestSmoke_SubAgentSpawnStatusOutput(t *testing.T) {
 	}
 }
 
+func TestSmoke_SubAgentStatusShowsTokenBreakdown(t *testing.T) {
+	dir := newWorkspace(t)
+	initWorkspace(t, dir, "test-ws")
+
+	createAgent(t, dir, "parent", "sonnet", &agentPerms{
+		SubAgents: map[string]string{"worker": "on"},
+	})
+	createAgent(t, dir, "worker", "sonnet", nil)
+
+	parentSessionID := "parent-session-00000000-0000-0000-0000-000000000002"
+	runtimeEnv := []string{
+		"TOC_WORKSPACE=" + dir,
+		"TOC_AGENT=parent",
+		"TOC_SESSION_ID=" + parentSessionID,
+	}
+
+	sessDir := filepath.Join(dir, ".toc")
+	os.MkdirAll(sessDir, 0755)
+	os.WriteFile(filepath.Join(sessDir, "sessions.yaml"), []byte(fmt.Sprintf(
+		"sessions:\n- id: %s\n  agent: parent\n  created_at: 2026-01-01T00:00:00Z\n  workspace_path: %s\n  status: active\n",
+		parentSessionID, dir,
+	)), 0600)
+
+	out := runTocWithEnv(t, dir, runtimeEnv, "runtime", "spawn", "worker", "--prompt", "token test")
+	subSessionID := extractSessionID(out)
+	if subSessionID == "" {
+		t.Fatal("could not extract sub-agent session ID from output")
+	}
+
+	waitForSubAgent(t, dir, subSessionID, 10*time.Second)
+
+	// Inject token usage into state.json for the sub-agent session.
+	stateDir := filepath.Join(dir, ".toc", "sessions", subSessionID)
+	os.MkdirAll(stateDir, 0755)
+	stateJSON := `{
+		"version": 3,
+		"runtime": "native",
+		"session_id": "` + subSessionID + `",
+		"agent": "worker",
+		"model": "sonnet",
+		"status": "completed",
+		"usage": {
+			"input_tokens": 12345,
+			"output_tokens": 3456
+		},
+		"created_at": "2026-01-01T00:00:00Z",
+		"updated_at": "2026-01-01T00:01:00Z"
+	}`
+	os.WriteFile(filepath.Join(stateDir, "state.json"), []byte(stateJSON), 0600)
+
+	// Check human-readable status output for token breakdown.
+	statusOut := runTocWithEnv(t, dir, runtimeEnv, "runtime", "status", subSessionID)
+	if !strings.Contains(statusOut, "input") || !strings.Contains(statusOut, "output") {
+		t.Errorf("expected token breakdown with 'input' and 'output' in status, got: %s", statusOut)
+	}
+	if !strings.Contains(statusOut, "12k") {
+		t.Errorf("expected '12k' for input tokens in status, got: %s", statusOut)
+	}
+	if !strings.Contains(statusOut, "3k") {
+		t.Errorf("expected '3k' for output tokens in status, got: %s", statusOut)
+	}
+
+	// Check JSON output includes input_tokens and output_tokens fields.
+	jsonOut := runTocWithEnv(t, dir, runtimeEnv, "runtime", "status", subSessionID, "--json")
+	var status map[string]interface{}
+	if err := json.Unmarshal([]byte(strings.TrimSpace(jsonOut)), &status); err != nil {
+		t.Fatalf("failed to parse status JSON: %v\nraw: %s", err, jsonOut)
+	}
+
+	inputTokens, _ := status["input_tokens"].(float64)
+	outputTokens, _ := status["output_tokens"].(float64)
+	if inputTokens != 12345 {
+		t.Errorf("expected input_tokens=12345 in JSON, got: %v", status["input_tokens"])
+	}
+	if outputTokens != 3456 {
+		t.Errorf("expected output_tokens=3456 in JSON, got: %v", status["output_tokens"])
+	}
+}
+
 func TestSmoke_SubAgentCanSpawnDenied(t *testing.T) {
 	dir := newWorkspace(t)
 	initWorkspace(t, dir, "test-ws")

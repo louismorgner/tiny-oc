@@ -1,10 +1,12 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"os/exec"
 	"runtime"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/tiny-oc/toc/internal/config"
@@ -186,7 +188,7 @@ func runOAuth2Flow(name string, def *integration.Definition, manual bool, flagCl
 	if manual {
 		code, codeErr = runManualOAuth2Flow(authURL)
 	} else {
-		code, codeErr = runHostedOAuth2Flow(authURL)
+		code, codeErr = runHostedOAuth2Flow(authURL, oauth2Cfg)
 	}
 	if codeErr != nil {
 		return nil, fmt.Errorf("OAuth2 authorization failed: %w", codeErr)
@@ -206,24 +208,22 @@ func runOAuth2Flow(name string, def *integration.Definition, manual bool, flagCl
 	return cred, nil
 }
 
-// runHostedOAuth2Flow opens the browser and prompts the user to paste the code
-// shown on the hosted HTTPS callback page.
-func runHostedOAuth2Flow(authURL string) (string, error) {
+// runHostedOAuth2Flow opens the browser and starts a localhost callback server.
+// The hosted HTTPS worker receives Slack's redirect and bounces the user back
+// to localhost where the code is captured automatically.
+func runHostedOAuth2Flow(authURL string, oauth2Cfg *integration.OAuth2Config) (string, error) {
 	ui.Info("Opening browser for authorization...")
 	ui.Info("If the browser doesn't open, visit: %s", ui.Cyan(authURL))
 	fmt.Println()
 
 	openBrowser(authURL)
 
-	ui.Info("After authorizing in Slack, copy the code shown on the page and paste it here:")
-	fmt.Println()
+	ui.Info("Waiting for authorization callback on localhost:%d...", oauth2Cfg.RedirectPort)
 
-	raw, err := ui.Prompt("Paste authorization code", "")
-	if err != nil {
-		return "", err
-	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
 
-	return integration.ParseCodeFromURL(raw)
+	return oauth2Cfg.RunCallbackServer(ctx)
 }
 
 // runManualOAuth2Flow displays the auth URL and prompts the user to paste the code.

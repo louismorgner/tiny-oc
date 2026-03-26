@@ -58,6 +58,8 @@ type statusJSON struct {
 	LastError    string `json:"last_error,omitempty"`
 	LastRecovery string `json:"last_recovery,omitempty"`
 	TokenTotal   int64  `json:"token_total,omitempty"`
+	InputTokens  int64  `json:"input_tokens,omitempty"`
+	OutputTokens int64  `json:"output_tokens,omitempty"`
 }
 
 func statusJSONForSession(s *session.Session) statusJSON {
@@ -81,6 +83,8 @@ func statusJSONForSession(s *session.Session) statusJSON {
 		sj.LastError = summary.LastError
 		sj.LastRecovery = summary.LastRecovery
 		sj.TokenTotal = summary.Tokens.Total()
+		sj.InputTokens = summary.Tokens.InputTokens
+		sj.OutputTokens = summary.Tokens.OutputTokens
 	}
 	return sj
 }
@@ -177,7 +181,9 @@ func showSubAgentStatus(ctx *runtime.Context, sessionID string) error {
 		if summary.CompactionCount > 0 {
 			fmt.Printf("  %s %d\n", ui.Bold("Compactions:"), summary.CompactionCount)
 		}
-		if total := summary.Tokens.FormatTotal(); total != "" {
+		if breakdown := summary.Tokens.FormatBreakdown(); breakdown != "" {
+			fmt.Printf("  %s %s\n", ui.Bold("Tokens:"), ui.Dim(breakdown))
+		} else if total := summary.Tokens.FormatTotal(); total != "" {
 			fmt.Printf("  %s %s\n", ui.Bold("Tokens:"), ui.Dim(total))
 		}
 		if summary.LastError != "" {

@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"bytes"
 	"fmt"
 	"net/http"
 	"strings"
@@ -44,7 +45,7 @@ var integrateTestCmd = &cobra.Command{
 		ui.Info("Testing %s credentials...", ui.Bold(name))
 
 		// Use the first GET action as the test, or fall back to a known test endpoint
-		testURL, headerName, headerValue := getTestEndpoint(name, def, cred)
+		testReq := getTestRequest(name, def, cred)
 
 		// For Slack, use the shared auth test helper
 		if name == "slack" {
@@ -67,11 +68,24 @@ var integrateTestCmd = &cobra.Command{
 			return nil
 		}
 
-		req, err := http.NewRequest("GET", testURL, nil)
+		var bodyReader *bytes.Reader
+		if testReq.body != nil {
+			bodyReader = bytes.NewReader(testReq.body)
+		}
+
+		var req *http.Request
+		if bodyReader != nil {
+			req, err = http.NewRequest(testReq.method, testReq.url, bodyReader)
+		} else {
+			req, err = http.NewRequest(testReq.method, testReq.url, nil)
+		}
 		if err != nil {
 			return fmt.Errorf("failed to create test request: %w", err)
 		}
-		req.Header.Set(headerName, headerValue)
+		req.Header.Set(testReq.headerName, testReq.headerValue)
+		if testReq.body != nil {
+			req.Header.Set("Content-Type", "application/json")
+		}
 		req.Header.Set("User-Agent", "toc/1.0")
 
 		client := &http.Client{Timeout: 10 * time.Second}
@@ -96,24 +110,49 @@ var integrateTestCmd = &cobra.Command{
 	},
 }
 
-// getTestEndpoint returns the URL, header name, and header value for testing credentials.
-func getTestEndpoint(name string, def *integration.Definition, cred *integration.Credential) (string, string, string) {
+// testRequest describes the HTTP request to send for credential testing.
+type testRequest struct {
+	method      string
+	url         string
+	headerName  string
+	headerValue string
+	body        []byte // nil for GET requests
+}
+
+// getTestRequest returns the full test request config for the given integration.
+func getTestRequest(name string, def *integration.Definition, cred *integration.Credential) testRequest {
 	switch name {
 	case "github":
-		return "https://api.github.com/user", "Authorization", "Bearer " + cred.AccessToken
+		return testRequest{
+			method: "GET", url: "https://api.github.com/user",
+			headerName: "Authorization", headerValue: "Bearer " + cred.AccessToken,
+		}
 	case "slack":
-		return "https://slack.com/api/auth.test", "Authorization", "Bearer " + cred.AccessToken
+		return testRequest{
+			method: "GET", url: "https://slack.com/api/auth.test",
+			headerName: "Authorization", headerValue: "Bearer " + cred.AccessToken,
+		}
 	case "exa":
-		return "https://api.exa.ai/search", "x-api-key", cred.AccessToken
+		return testRequest{
+			method: "POST", url: "https://api.exa.ai/search",
+			headerName: "x-api-key", headerValue: cred.AccessToken,
+			body: []byte(`{"query":"test","numResults":1}`),
+		}
 	default:
 		// Find the first GET action and use that
 		for _, action := range def.Actions {
 			if action.Method == "GET" {
 				headerName, headerValue := parseAuthHeader(action.AuthHeader, cred.AccessToken)
-				return action.Endpoint, headerName, headerValue
+				return testRequest{
+					method: "GET", url: action.Endpoint,
+					headerName: headerName, headerValue: headerValue,
+				}
 			}
 		}
-		return def.Auth.SetupURL, "Authorization", "Bearer " + cred.AccessToken
+		return testRequest{
+			method: "GET", url: def.Auth.SetupURL,
+			headerName: "Authorization", headerValue: "Bearer " + cred.AccessToken,
+		}
 	}
 }
 

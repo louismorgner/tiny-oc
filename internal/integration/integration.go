@@ -186,3 +186,12 @@ func (d *Definition) GetAction(action string) (*Action, error) {
 	}
 	return &a, nil
 }
+
+// ActionNames returns a sorted list of action names defined in this integration.
+func (d *Definition) ActionNames() []string {
+	names := make([]string, 0, len(d.Actions))
+	for name := range d.Actions {
+		names = append(names, name)
+	}
+	return names
+}

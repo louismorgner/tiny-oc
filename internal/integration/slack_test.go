@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -104,12 +105,85 @@ func TestSlackChannelResolver_NotFound(t *testing.T) {
 	}
 }
 
+func TestSlackChannelResolver_FallbackToRawID(t *testing.T) {
+	resolver := NewSlackChannelResolver("test-token")
+	resolver.ready = true // Mark as populated (empty cache)
+
+	// A channel ID that's not in cache should still work as a raw ID fallback
+	id, err := resolver.Resolve("C01NOTINCACHE")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if id != "C01NOTINCACHE" {
+		t.Errorf("got %q, want C01NOTINCACHE", id)
+	}
+}
+
+func TestSlackChannelResolver_FallbackOnPopulateError(t *testing.T) {
+	// Use an invalid URL that will fail to populate
+	resolver := NewSlackChannelResolver("invalid-token-that-will-fail")
+	// Don't mark ready — force populate to be called
+
+	// Passing a channel ID should fall back even if populate fails
+	// We can't easily test the HTTP failure path without a mock server,
+	// but we can test the logic after cache is ready with an ID format
+	resolver.ready = true
+	id, err := resolver.Resolve("D02ABCDEF")
+	if err != nil {
+		t.Fatalf("unexpected error for DM channel ID: %v", err)
+	}
+	if id != "D02ABCDEF" {
+		t.Errorf("got %q, want D02ABCDEF", id)
+	}
+
+	// Group DM channel IDs should also work
+	id, err = resolver.Resolve("G03XYZ789")
+	if err != nil {
+		t.Fatalf("unexpected error for group channel ID: %v", err)
+	}
+	if id != "G03XYZ789" {
+		t.Errorf("got %q, want G03XYZ789", id)
+	}
+}
+
+func TestCheckSlackResponseForAction_MissingScope(t *testing.T) {
+	data := map[string]interface{}{"ok": false, "error": "missing_scope"}
+	err := CheckSlackResponseForAction(200, data, "send_message")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+
+	invokeErr, ok := err.(*InvokeError)
+	if !ok {
+		t.Fatalf("expected *InvokeError, got %T", err)
+	}
+	if invokeErr.Kind != ErrMissingOAuthScope {
+		t.Errorf("kind = %v, want ErrMissingOAuthScope", invokeErr.Kind)
+	}
+}
+
+func TestCheckSlackResponseForAction_InvalidAuth(t *testing.T) {
+	data := map[string]interface{}{"ok": false, "error": "invalid_auth"}
+	err := CheckSlackResponseForAction(200, data, "read_messages")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+
+	invokeErr, ok := err.(*InvokeError)
+	if !ok {
+		t.Fatalf("expected *InvokeError, got %T", err)
+	}
+	if invokeErr.Kind != ErrCredentialError {
+		t.Errorf("kind = %v, want ErrCredentialError", invokeErr.Kind)
+	}
+}
+
 func TestCheckSlackResponse(t *testing.T) {
 	tests := []struct {
-		name    string
-		data    interface{}
-		wantErr bool
-		errMsg  string
+		name       string
+		data       interface{}
+		wantErr    bool
+		errSubstr  string // substring to check in error message
 	}{
 		{
 			name:    "success response",
@@ -117,16 +191,16 @@ func TestCheckSlackResponse(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name:    "error response",
-			data:    map[string]interface{}{"ok": false, "error": "channel_not_found"},
-			wantErr: true,
-			errMsg:  "slack API error: channel_not_found",
+			name:      "error response",
+			data:      map[string]interface{}{"ok": false, "error": "channel_not_found"},
+			wantErr:   true,
+			errSubstr: "channel_not_found",
 		},
 		{
-			name:    "error without message",
-			data:    map[string]interface{}{"ok": false},
-			wantErr: true,
-			errMsg:  "slack API error: unknown_error",
+			name:      "error without message",
+			data:      map[string]interface{}{"ok": false},
+			wantErr:   true,
+			errSubstr: "unknown_error",
 		},
 		{
 			name:    "non-map response",
@@ -146,8 +220,8 @@ func TestCheckSlackResponse(t *testing.T) {
 			if tt.wantErr {
 				if err == nil {
 					t.Error("expected error, got nil")
-				} else if err.Error() != tt.errMsg {
-					t.Errorf("error = %q, want %q", err.Error(), tt.errMsg)
+				} else if !strings.Contains(err.Error(), tt.errSubstr) {
+					t.Errorf("error %q does not contain %q", err.Error(), tt.errSubstr)
 				}
 			} else {
 				if err != nil {

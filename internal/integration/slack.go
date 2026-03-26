@@ -50,13 +50,21 @@ func (r *SlackChannelResolver) Resolve(channel string) (string, error) {
 	// Populate cache if not done yet
 	if !r.ready {
 		if err := r.populateCache(); err != nil {
-			return "", fmt.Errorf("failed to resolve channel '%s': %w", channel, err)
+			// Fallback: if the original input looks like a raw channel ID, use it directly
+			if isSlackChannelID(channel) {
+				return channel, nil
+			}
+			return "", fmt.Errorf("failed to resolve channel '%s': %w (hint: you can pass a raw channel ID like C01234ABCDE if name resolution is unavailable)", channel, err)
 		}
 		r.ready = true
 	}
 
 	id, ok := r.cache[name]
 	if !ok {
+		// Fallback: if the input looks like a raw channel ID, use it directly
+		if isSlackChannelID(channel) {
+			return channel, nil
+		}
 		return "", fmt.Errorf("channel '%s' not found — use list_channels to see available channels", channel)
 	}
 	return id, nil
@@ -143,6 +151,12 @@ func isAlphanumeric(s string) bool {
 // CheckSlackResponse inspects a Slack API response and returns a clean error
 // if the response indicates failure (ok: false).
 func CheckSlackResponse(statusCode int, data interface{}) error {
+	return CheckSlackResponseForAction(statusCode, data, "")
+}
+
+// CheckSlackResponseForAction inspects a Slack API response and returns
+// a structured InvokeError that identifies the failure layer and suggests a fix.
+func CheckSlackResponseForAction(statusCode int, data interface{}, action string) error {
 	m, ok := data.(map[string]interface{})
 	if !ok {
 		return nil
@@ -158,7 +172,7 @@ func CheckSlackResponse(statusCode int, data interface{}) error {
 		if e, ok := m["error"].(string); ok {
 			errMsg = e
 		}
-		return fmt.Errorf("slack API error: %s", errMsg)
+		return ClassifySlackError(errMsg, action)
 	}
 
 	return nil

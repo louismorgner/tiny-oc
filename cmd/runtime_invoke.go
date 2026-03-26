@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -27,13 +28,45 @@ var runtimeInvokeCmd = &cobra.Command{
 The gateway enforces permissions from the session manifest, loads encrypted
 credentials, makes the HTTP call, and returns a filtered response.
 
+Use --help at any level to discover available actions and parameters:
+  toc runtime invoke slack --help              # list actions
+  toc runtime invoke slack send_message --help # show params for an action
+
+Channel resolution: channel names (e.g. #general) are automatically resolved
+to Slack channel IDs. If resolution fails, inputs matching Slack's ID format
+(starting with C, D, or G followed by alphanumeric characters) are used as-is.
+
 Examples:
   toc runtime invoke github issues.read --repo louismorgner/tiny-oc
   toc runtime invoke github issues.write --repo louismorgner/tiny-oc --title "Bug report"
   toc runtime invoke github pulls.read --repo louismorgner/tiny-oc --state open`,
-	Args:               cobra.MinimumNArgs(2),
+	Args:               cobra.ArbitraryArgs,
 	DisableFlagParsing: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		// Handle no-args case
+		if len(args) == 0 {
+			return cmd.Help()
+		}
+
+		// Check for --help as first argument
+		if args[0] == "--help" || args[0] == "-h" {
+			return cmd.Help()
+		}
+
+		integrationName := args[0]
+
+		// Handle: toc runtime invoke <integration> --help
+		if len(args) == 1 || (len(args) >= 2 && (args[1] == "--help" || args[1] == "-h")) {
+			return printIntegrationHelp(integrationName)
+		}
+
+		actionName := args[1]
+
+		// Handle: toc runtime invoke <integration> <action> --help
+		if hasHelpFlag(args[2:]) {
+			return printActionHelp(integrationName, actionName)
+		}
+
 		ctx, err := runtime.FromEnv()
 		if err != nil {
 			return err
@@ -42,9 +75,6 @@ Examples:
 		// Initialize file-backed rate limiter for this session
 		rateLimitPath := filepath.Join(ctx.Workspace, ".toc", "sessions", ctx.SessionID, "rate_limits.json")
 		invokeRateLimiter = integration.NewRateLimiter(rateLimitPath)
-
-		integrationName := args[0]
-		actionName := args[1]
 
 		// Parse remaining args as --key value pairs
 		params := parseInvokeParams(args[2:])
@@ -58,7 +88,7 @@ Examples:
 		// Step 2: Check permissions
 		integrationPerms, ok := manifest.Integrations[integrationName]
 		if !ok {
-			return fmt.Errorf("agent '%s' has no permissions for integration '%s'", ctx.Agent, integrationName)
+			return integration.NewNoIntegrationPermError(ctx.Agent, integrationName)
 		}
 
 		parsedPerms, err := integration.ParsePermissions(integrationPerms)
@@ -69,7 +99,7 @@ Examples:
 		// Determine the target scope from params
 		target := determineTarget(integrationName, actionName, params)
 		if !integration.CheckPermission(parsedPerms, actionName, target) {
-			return fmt.Errorf("permission denied: agent '%s' cannot perform '%s' on '%s'", ctx.Agent, actionName, target)
+			return integration.NewPermissionDeniedError(ctx.Agent, integrationName, actionName)
 		}
 
 		// Step 3: Load integration definition
@@ -78,10 +108,11 @@ Examples:
 			return fmt.Errorf("unknown integration '%s': %w", integrationName, err)
 		}
 
-		// Step 4: Check rate limit
+		// Step 4: Check rate limit — also validates the action exists
 		actionDef, err := def.GetAction(actionName)
 		if err != nil {
-			return err
+			available := def.ActionNames()
+			return integration.NewActionNotFoundError(integrationName, actionName, available)
 		}
 		if !invokeRateLimiter.Allow(ctx.SessionID, integrationName+"."+actionName, actionDef.RateLimit) {
 			return fmt.Errorf("rate limit exceeded for %s.%s — try again later", integrationName, actionName)
@@ -90,7 +121,7 @@ Examples:
 		// Step 5: Load credentials
 		cred, err := integration.LoadCredentialFromWorkspace(ctx.Workspace, integrationName)
 		if err != nil {
-			return fmt.Errorf("failed to load credentials for '%s': %w", integrationName, err)
+			return integration.NewCredentialError(integrationName, err)
 		}
 
 		// Step 6: Make the call
@@ -129,6 +160,123 @@ Examples:
 		fmt.Println(string(output))
 		return nil
 	},
+}
+
+func hasHelpFlag(args []string) bool {
+	for _, a := range args {
+		if a == "--help" || a == "-h" {
+			return true
+		}
+	}
+	return false
+}
+
+// printIntegrationHelp shows available actions for an integration.
+func printIntegrationHelp(name string) error {
+	def, err := integration.LoadFromRegistry(name)
+	if err != nil {
+		return fmt.Errorf("unknown integration '%s': %w", name, err)
+	}
+
+	fmt.Printf("Integration: %s\n", def.Name)
+	if def.Description != "" {
+		fmt.Printf("  %s\n", def.Description)
+	}
+	fmt.Println()
+	fmt.Println("Available actions:")
+
+	names := def.ActionNames()
+	sort.Strings(names)
+	for _, actionName := range names {
+		action := def.Actions[actionName]
+		fmt.Printf("  %-20s %s\n", actionName, action.Description)
+	}
+
+	fmt.Println()
+	fmt.Println("Use toc runtime invoke", name, "<action> --help for details on a specific action.")
+	return nil
+}
+
+// printActionHelp shows parameters for a specific action.
+func printActionHelp(integrationName, actionName string) error {
+	def, err := integration.LoadFromRegistry(integrationName)
+	if err != nil {
+		return fmt.Errorf("unknown integration '%s': %w", integrationName, err)
+	}
+
+	actionDef, err := def.GetAction(actionName)
+	if err != nil {
+		available := def.ActionNames()
+		return integration.NewActionNotFoundError(integrationName, actionName, available)
+	}
+
+	fmt.Printf("Action: %s.%s\n", integrationName, actionName)
+	if actionDef.Description != "" {
+		fmt.Printf("  %s\n", actionDef.Description)
+	}
+	fmt.Println()
+
+	// Show parameters
+	hasRequired := false
+	hasOptional := false
+	for _, p := range actionDef.Params {
+		if p.Required {
+			hasRequired = true
+		} else {
+			hasOptional = true
+		}
+	}
+
+	if hasRequired {
+		fmt.Println("Required:")
+		for _, p := range actionDef.Params {
+			if p.Required {
+				fmt.Printf("  --%s\n", p.Name)
+			}
+		}
+	}
+
+	if hasOptional {
+		fmt.Println("Optional:")
+		for _, p := range actionDef.Params {
+			if !p.Required {
+				defaultStr := ""
+				if p.Default != "" {
+					defaultStr = fmt.Sprintf(" (default: %s)", p.Default)
+				}
+				fmt.Printf("  --%s%s\n", p.Name, defaultStr)
+			}
+		}
+	}
+
+	if len(actionDef.Params) == 0 {
+		fmt.Println("  No parameters.")
+	}
+
+	// Show channel resolution note for Slack channel params
+	if integrationName == "slack" {
+		for _, p := range actionDef.Params {
+			if p.Name == "channel" {
+				fmt.Println()
+				fmt.Println("Channel resolution:")
+				fmt.Println("  Channel names (e.g. #general) are resolved to IDs automatically.")
+				fmt.Println("  If resolution fails, values matching Slack ID format (C/D/G + alphanumeric)")
+				fmt.Println("  are used as raw channel IDs.")
+				break
+			}
+		}
+	}
+
+	fmt.Println()
+	fmt.Printf("Example:\n  toc runtime invoke %s %s", integrationName, actionName)
+	for _, p := range actionDef.Params {
+		if p.Required {
+			fmt.Printf(" --%s <value>", p.Name)
+		}
+	}
+	fmt.Println()
+
+	return nil
 }
 
 func parseInvokeParams(args []string) map[string]string {

@@ -194,7 +194,7 @@ func Invoke(req *InvokeRequest) (*InvokeResponse, error) {
 
 	// Slack: check for ok:false error responses before filtering
 	if req.Integration == "slack" {
-		if err := CheckSlackResponse(resp.StatusCode, rawResponse); err != nil {
+		if err := CheckSlackResponseForAction(resp.StatusCode, rawResponse, req.Action); err != nil {
 			return &InvokeResponse{
 				StatusCode: resp.StatusCode,
 				Error:      err.Error(),

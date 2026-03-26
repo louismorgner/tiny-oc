@@ -5,7 +5,9 @@ This guide walks you through installing toc and spawning your first agent sessio
 ## Prerequisites
 
 - [Go 1.25+](https://go.dev/dl/)
-- [Claude Code](https://docs.anthropic.com/en/docs/claude-code) installed and authenticated
+- A supported runtime installed and authenticated
+
+Current runtime implementation: [Claude Code](https://docs.anthropic.com/en/docs/claude-code)
 
 ## Installation
 
@@ -44,14 +46,14 @@ The interactive prompt asks for:
 
 1. **Name** — lowercase alphanumeric with hyphens (e.g. `pr-reviewer`)
 2. **Description** — shown in `toc agent list` and shell completions
-3. **Model** — `sonnet`, `opus`, or `haiku`
-4. **Context patterns** — optional glob patterns for files that sync back from sessions (see [context sync](configuration.md#context-sync-patterns))
+3. **Model** — depends on the selected runtime; today `claude-code` supports `sonnet`, `opus`, and `haiku`
+4. **Context patterns** — optional snapshot-sync patterns for files that should flow back into the parent agent snapshot (see [snapshot sync](configuration.md#snapshot-sync-patterns))
 5. **Instructions** — the agent's system prompt, written to `agent.md`
 
 This creates two files in `.toc/agents/<name>/`:
 
 - `oc-agent.yaml` — the agent config
-- `agent.md` — the agent's instructions (loaded as `CLAUDE.md` in sessions)
+- `agent.md` — the agent's instructions (materialized into the runtime's instruction format at spawn time)
 
 ## Spawn a session
 
@@ -68,12 +70,12 @@ toc pr-reviewer
 This:
 
 1. Copies the agent template to an isolated temp directory
-2. Builds `CLAUDE.md` from `agent.md` + any `compose` files, applying template variables (`{{.AgentName}}`, `{{.Date}}`, etc.)
+2. Lets the runtime provider build the final instruction payload from `agent.md` + any `compose` files, applying template variables (`{{.AgentName}}`, `{{.Date}}`, etc.)
 3. Resolves and provisions any configured skills
-4. Sets up context sync hooks (if context patterns are defined)
-5. Launches a Claude Code session with the configured model
+4. Sets up any runtime-specific snapshot-sync or permission machinery
+5. Launches a runtime session with the configured model
 
-You're now inside a full Claude Code session with your agent's instructions loaded.
+With the current `claude-code` runtime, you're now inside a Claude Code session with your agent's instructions loaded.
 
 ## Resume a session
 

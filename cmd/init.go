@@ -2,6 +2,8 @@ package cmd
 
 import (
 	"fmt"
+	"os"
+	"strings"
 
 	"github.com/spf13/cobra"
 	"github.com/tiny-oc/toc/internal/config"
@@ -10,6 +12,7 @@ import (
 
 func init() {
 	initCmd.Flags().String("name", "", "workspace name (skip interactive prompt)")
+	initCmd.Flags().Bool("skip-key", false, "skip the OpenRouter API key prompt")
 	rootCmd.AddCommand(initCmd)
 }
 
@@ -45,6 +48,31 @@ var initCmd = &cobra.Command{
 
 		fmt.Println()
 		ui.Success("Initialized workspace %s", ui.Bold(name))
+
+		// Optionally prompt for OpenRouter API key if not already set
+		skipKey, _ := cmd.Flags().GetBool("skip-key")
+		if !skipKey && os.Getenv("OPENROUTER_API_KEY") == "" {
+			fmt.Println()
+			ui.Info("toc-native agents use OpenRouter for LLM access.")
+			ui.Info("Get a key at: %s", ui.Cyan("https://openrouter.ai/keys"))
+			fmt.Println()
+			setKey, err := ui.Confirm("Set an OpenRouter API key now?", false)
+			if err == nil && setKey {
+				key, err := ui.Prompt("OpenRouter API key", "")
+				if err == nil && strings.TrimSpace(key) != "" {
+					secrets, loadErr := config.LoadSecrets()
+					if loadErr == nil {
+						secrets.OpenRouterKey = strings.TrimSpace(key)
+						if saveErr := config.SaveSecrets(secrets); saveErr == nil {
+							ui.Success("API key stored in %s", ui.Dim(".toc/secrets.yaml"))
+						} else {
+							ui.Warn("Failed to store API key: %s", saveErr)
+						}
+					}
+				}
+			}
+		}
+
 		fmt.Println()
 		ui.Info("Next steps:")
 		ui.Info("  %s       Create a new agent from scratch", ui.Bold("toc agent create"))

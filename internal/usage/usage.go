@@ -7,6 +7,10 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/tiny-oc/toc/internal/runtime"
+	"github.com/tiny-oc/toc/internal/runtimeinfo"
+	"github.com/tiny-oc/toc/internal/session"
 )
 
 // TokenUsage holds aggregated token counts for a session.
@@ -37,43 +41,58 @@ func (u TokenUsage) FormatTotal() string {
 	return fmt.Sprintf("%d tokens", t)
 }
 
-// ForSession reads Claude Code's local session data and sums up token usage.
-// workspacePath is the session's working directory (e.g. /tmp/toc-sessions/agent-123).
-// sessionID is the Claude session UUID.
-func ForSession(workspacePath, sessionID string) TokenUsage {
-	projectDir := claudeProjectDir(workspacePath)
-	if projectDir == "" {
+// ForSession reads local session data and sums up token usage for the runtime.
+func ForSession(sess *session.Session) TokenUsage {
+	if sess == nil {
 		return TokenUsage{}
 	}
 
-	// Try exact session ID match first (sessions launched with --session-id)
-	jsonlPath := filepath.Join(projectDir, sessionID+".jsonl")
-	u := parseJSONL(jsonlPath)
-	if u.Total() > 0 {
-		return u
-	}
-
-	// Fallback: scan all JSONL files in the project directory.
-	// This handles older sessions that were spawned without --session-id,
-	// where Claude Code generated its own session UUID for the filename.
-	// Each toc session workspace maps to one Claude project dir, so summing
-	// all JSONL files gives the correct total for that session.
-	entries, err := os.ReadDir(projectDir)
-	if err != nil {
-		return TokenUsage{}
-	}
-	var total TokenUsage
-	for _, e := range entries {
-		if e.IsDir() || filepath.Ext(e.Name()) != ".jsonl" {
-			continue
+	switch sess.RuntimeName() {
+	case "", runtime.DefaultRuntime:
+		projectDir := claudeProjectDir(sess.WorkspacePath)
+		if projectDir == "" {
+			return TokenUsage{}
 		}
-		t := parseJSONL(filepath.Join(projectDir, e.Name()))
-		total.InputTokens += t.InputTokens
-		total.OutputTokens += t.OutputTokens
-		total.CacheRead += t.CacheRead
-		total.CacheCreate += t.CacheCreate
+
+		// Try exact session ID match first (sessions launched with --session-id)
+		u := parseJSONL(filepath.Join(projectDir, sess.ID+".jsonl"))
+		if u.Total() > 0 {
+			return u
+		}
+
+		// Fallback: scan all JSONL files in the project directory.
+		// This handles older sessions that were spawned without --session-id,
+		// where Claude Code generated its own session UUID for the filename.
+		entries, err := os.ReadDir(projectDir)
+		if err != nil {
+			return TokenUsage{}
+		}
+		var total TokenUsage
+		for _, e := range entries {
+			if e.IsDir() || filepath.Ext(e.Name()) != ".jsonl" {
+				continue
+			}
+			t := parseJSONL(filepath.Join(projectDir, e.Name()))
+			total.InputTokens += t.InputTokens
+			total.OutputTokens += t.OutputTokens
+			total.CacheRead += t.CacheRead
+			total.CacheCreate += t.CacheCreate
+		}
+		return total
+	case runtimeinfo.NativeRuntime:
+		state, err := runtime.LoadState(sess)
+		if err != nil {
+			return TokenUsage{}
+		}
+		return TokenUsage{
+			InputTokens:  state.Usage.InputTokens,
+			OutputTokens: state.Usage.OutputTokens,
+			CacheRead:    state.Usage.CacheRead,
+			CacheCreate:  state.Usage.CacheCreate,
+		}
+	default:
+		return TokenUsage{}
 	}
-	return total
 }
 
 // claudeProjectDir derives the ~/.claude/projects/<encoded-path>/ directory
@@ -100,9 +119,9 @@ func claudeProjectDir(workspacePath string) string {
 type jsonlMessage struct {
 	Message *struct {
 		Usage *struct {
-			InputTokens             int64 `json:"input_tokens"`
-			OutputTokens            int64 `json:"output_tokens"`
-			CacheReadInputTokens    int64 `json:"cache_read_input_tokens"`
+			InputTokens              int64 `json:"input_tokens"`
+			OutputTokens             int64 `json:"output_tokens"`
+			CacheReadInputTokens     int64 `json:"cache_read_input_tokens"`
 			CacheCreationInputTokens int64 `json:"cache_creation_input_tokens"`
 		} `json:"usage"`
 	} `json:"message"`

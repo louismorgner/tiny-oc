@@ -1,0 +1,454 @@
+package runtime
+
+import (
+	"bytes"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/tiny-oc/toc/internal/runtimeinfo"
+	"github.com/tiny-oc/toc/internal/session"
+)
+
+func TestRunNativeSession_DetachedToolLoop(t *testing.T) {
+	workDir := t.TempDir()
+	metaWorkspace := t.TempDir()
+	agentDir := filepath.Join(metaWorkspace, ".toc", "agents", "native-agent")
+	if err := os.MkdirAll(agentDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.MkdirAll(filepath.Join(workDir, ".toc-native"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(workDir, ".toc-native", "system-prompt.md"), []byte("You are a coding agent.\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(workDir, "notes.txt"), []byte("hello from file\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(workDir, "memory.md"), []byte("initial memory\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := SaveSessionConfigInWorkspace(metaWorkspace, "sess-native-loop", &SessionConfig{
+		Agent:   "native-agent",
+		Runtime: runtimeinfo.NativeRuntime,
+		Model:   "openai/gpt-4o-mini",
+		Context: []string{"memory.md"},
+		OnEnd:   "Write memory.md to say persisted memory",
+		RuntimeConfig: SessionRuntimeOptions{
+			EnabledTools: NativeToolNames(),
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	callCount := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		callCount++
+		var req chatRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		if req.Model != "openai/gpt-4o-mini" {
+			t.Fatalf("model = %q", req.Model)
+		}
+		if req.Provider == nil || !req.Provider.RequireParameters {
+			t.Fatalf("provider preference missing: %#v", req.Provider)
+		}
+
+		if !req.Stream {
+			t.Fatalf("expected streaming request")
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		switch callCount {
+		case 1:
+			writeSSEChunk(t, w, map[string]interface{}{
+				"id":    "resp-1",
+				"model": req.Model,
+				"choices": []map[string]interface{}{
+					{
+						"index": 0,
+						"delta": map[string]interface{}{
+							"role":    "assistant",
+							"content": "",
+							"tool_calls": []map[string]interface{}{
+								{
+									"index": 0,
+									"id":    "call-1",
+									"type":  "function",
+									"function": map[string]interface{}{
+										"name":      "Read",
+										"arguments": `{"file_path":"notes.txt"}`,
+									},
+								},
+							},
+						},
+					},
+				},
+			})
+			writeSSEChunk(t, w, map[string]interface{}{
+				"id":    "resp-1",
+				"model": req.Model,
+				"usage": map[string]interface{}{"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
+				"choices": []map[string]interface{}{
+					{
+						"index":         0,
+						"delta":         map[string]interface{}{},
+						"finish_reason": "tool_calls",
+					},
+				},
+			})
+		case 2:
+			if len(req.Messages) < 3 {
+				t.Fatalf("expected tool result message, got %d messages", len(req.Messages))
+			}
+			last := req.Messages[len(req.Messages)-1]
+			if last.Role != "tool" || last.ToolCallID != "call-1" {
+				t.Fatalf("last message = %#v", last)
+			}
+			writeSSEChunk(t, w, map[string]interface{}{
+				"id":    "resp-2",
+				"model": req.Model,
+				"choices": []map[string]interface{}{
+					{
+						"index": 0,
+						"delta": map[string]interface{}{
+							"role":    "assistant",
+							"content": "Done reading ",
+						},
+					},
+				},
+			})
+			writeSSEChunk(t, w, map[string]interface{}{
+				"id":    "resp-2",
+				"model": req.Model,
+				"usage": map[string]interface{}{"prompt_tokens": 11, "completion_tokens": 6, "total_tokens": 17},
+				"choices": []map[string]interface{}{
+					{
+						"index": 0,
+						"delta": map[string]interface{}{
+							"content": "notes.txt",
+						},
+						"finish_reason": "stop",
+					},
+				},
+			})
+		case 3:
+			last := req.Messages[len(req.Messages)-1]
+			if last.Role != "user" || last.Content != "Write memory.md to say persisted memory" {
+				t.Fatalf("unexpected on_end message %#v", last)
+			}
+			writeSSEChunk(t, w, map[string]interface{}{
+				"id":    "resp-3",
+				"model": req.Model,
+				"choices": []map[string]interface{}{
+					{
+						"index": 0,
+						"delta": map[string]interface{}{
+							"role":    "assistant",
+							"content": "",
+							"tool_calls": []map[string]interface{}{
+								{
+									"index": 0,
+									"id":    "call-2",
+									"type":  "function",
+									"function": map[string]interface{}{
+										"name":      "Write",
+										"arguments": `{"file_path":"memory.md","content":"persisted memory\n"}`,
+									},
+								},
+							},
+						},
+					},
+				},
+			})
+			writeSSEChunk(t, w, map[string]interface{}{
+				"id":    "resp-3",
+				"model": req.Model,
+				"usage": map[string]interface{}{"prompt_tokens": 12, "completion_tokens": 7, "total_tokens": 19},
+				"choices": []map[string]interface{}{
+					{
+						"index":         0,
+						"delta":         map[string]interface{}{},
+						"finish_reason": "tool_calls",
+					},
+				},
+			})
+		case 4:
+			last := req.Messages[len(req.Messages)-1]
+			if last.Role != "tool" || last.ToolCallID != "call-2" {
+				t.Fatalf("expected write tool result, got %#v", last)
+			}
+			writeSSEChunk(t, w, map[string]interface{}{
+				"id":    "resp-4",
+				"model": req.Model,
+				"choices": []map[string]interface{}{
+					{
+						"index": 0,
+						"delta": map[string]interface{}{
+							"role":    "assistant",
+							"content": "Persisted memory",
+						},
+					},
+				},
+			})
+			writeSSEChunk(t, w, map[string]interface{}{
+				"id":    "resp-4",
+				"model": req.Model,
+				"usage": map[string]interface{}{"prompt_tokens": 13, "completion_tokens": 8, "total_tokens": 21},
+				"choices": []map[string]interface{}{
+					{
+						"index":         0,
+						"delta":         map[string]interface{}{},
+						"finish_reason": "stop",
+					},
+				},
+			})
+		default:
+			t.Fatalf("unexpected request count %d", callCount)
+		}
+		_, _ = w.Write([]byte("data: [DONE]\n\n"))
+	}))
+	defer server.Close()
+
+	t.Setenv("OPENROUTER_API_KEY", "test-key")
+	t.Setenv("OPENROUTER_BASE_URL", server.URL)
+
+	var stdout bytes.Buffer
+	err := RunNativeSession(NativeRunOptions{
+		Mode:      "detached",
+		Dir:       workDir,
+		SessionID: "sess-native-loop",
+		Agent:     "native-agent",
+		Workspace: metaWorkspace,
+		Model:     "openai/gpt-4o-mini",
+		Prompt:    "Read notes.txt and summarize it.",
+	}, bytes.NewBuffer(nil), &stdout)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if got := stdout.String(); got != "Done reading notes.txt\nPersisted memory\n" {
+		t.Fatalf("stdout = %q", got)
+	}
+
+	state, err := LoadStateInWorkspace(metaWorkspace, "sess-native-loop")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.Runtime != runtimeinfo.NativeRuntime || state.Status != "completed" {
+		t.Fatalf("state = %#v", state)
+	}
+	if state.Usage.InputTokens != 46 || state.Usage.OutputTokens != 26 {
+		t.Fatalf("expected usage totals in state, got %#v", state.Usage)
+	}
+	if len(state.Messages) != 9 {
+		t.Fatalf("expected 9 messages, got %d", len(state.Messages))
+	}
+	syncedMemory, err := os.ReadFile(filepath.Join(agentDir, "memory.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(syncedMemory) != "persisted memory\n" {
+		t.Fatalf("synced memory = %q", string(syncedMemory))
+	}
+
+	sess := &session.Session{
+		ID:          "sess-native-loop",
+		Runtime:     runtimeinfo.NativeRuntime,
+		MetadataDir: MetadataDir(metaWorkspace, "sess-native-loop"),
+	}
+	parsed, err := LoadEventLog(sess)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(parsed.Events) < 2 {
+		t.Fatalf("expected events, got %#v", parsed.Events)
+	}
+	if parsed.Events[0].Step.Tool != "Read" {
+		t.Fatalf("expected read tool event, got %#v", parsed.Events)
+	}
+	if parsed.Events[len(parsed.Events)-2].Step.Tool != "Write" {
+		t.Fatalf("expected write tool event, got %#v", parsed.Events)
+	}
+	if parsed.Events[len(parsed.Events)-1].Step.Content != "Persisted memory" {
+		t.Fatalf("unexpected final event %#v", parsed.Events[len(parsed.Events)-1])
+	}
+}
+
+func writeSSEChunk(t *testing.T, w http.ResponseWriter, payload map[string]interface{}) {
+	t.Helper()
+	data, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.Write([]byte("data: " + string(data) + "\n\n")); err != nil {
+		t.Fatal(err)
+	}
+	if flusher, ok := w.(http.Flusher); ok {
+		flusher.Flush()
+	}
+}
+
+func TestRunNativeSession_RejectsUnsupportedCustomModelWithoutOverride(t *testing.T) {
+	workDir := t.TempDir()
+	metaWorkspace := t.TempDir()
+
+	if err := os.MkdirAll(filepath.Join(workDir, ".toc-native"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(workDir, ".toc-native", "system-prompt.md"), []byte("You are a coding agent.\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := SaveSessionConfigInWorkspace(metaWorkspace, "sess-native-unsupported", &SessionConfig{
+		Agent:   "native-agent",
+		Runtime: runtimeinfo.NativeRuntime,
+		Model:   "meta-llama/unknown",
+		RuntimeConfig: SessionRuntimeOptions{
+			EnabledTools: NativeToolNames(),
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	err := RunNativeSession(NativeRunOptions{
+		Mode:      "detached",
+		Dir:       workDir,
+		SessionID: "sess-native-unsupported",
+		Agent:     "native-agent",
+		Workspace: metaWorkspace,
+		Model:     "meta-llama/unknown",
+		Prompt:    "hello",
+	}, bytes.NewBuffer(nil), &bytes.Buffer{})
+	if err == nil {
+		t.Fatal("expected unsupported native model to fail")
+	}
+	if got := err.Error(); !strings.Contains(got, "allow_custom_native_model") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestRunNativeSession_RecoversInterruptedTurnOnResume(t *testing.T) {
+	workDir := t.TempDir()
+	metaWorkspace := t.TempDir()
+
+	if err := os.MkdirAll(filepath.Join(workDir, ".toc-native"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(workDir, ".toc-native", "system-prompt.md"), []byte("You are a coding agent.\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := SaveSessionConfigInWorkspace(metaWorkspace, "sess-native-recover", &SessionConfig{
+		Agent:   "native-agent",
+		Runtime: runtimeinfo.NativeRuntime,
+		Model:   "openai/gpt-4o-mini",
+		RuntimeConfig: SessionRuntimeOptions{
+			EnabledTools: NativeToolNames(),
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := SaveStateInWorkspace(metaWorkspace, "sess-native-recover", &State{
+		Runtime:    runtimeinfo.NativeRuntime,
+		SessionID:  "sess-native-recover",
+		Agent:      "native-agent",
+		Model:      "openai/gpt-4o-mini",
+		Workspace:  metaWorkspace,
+		SessionDir: workDir,
+		Status:     "running",
+		Messages: []Message{
+			{Role: "system", Content: "You are a coding agent."},
+			{Role: "user", Content: "Inspect the repo"},
+		},
+		PendingTurn: &TurnCheckpoint{
+			Phase:  "awaiting_model",
+			Prompt: "Inspect the repo",
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		writeSSEChunk(t, w, map[string]interface{}{
+			"id":    "resp-recover",
+			"model": "openai/gpt-4o-mini",
+			"choices": []map[string]interface{}{
+				{
+					"index": 0,
+					"delta": map[string]interface{}{
+						"role":    "assistant",
+						"content": "Recovered and continued.",
+					},
+				},
+			},
+		})
+		writeSSEChunk(t, w, map[string]interface{}{
+			"id":    "resp-recover",
+			"model": "openai/gpt-4o-mini",
+			"usage": map[string]interface{}{"prompt_tokens": 4, "completion_tokens": 2, "total_tokens": 6},
+			"choices": []map[string]interface{}{
+				{
+					"index":         0,
+					"delta":         map[string]interface{}{},
+					"finish_reason": "stop",
+				},
+			},
+		})
+		_, _ = w.Write([]byte("data: [DONE]\n\n"))
+	}))
+	defer server.Close()
+
+	t.Setenv("OPENROUTER_API_KEY", "test-key")
+	t.Setenv("OPENROUTER_BASE_URL", server.URL)
+
+	var stdout bytes.Buffer
+	err := RunNativeSession(NativeRunOptions{
+		Mode:      "detached",
+		Dir:       workDir,
+		SessionID: "sess-native-recover",
+		Agent:     "native-agent",
+		Workspace: metaWorkspace,
+		Model:     "openai/gpt-4o-mini",
+		Prompt:    "Continue from where you left off.",
+		Resume:    true,
+	}, bytes.NewBuffer(nil), &stdout)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	state, err := LoadStateInWorkspace(metaWorkspace, "sess-native-recover")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.RecoveryCount != 1 {
+		t.Fatalf("RecoveryCount = %d, want 1", state.RecoveryCount)
+	}
+	if state.PendingTurn != nil {
+		t.Fatalf("expected pending turn to be cleared, got %#v", state.PendingTurn)
+	}
+	if state.LastRecovery == "" || !strings.Contains(state.LastRecovery, "waiting for the model response") {
+		t.Fatalf("unexpected last recovery: %#v", state.LastRecovery)
+	}
+
+	sess := &session.Session{
+		ID:          "sess-native-recover",
+		Runtime:     runtimeinfo.NativeRuntime,
+		MetadataDir: MetadataDir(metaWorkspace, "sess-native-recover"),
+	}
+	parsed, err := LoadEventLog(sess)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(parsed.Events) < 2 {
+		t.Fatalf("expected recovery and text events, got %#v", parsed.Events)
+	}
+	if parsed.Events[0].Step.Type != "recovery" {
+		t.Fatalf("expected first event to be recovery, got %#v", parsed.Events[0].Step)
+	}
+}

@@ -3,6 +3,7 @@ package cmd
 import (
 	"encoding/json"
 	"fmt"
+	"os"
 
 	"github.com/spf13/cobra"
 	"github.com/tiny-oc/toc/internal/runtime"
@@ -23,12 +24,30 @@ var runtimeListCmd = &cobra.Command{
 			return err
 		}
 
-		parentCfg, err := ctx.LoadAgentConfig()
-		if err != nil {
-			return fmt.Errorf("failed to load agent config: %w", err)
+		manifest, manifestErr := runtime.LoadPermissionManifestInWorkspace(ctx.Workspace, ctx.SessionID)
+		useManifest := manifestErr == nil
+		if manifestErr != nil && !os.IsNotExist(manifestErr) {
+			return fmt.Errorf("failed to load session permissions: %w", manifestErr)
 		}
 
-		if !parentCfg.CanSpawnAny() {
+		var parentCfg interface {
+			CanSpawnAny() bool
+			CanSpawn(string) bool
+		}
+		if !useManifest {
+			cfg, err := ctx.LoadAgentConfig()
+			if err != nil {
+				return fmt.Errorf("failed to load agent config: %w", err)
+			}
+			parentCfg = cfg
+		}
+
+		if useManifest {
+			if len(manifest.SubAgents) == 0 {
+				ui.Warn("Agent '%s' has no sub-agent permissions configured for this session.", ctx.Agent)
+				return nil
+			}
+		} else if !parentCfg.CanSpawnAny() {
 			ui.Warn("Agent '%s' has no sub-agent permissions configured.", ctx.Agent)
 			ui.Info("Add a %s block to oc-agent.yaml to enable sub-agent spawning.", ui.Bold("permissions.sub-agents"))
 			return nil
@@ -42,7 +61,13 @@ var runtimeListCmd = &cobra.Command{
 
 		var targets []string
 		for _, a := range allAgents {
-			if a.Name != ctx.Agent && parentCfg.CanSpawn(a.Name) {
+			allowed := false
+			if useManifest {
+				allowed = a.Name != ctx.Agent && runtime.CanSpawnFromManifest(manifest, a.Name)
+			} else {
+				allowed = a.Name != ctx.Agent && parentCfg.CanSpawn(a.Name)
+			}
+			if allowed {
 				targets = append(targets, a.Name)
 			}
 		}

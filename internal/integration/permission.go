@@ -3,12 +3,14 @@ package integration
 import (
 	"fmt"
 	"strings"
+
+	"github.com/tiny-oc/toc/internal/agent"
 )
 
 // Permission represents a parsed resource.action:scope permission entry.
 type Permission struct {
-	Resource string // e.g. "issues", "*"
-	Action   string // e.g. "read", "*"
+	Resource string   // e.g. "issues", "*"
+	Action   string   // e.g. "read", "*"
 	Scopes   []string // e.g. ["*"], ["louismorgner/tiny-oc", "other/repo"]
 }
 
@@ -194,7 +196,9 @@ func ValidatePermissionsAgainstDefinition(perms []string, def *Definition) error
 
 // PermissionManifest is the resolved permission set written at spawn time.
 type PermissionManifest struct {
-	SessionID    string                       `json:"session_id"`
-	Agent        string                       `json:"agent"`
-	Integrations map[string][]string          `json:"integrations"`
+	SessionID    string                           `json:"session_id"`
+	Agent        string                           `json:"agent"`
+	Filesystem   agent.FilesystemPermissions      `json:"filesystem,omitempty"`
+	Integrations map[string][]string              `json:"integrations"`
+	SubAgents    map[string]agent.PermissionLevel `json:"sub_agents,omitempty"`
 }

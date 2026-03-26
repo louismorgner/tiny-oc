@@ -9,6 +9,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/tiny-oc/toc/internal/agent"
 	"github.com/tiny-oc/toc/internal/config"
+	"github.com/tiny-oc/toc/internal/runtimeinfo"
 	"github.com/tiny-oc/toc/internal/ui"
 )
 
@@ -110,6 +111,16 @@ var agentCreateCmd = &cobra.Command{
 
 		var skillsRaw, contextRaw, instructions string
 		var composeRaw, subAgentsRaw string
+		model = runtimeinfo.DefaultModel(runtimeinfo.DefaultRuntime)
+
+		modelOptions := make([]huh.Option[string], 0, len(runtimeinfo.ModelOptions(runtimeinfo.DefaultRuntime)))
+		for _, opt := range runtimeinfo.ModelOptions(runtimeinfo.DefaultRuntime) {
+			label := opt.Label
+			if opt.Description != "" {
+				label += " — " + opt.Description
+			}
+			modelOptions = append(modelOptions, huh.NewOption(label, opt.ID))
+		}
 
 		basics := huh.NewForm(
 			huh.NewGroup(
@@ -137,11 +148,7 @@ var agentCreateCmd = &cobra.Command{
 
 				huh.NewSelect[string]().
 					Title("Model").
-					Options(
-						huh.NewOption("Sonnet — fast, great for most tasks", "sonnet"),
-						huh.NewOption("Opus — most capable, deeper reasoning", "opus"),
-						huh.NewOption("Haiku — lightweight, quick responses", "haiku"),
-					).
+					Options(modelOptions...).
 					Value(&model),
 			),
 
@@ -215,7 +222,7 @@ var agentCreateCmd = &cobra.Command{
 		}
 
 		cfg := agent.AgentConfig{
-			Runtime:     "claude-code",
+			Runtime:     runtimeinfo.DefaultRuntime,
 			Name:        name,
 			Description: desc,
 			Model:       model,
@@ -238,7 +245,7 @@ var agentCreateCmd = &cobra.Command{
 		auditLog("agent.create", map[string]interface{}{
 			"agent":   name,
 			"model":   model,
-			"runtime": "claude-code",
+			"runtime": runtimeinfo.DefaultRuntime,
 		})
 
 		fmt.Println()

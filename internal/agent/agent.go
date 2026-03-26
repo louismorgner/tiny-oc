@@ -7,6 +7,7 @@ import (
 	"regexp"
 
 	"github.com/tiny-oc/toc/internal/config"
+	"github.com/tiny-oc/toc/internal/runtimeinfo"
 	"gopkg.in/yaml.v3"
 )
 
@@ -36,15 +37,17 @@ type Permissions struct {
 }
 
 type AgentConfig struct {
-	Runtime     string   `yaml:"runtime"`
-	Name        string   `yaml:"name"`
-	Description string   `yaml:"description,omitempty"`
-	Model       string   `yaml:"model"`
-	Context     []string `yaml:"context,omitempty"`
-	Skills      []string `yaml:"skills,omitempty"`
-	Perms       *Permissions `yaml:"permissions,omitempty"`
-	OnEnd       string   `yaml:"on_end,omitempty"`
-	Compose     []string `yaml:"compose,omitempty"`
+	Runtime                string       `yaml:"runtime"`
+	Name                   string       `yaml:"name"`
+	Description            string       `yaml:"description,omitempty"`
+	Model                  string       `yaml:"model"`
+	AllowCustomNativeModel bool         `yaml:"allow_custom_native_model,omitempty"`
+	MaxIterations          int          `yaml:"max_iterations,omitempty"`
+	Context                []string     `yaml:"context,omitempty"`
+	Skills                 []string     `yaml:"skills,omitempty"`
+	Perms                  *Permissions `yaml:"permissions,omitempty"`
+	OnEnd                  string       `yaml:"on_end,omitempty"`
+	Compose                []string     `yaml:"compose,omitempty"`
 }
 
 // EffectivePermissions returns the resolved permission spec. If no permissions
@@ -123,9 +126,6 @@ func ValidateName(name string) error {
 	return nil
 }
 
-var validRuntimes = map[string]bool{"claude-code": true}
-var validModels = map[string]bool{"sonnet": true, "opus": true, "haiku": true}
-
 func validPermissionLevel(l PermissionLevel) bool {
 	return l == PermOn || l == PermAsk || l == PermOff
 }
@@ -140,13 +140,17 @@ func (cfg *AgentConfig) Validate() []string {
 	}
 	if cfg.Runtime == "" {
 		problems = append(problems, "missing runtime")
-	} else if !validRuntimes[cfg.Runtime] {
-		problems = append(problems, fmt.Sprintf("unknown runtime: %s", cfg.Runtime))
+	} else {
+		if err := runtimeinfo.ValidateRuntime(cfg.Runtime); err != nil {
+			problems = append(problems, err.Error())
+		} else if cfg.Model == "" {
+			problems = append(problems, "missing model")
+		} else if err := runtimeinfo.ValidateModelSelection(cfg.Runtime, cfg.Model, cfg.AllowCustomNativeModel); err != nil {
+			problems = append(problems, err.Error())
+		}
 	}
-	if cfg.Model == "" {
+	if cfg.Runtime == "" && cfg.Model == "" {
 		problems = append(problems, "missing model")
-	} else if !validModels[cfg.Model] {
-		problems = append(problems, fmt.Sprintf("unknown model: %s (expected sonnet, opus, or haiku)", cfg.Model))
 	}
 
 	// Validate permissions block

@@ -4,23 +4,19 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"strings"
-	"syscall"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/tiny-oc/toc/internal/agent"
-	"github.com/tiny-oc/toc/internal/config"
 	"github.com/tiny-oc/toc/internal/fileutil"
 	"github.com/tiny-oc/toc/internal/gitutil"
 	"github.com/tiny-oc/toc/internal/integration"
 	"github.com/tiny-oc/toc/internal/naming"
 	"github.com/tiny-oc/toc/internal/registry"
+	"github.com/tiny-oc/toc/internal/runtime"
 	"github.com/tiny-oc/toc/internal/session"
 	"github.com/tiny-oc/toc/internal/skill"
-	tocsync "github.com/tiny-oc/toc/internal/sync"
 	"github.com/tiny-oc/toc/internal/ui"
 )
 
@@ -31,7 +27,26 @@ type SpawnResult struct {
 	FailedSkills []string
 }
 
-func SpawnSession(cfg *agent.AgentConfig) (*SpawnResult, error) {
+// SpawnOptions contains optional parameters for SpawnSession.
+type SpawnOptions struct {
+	Prompt string // If set, run non-interactively with this prompt
+}
+
+func SpawnSession(cfg *agent.AgentConfig, opts ...SpawnOptions) (*SpawnResult, error) {
+	var spawnOpts SpawnOptions
+	if len(opts) > 0 {
+		spawnOpts = opts[0]
+	}
+	sessionCfg := runtime.ResolveSessionConfig(cfg)
+	if err := runtime.ValidateSessionConfig(sessionCfg); err != nil {
+		return nil, err
+	}
+	provider, err := runtime.Get(sessionCfg.Runtime)
+	if err != nil {
+		return nil, err
+	}
+	workspace, _ := filepath.Abs(".")
+
 	sessionID := uuid.New().String()
 
 	// Use os.MkdirTemp for unpredictable, safe session directories
@@ -43,6 +58,12 @@ func SpawnSession(cfg *agent.AgentConfig) (*SpawnResult, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to create session directory: %w", err)
 	}
+	spawnOK := false
+	defer func() {
+		if !spawnOK {
+			os.RemoveAll(workDir)
+		}
+	}()
 
 	srcDir, err := filepath.Abs(agent.Dir(cfg.Name))
 	if err != nil {
@@ -53,67 +74,75 @@ func SpawnSession(cfg *agent.AgentConfig) (*SpawnResult, error) {
 		return nil, fmt.Errorf("failed to copy agent template: %w", err)
 	}
 
-	// Convert agent.md (+ compose files) into CLAUDE.md so Claude Code picks it up as instructions
-	if err := provisionClaudeMD(workDir, cfg, sessionID); err != nil {
-		return nil, fmt.Errorf("failed to provision CLAUDE.md: %w", err)
+	if err := runtime.SaveSessionConfigInWorkspace(workspace, sessionID, sessionCfg); err != nil {
+		return nil, fmt.Errorf("failed to write session config: %w", err)
 	}
 
-	// Resolve skills into session .claude/skills/
+	if err := provider.PrepareSession(workDir, srcDir, sessionCfg, sessionID); err != nil {
+		return nil, fmt.Errorf("failed to prepare runtime session: %w", err)
+	}
+
 	var failedSkills []string
-	if len(cfg.Skills) > 0 {
-		failedSkills = resolveSkills(workDir, cfg.Skills)
-	}
-
-	if err := setupHooks(workDir, srcDir, cfg); err != nil {
-		return nil, fmt.Errorf("failed to setup hooks: %w", err)
+	if len(sessionCfg.Skills) > 0 {
+		failedSkills = resolveSkills(provider.SkillsDir(workDir), sessionCfg.Skills)
 	}
 
 	// Write resolved permission manifest for integration gateway enforcement
-	if err := writePermissionManifest(sessionID, cfg); err != nil {
+	if err := writePermissionManifest(filepath.Join(workspace, ".toc", "sessions", sessionID), sessionID, sessionCfg); err != nil {
 		return nil, fmt.Errorf("failed to write permission manifest: %w", err)
 	}
 
 	if err := session.Add(session.Session{
 		ID:            sessionID,
 		Agent:         cfg.Name,
+		Runtime:       sessionCfg.Runtime,
+		MetadataDir:   filepath.Join(workspace, ".toc", "sessions", sessionID),
 		CreatedAt:     time.Now(),
 		WorkspacePath: workDir,
 		Status:        session.StatusActive,
 	}); err != nil {
 		return nil, fmt.Errorf("failed to track session: %w", err)
 	}
+	spawnOK = true // session tracked — keep workspace on disk
 
 	fmt.Println()
-	ui.Info("Agent: %s", ui.Bold(cfg.Name))
-	ui.Info("Model: %s", ui.Bold(cfg.Model))
+	ui.Info("Agent: %s", ui.Bold(sessionCfg.Agent))
+	ui.Info("Model: %s", ui.Bold(sessionCfg.Model))
 	ui.Info("Session: %s", ui.Cyan(sessionID))
 	ui.Info("Workspace: %s", ui.Dim(workDir))
-	if len(cfg.Skills) > 0 {
-		resolved := len(cfg.Skills) - len(failedSkills)
-		ui.Info("Skills: %s", ui.Dim(fmt.Sprintf("%d/%d resolved", resolved, len(cfg.Skills))))
+	if len(sessionCfg.Skills) > 0 {
+		resolved := len(sessionCfg.Skills) - len(failedSkills)
+		ui.Info("Skills: %s", ui.Dim(fmt.Sprintf("%d/%d resolved", resolved, len(sessionCfg.Skills))))
 	}
-	if len(cfg.Context) > 0 {
-		ui.Info("Context sync: %s", ui.Dim(fmt.Sprintf("%d pattern(s)", len(cfg.Context))))
+	if len(sessionCfg.Context) > 0 {
+		ui.Info("Context sync: %s", ui.Dim(fmt.Sprintf("%d pattern(s)", len(sessionCfg.Context))))
 	}
-	if cfg.OnEnd != "" {
+	if sessionCfg.OnEnd != "" {
 		ui.Info("On end: %s", ui.Dim("session end hook enabled"))
 	}
-	if cfg.Perms != nil {
+	if permissionsConfigured(sessionCfg) {
 		ui.Info("Permissions: %s", ui.Dim("enforced via hooks"))
 	}
 	fmt.Println()
 
-	_ = launchClaude(workDir, cfg.Model, sessionID, cfg.Name, false)
+	if err := provider.LaunchInteractive(runtime.LaunchOptions{
+		Dir: workDir, Model: sessionCfg.Model, SessionID: sessionID,
+		AgentName: sessionCfg.Agent, Workspace: workspace,
+		Prompt: spawnOpts.Prompt,
+	}); err != nil {
+		_ = session.UpdateStatus(sessionID, session.StatusCompletedError)
+		return nil, fmt.Errorf("failed to launch runtime session: %w", err)
+	}
 	_ = session.UpdateStatus(sessionID, session.StatusCompleted)
 
 	// Post-session sync: copy matching files back to agent template
 	var syncedFiles int
-	if len(cfg.Context) > 0 {
-		syncedFiles = runPostSessionSync(workDir, srcDir, cfg.Context)
+	if len(sessionCfg.Context) > 0 {
+		syncedFiles = runPostSessionSync(provider, workDir, srcDir, sessionCfg.Context)
 	}
 
 	printFailedSkills(failedSkills)
-	printResumeCommand(cfg.Name, sessionID)
+	printResumeCommand(sessionCfg.Agent, sessionID)
 
 	return &SpawnResult{SessionID: sessionID, SyncedFiles: syncedFiles, FailedSkills: failedSkills}, nil
 }
@@ -123,9 +152,19 @@ func ResumeSession(s *session.Session) (*SpawnResult, error) {
 		return nil, fmt.Errorf("session workspace no longer exists: %s", s.WorkspacePath)
 	}
 
-	cfg, err := agent.Load(s.Agent)
+	workspace, _ := filepath.Abs(".")
+	sessionCfg, err := loadOrResolveSessionConfig(workspace, s.ID, func() (*agent.AgentConfig, error) {
+		return agent.Load(s.Agent)
+	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to load agent config: %w", err)
+		return nil, fmt.Errorf("failed to load session config: %w", err)
+	}
+	if err := runtime.ValidateSessionConfig(sessionCfg); err != nil {
+		return nil, fmt.Errorf("invalid session config: %w", err)
+	}
+	provider, err := runtime.Get(sessionCfg.Runtime)
+	if err != nil {
+		return nil, err
 	}
 
 	srcDir, err := filepath.Abs(agent.Dir(s.Agent))
@@ -135,32 +174,37 @@ func ResumeSession(s *session.Session) (*SpawnResult, error) {
 
 	// Re-resolve skills in case they were cleaned up or updated
 	var failedSkills []string
-	if len(cfg.Skills) > 0 {
-		failedSkills = resolveSkills(s.WorkspacePath, cfg.Skills)
+	if len(sessionCfg.Skills) > 0 {
+		failedSkills = resolveSkills(provider.SkillsDir(s.WorkspacePath), sessionCfg.Skills)
 	}
 
-	// Re-setup hooks in case they were cleaned up
-	if err := setupHooks(s.WorkspacePath, srcDir, cfg); err != nil {
-		return nil, fmt.Errorf("failed to setup hooks: %w", err)
+	if err := provider.PrepareSession(s.WorkspacePath, srcDir, sessionCfg, s.ID); err != nil {
+		return nil, fmt.Errorf("failed to prepare runtime session: %w", err)
 	}
 
 	fmt.Println()
 	ui.Info("Resuming agent: %s", ui.Bold(s.Agent))
 	ui.Info("Session: %s", ui.Cyan(s.ID))
 	ui.Info("Workspace: %s", ui.Dim(s.WorkspacePath))
-	if len(cfg.Skills) > 0 {
-		resolved := len(cfg.Skills) - len(failedSkills)
-		ui.Info("Skills: %s", ui.Dim(fmt.Sprintf("%d/%d resolved", resolved, len(cfg.Skills))))
+	if len(sessionCfg.Skills) > 0 {
+		resolved := len(sessionCfg.Skills) - len(failedSkills)
+		ui.Info("Skills: %s", ui.Dim(fmt.Sprintf("%d/%d resolved", resolved, len(sessionCfg.Skills))))
 	}
 	fmt.Println()
 
 	_ = session.UpdateStatus(s.ID, session.StatusActive)
-	_ = launchClaude(s.WorkspacePath, cfg.Model, s.ID, s.Agent, true)
+	if err := provider.LaunchInteractive(runtime.LaunchOptions{
+		Dir: s.WorkspacePath, Model: sessionCfg.Model, SessionID: s.ID,
+		AgentName: s.Agent, Workspace: workspace, Resume: true,
+	}); err != nil {
+		_ = session.UpdateStatus(s.ID, session.StatusCompletedError)
+		return nil, fmt.Errorf("failed to resume runtime session: %w", err)
+	}
 	_ = session.UpdateStatus(s.ID, session.StatusCompleted)
 
 	var syncedFiles int
-	if len(cfg.Context) > 0 {
-		syncedFiles = runPostSessionSync(s.WorkspacePath, srcDir, cfg.Context)
+	if len(sessionCfg.Context) > 0 {
+		syncedFiles = runPostSessionSync(provider, s.WorkspacePath, srcDir, sessionCfg.Context)
 	}
 
 	printFailedSkills(failedSkills)
@@ -177,8 +221,17 @@ type SubSpawnOpts struct {
 }
 
 // SpawnSubSession spawns a non-interactive sub-agent session in the background.
-// The sub-agent runs with `claude --print` and output is captured to toc-output.txt.
+// Output is captured to toc-output.txt in the session workspace.
 func SpawnSubSession(cfg *agent.AgentConfig, opts SubSpawnOpts) (*SpawnResult, error) {
+	sessionCfg := runtime.ResolveSessionConfig(cfg)
+	if err := runtime.ValidateSessionConfig(sessionCfg); err != nil {
+		return nil, err
+	}
+	provider, err := runtime.Get(sessionCfg.Runtime)
+	if err != nil {
+		return nil, err
+	}
+
 	sessionID := uuid.New().String()
 
 	// Use os.MkdirTemp for unpredictable, safe session directories
@@ -190,6 +243,12 @@ func SpawnSubSession(cfg *agent.AgentConfig, opts SubSpawnOpts) (*SpawnResult, e
 	if err != nil {
 		return nil, fmt.Errorf("failed to create session directory: %w", err)
 	}
+	spawnOK := false
+	defer func() {
+		if !spawnOK {
+			os.RemoveAll(workDir)
+		}
+	}()
 
 	// Use workspace-relative agent dir
 	agentDir := filepath.Join(opts.WorkspaceDir, ".toc", "agents", cfg.Name)
@@ -197,24 +256,30 @@ func SpawnSubSession(cfg *agent.AgentConfig, opts SubSpawnOpts) (*SpawnResult, e
 		return nil, fmt.Errorf("failed to copy agent template: %w", err)
 	}
 
-	if err := provisionClaudeMD(workDir, cfg, sessionID); err != nil {
-		return nil, fmt.Errorf("failed to provision CLAUDE.md: %w", err)
+	if err := runtime.SaveSessionConfigInWorkspace(opts.WorkspaceDir, sessionID, sessionCfg); err != nil {
+		return nil, fmt.Errorf("failed to write session config: %w", err)
+	}
+
+	if err := provider.PrepareSession(workDir, agentDir, sessionCfg, sessionID); err != nil {
+		return nil, fmt.Errorf("failed to prepare runtime session: %w", err)
 	}
 
 	var failedSkills []string
-	if len(cfg.Skills) > 0 {
-		failedSkills = resolveSkills(workDir, cfg.Skills)
+	if len(sessionCfg.Skills) > 0 {
+		failedSkills = resolveSkills(provider.SkillsDir(workDir), sessionCfg.Skills)
 	}
 
 	// Write resolved permission manifest for sub-agent
-	if err := writePermissionManifestInWorkspace(opts.WorkspaceDir, sessionID, cfg); err != nil {
+	if err := writePermissionManifestInWorkspace(opts.WorkspaceDir, sessionID, sessionCfg); err != nil {
 		return nil, fmt.Errorf("failed to write permission manifest: %w", err)
 	}
 
 	if err := session.AddInWorkspace(opts.WorkspaceDir, session.Session{
 		ID:              sessionID,
 		Name:            naming.FromPrompt(opts.Prompt),
-		Agent:           cfg.Name,
+		Agent:           sessionCfg.Agent,
+		Runtime:         sessionCfg.Runtime,
+		MetadataDir:     filepath.Join(opts.WorkspaceDir, ".toc", "sessions", sessionID),
 		CreatedAt:       time.Now(),
 		WorkspacePath:   workDir,
 		Status:          session.StatusActive,
@@ -223,10 +288,15 @@ func SpawnSubSession(cfg *agent.AgentConfig, opts SubSpawnOpts) (*SpawnResult, e
 	}); err != nil {
 		return nil, fmt.Errorf("failed to track session: %w", err)
 	}
+	spawnOK = true // session tracked — keep workspace on disk
 
-	// Launch claude as a detached background process so it survives after toc exits
+	// Launch the runtime as a detached background process so it survives after toc exits.
 	outputPath := filepath.Join(workDir, "toc-output.txt")
-	if err := launchClaudeDetached(workDir, cfg.Model, opts.Prompt, opts.WorkspaceDir, cfg.Name, sessionID, outputPath); err != nil {
+	if err := provider.LaunchDetached(runtime.DetachedOptions{
+		Dir: workDir, Model: sessionCfg.Model, Prompt: opts.Prompt,
+		Workspace: opts.WorkspaceDir, AgentName: sessionCfg.Agent,
+		SessionID: sessionID, OutputPath: outputPath,
+	}); err != nil {
 		return nil, fmt.Errorf("failed to launch sub-agent: %w", err)
 	}
 
@@ -256,25 +326,27 @@ func ResumeSubSession(s *session.Session, opts SubResumeOpts) (*SpawnResult, err
 	}
 
 	agentDir := filepath.Join(opts.WorkspaceDir, ".toc", "agents", s.Agent)
-	cfg, err := agent.LoadFrom(agentDir)
+	sessionCfg, err := loadOrResolveSessionConfig(opts.WorkspaceDir, s.ID, func() (*agent.AgentConfig, error) {
+		return agent.LoadFrom(agentDir)
+	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to load agent config: %w", err)
+		return nil, fmt.Errorf("failed to load session config: %w", err)
+	}
+	if err := runtime.ValidateSessionConfig(sessionCfg); err != nil {
+		return nil, fmt.Errorf("invalid session config: %w", err)
+	}
+	provider, err := runtime.Get(sessionCfg.Runtime)
+	if err != nil {
+		return nil, err
 	}
 
-	// Re-provision CLAUDE.md in case the template has changed
-	if err := provisionClaudeMD(s.WorkspacePath, cfg, s.ID); err != nil {
-		return nil, fmt.Errorf("failed to re-provision CLAUDE.md: %w", err)
+	if err := provider.PrepareSession(s.WorkspacePath, agentDir, sessionCfg, s.ID); err != nil {
+		return nil, fmt.Errorf("failed to prepare runtime session: %w", err)
 	}
 
-	// Re-resolve skills in case they were cleaned up
 	var failedSkills []string
-	if len(cfg.Skills) > 0 {
-		failedSkills = resolveSkills(s.WorkspacePath, cfg.Skills)
-	}
-
-	// Re-setup hooks
-	if err := setupHooks(s.WorkspacePath, agentDir, cfg); err != nil {
-		return nil, fmt.Errorf("failed to setup hooks: %w", err)
+	if len(sessionCfg.Skills) > 0 {
+		failedSkills = resolveSkills(provider.SkillsDir(s.WorkspacePath), sessionCfg.Skills)
 	}
 
 	// Clean up previous run markers so ResolvedStatus tracks the new run
@@ -291,10 +363,10 @@ func ResumeSubSession(s *session.Session, opts SubResumeOpts) (*SpawnResult, err
 		resumePrompt = opts.Prompt
 	}
 
-	// Launch claude detached with --continue to resume the previous conversation
+	// Launch the runtime detached with resume support.
 	outputPath := filepath.Join(s.WorkspacePath, "toc-output.txt")
-	if err := launchDetached(detachedOpts{
-		Dir: s.WorkspacePath, Model: cfg.Model, Prompt: resumePrompt,
+	if err := provider.LaunchDetached(runtime.DetachedOptions{
+		Dir: s.WorkspacePath, Model: sessionCfg.Model, Prompt: resumePrompt,
 		Workspace: opts.WorkspaceDir, AgentName: s.Agent, SessionID: s.ID,
 		OutputPath: outputPath, Resume: true,
 	}); err != nil {
@@ -304,129 +376,8 @@ func ResumeSubSession(s *session.Session, opts SubResumeOpts) (*SpawnResult, err
 	return &SpawnResult{SessionID: s.ID, FailedSkills: failedSkills}, nil
 }
 
-// detachedOpts contains options for launching a detached claude process.
-type detachedOpts struct {
-	Dir, Model, Prompt, Workspace, AgentName, SessionID, OutputPath string
-	Resume                                                          bool
-}
-
-// launchClaudeDetached starts claude in a detached process via a wrapper script
-// so the sub-agent outlives the parent toc process.
-func launchClaudeDetached(dir, model, prompt, workspace, agentName, sessionID, outputPath string) error {
-	return launchDetached(detachedOpts{
-		Dir: dir, Model: model, Prompt: prompt, Workspace: workspace,
-		AgentName: agentName, SessionID: sessionID, OutputPath: outputPath,
-	})
-}
-
-// launchDetached is the shared implementation for starting a detached claude process.
-// When Resume is true, it uses --continue to resume a previous conversation.
-func launchDetached(opts detachedOpts) error {
-	// Write the prompt to a file to avoid shell injection via interpolation.
-	promptPath := filepath.Join(opts.Dir, "toc-prompt.txt")
-	if err := os.WriteFile(promptPath, []byte(opts.Prompt), 0644); err != nil {
-		return err
-	}
-
-	scriptContent := buildDetachedScript(opts, promptPath)
-
-	scriptPath := filepath.Join(opts.Dir, "toc-run.sh")
-	if err := os.WriteFile(scriptPath, []byte(scriptContent), 0755); err != nil {
-		return err
-	}
-
-	cmd := exec.Command("sh", scriptPath)
-	cmd.Dir = opts.Dir
-	cmd.Stdout = nil
-	cmd.Stderr = nil
-	cmd.Stdin = nil
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-
-	if err := cmd.Start(); err != nil {
-		return err
-	}
-
-	return cmd.Process.Release()
-}
-
-// buildDetachedScript generates the shell script content for a detached claude process.
-// Separated from launchDetached so it can be tested without starting a process.
-func buildDetachedScript(opts detachedOpts, promptPath string) string {
-	// Build claude command that reads prompt from the file.
-	args := "claude --dangerously-skip-permissions"
-	if opts.Resume {
-		args += " --continue"
-	}
-	args += fmt.Sprintf(" -p \"$(cat %q)\"", promptPath)
-	if opts.Model != "" {
-		args += fmt.Sprintf(" --model %s", opts.Model)
-	}
-	if opts.SessionID != "" {
-		args += fmt.Sprintf(" --session-id %s", opts.SessionID)
-	}
-
-	// We write to a .tmp file first, then atomically rename to the final path.
-	// This prevents a race: shell `>` creates the file immediately (empty),
-	// but ResolvedStatus checks for toc-output.txt existence as the completion signal.
-	tmpOutputPath := opts.OutputPath + ".tmp"
-	pidPath := filepath.Join(opts.Dir, "toc-pid.txt")
-	exitCodePath := filepath.Join(opts.Dir, "toc-exit-code.txt")
-
-	return fmt.Sprintf(`#!/bin/sh
-echo $$ > %q
-cd %q
-export TOC_WORKSPACE=%q
-export TOC_AGENT=%q
-export TOC_SESSION_ID=%q
-%s < /dev/null > %q 2>&1
-TOC_EXIT=$?
-echo $TOC_EXIT > %q
-mv %q %q
-`, pidPath, opts.Dir, opts.Workspace, opts.AgentName, opts.SessionID, args, tmpOutputPath, exitCodePath, tmpOutputPath, opts.OutputPath)
-}
-
-// setupHooks generates .claude/settings.json with all hooks: context sync,
-// on_end, and permission enforcement. This is the single entry point for hook setup.
-func setupHooks(workDir, agentDir string, cfg *agent.AgentConfig) error {
-	claudeDir := filepath.Join(workDir, ".claude")
-	if err := os.MkdirAll(claudeDir, 0755); err != nil {
-		return err
-	}
-
-	var syncScriptPath string
-	if len(cfg.Context) > 0 {
-		syncScriptPath = filepath.Join(claudeDir, "toc-sync.sh")
-		script := tocsync.SyncScript(workDir, agentDir, cfg.Context)
-		if err := os.WriteFile(syncScriptPath, []byte(script), 0755); err != nil {
-			return err
-		}
-	}
-
-	var permScriptPath string
-	if cfg.Perms != nil {
-		perms := cfg.EffectivePermissions()
-		permScriptPath = filepath.Join(claudeDir, "toc-permissions.sh")
-		script := tocsync.PermissionScript(perms, cfg.Name)
-		if err := os.WriteFile(permScriptPath, []byte(script), 0755); err != nil {
-			return err
-		}
-	}
-
-	// Only write settings if we have hooks to configure
-	if syncScriptPath == "" && cfg.OnEnd == "" && permScriptPath == "" {
-		return nil
-	}
-
-	settingsPath := filepath.Join(claudeDir, "settings.json")
-	settings, err := tocsync.HookSettingsWithPermissions(syncScriptPath, cfg.OnEnd, permScriptPath)
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(settingsPath, settings, 0644)
-}
-
-func runPostSessionSync(workDir, agentDir string, patterns []string) int {
-	synced, err := tocsync.SyncBack(workDir, agentDir, patterns)
+func runPostSessionSync(provider runtime.Provider, workDir, agentDir string, patterns []string) int {
+	synced, err := provider.PostSessionSync(workDir, agentDir, patterns)
 	if err != nil {
 		ui.Warn("Context sync error: %s", err)
 		return 0
@@ -449,43 +400,9 @@ func printResumeCommand(agentName, sessionID string) {
 	fmt.Println()
 }
 
-func launchClaude(dir, model, sessionID, agentName string, resume bool) error {
-	args := []string{"--dangerously-skip-permissions"}
-	if model != "" {
-		args = append(args, "--model", model)
-	}
-	if resume {
-		args = append(args, "--resume", sessionID)
-	} else {
-		args = append(args, "--session-id", sessionID)
-	}
-
-	workspace, _ := filepath.Abs(".")
-
-	cmd := exec.Command("claude", args...)
-	cmd.Dir = dir
-	cmd.Stdin = os.Stdin
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	cmd.Env = append(os.Environ(),
-		"TOC_WORKSPACE="+workspace,
-		"TOC_AGENT="+agentName,
-		"TOC_SESSION_ID="+sessionID,
-	)
-
-	if err := cmd.Run(); err != nil {
-		if _, ok := err.(*exec.ExitError); ok {
-			return nil // normal exit (ctrl-c, quit, etc.)
-		}
-		return fmt.Errorf("failed to launch claude: %w", err)
-	}
-	return nil
-}
-
-// resolveSkills resolves all skill references and copies them into the session's
-// .claude/skills/ directory. Returns a list of skill entries that failed to resolve.
-func resolveSkills(workDir string, skills []string) []string {
-	skillsTarget := filepath.Join(workDir, ".claude", "skills")
+// resolveSkills resolves all skill references and copies them into the runtime's
+// skills directory. Returns a list of skill entries that failed to resolve.
+func resolveSkills(skillsTarget string, skills []string) []string {
 	if err := os.MkdirAll(skillsTarget, 0755); err != nil {
 		ui.Warn("Failed to create skills directory: %s", err)
 		return skills
@@ -577,23 +494,21 @@ func printFailedSkills(failed []string) {
 	ui.Info("Consider removing or updating these skill references.")
 }
 
-// writePermissionManifest writes the resolved integration permissions to
+// writePermissionManifest writes the resolved session permissions to
 // .toc/sessions/<id>/permissions.json. This manifest is immutable after spawn —
 // the running session keeps its original permissions even if oc-agent.yaml changes.
-func writePermissionManifest(sessionID string, cfg *agent.AgentConfig) error {
-	perms := cfg.EffectivePermissions()
-	if len(perms.Integrations) == 0 {
-		return nil
-	}
+func writePermissionManifest(metadataDir, sessionID string, cfg *runtime.SessionConfig) error {
+	perms := cfg.Permissions
 
 	manifest := integration.PermissionManifest{
 		SessionID:    sessionID,
-		Agent:        cfg.Name,
+		Agent:        cfg.Agent,
+		Filesystem:   perms.Filesystem,
 		Integrations: perms.Integrations,
+		SubAgents:    perms.SubAgents,
 	}
 
-	dir := filepath.Join(config.SessionsDir(), sessionID)
-	if err := os.MkdirAll(dir, 0700); err != nil {
+	if err := os.MkdirAll(metadataDir, 0700); err != nil {
 		return fmt.Errorf("failed to create session permissions directory: %w", err)
 	}
 
@@ -602,72 +517,43 @@ func writePermissionManifest(sessionID string, cfg *agent.AgentConfig) error {
 		return err
 	}
 
-	return os.WriteFile(filepath.Join(dir, "permissions.json"), data, 0600)
+	return os.WriteFile(filepath.Join(metadataDir, "permissions.json"), data, 0600)
 }
 
 // writePermissionManifestInWorkspace writes the permission manifest using an
 // explicit workspace path. Used for sub-agent spawning.
-func writePermissionManifestInWorkspace(workspace, sessionID string, cfg *agent.AgentConfig) error {
-	perms := cfg.EffectivePermissions()
-	if len(perms.Integrations) == 0 {
-		return nil
-	}
-
-	manifest := integration.PermissionManifest{
-		SessionID:    sessionID,
-		Agent:        cfg.Name,
-		Integrations: perms.Integrations,
-	}
-
-	dir := filepath.Join(workspace, ".toc", "sessions", sessionID)
-	if err := os.MkdirAll(dir, 0700); err != nil {
-		return fmt.Errorf("failed to create session permissions directory: %w", err)
-	}
-
-	data, err := json.MarshalIndent(manifest, "", "  ")
-	if err != nil {
-		return err
-	}
-
-	return os.WriteFile(filepath.Join(dir, "permissions.json"), data, 0600)
+func writePermissionManifestInWorkspace(workspace, sessionID string, cfg *runtime.SessionConfig) error {
+	return writePermissionManifest(filepath.Join(workspace, ".toc", "sessions", sessionID), sessionID, cfg)
 }
 
-// provisionClaudeMD builds CLAUDE.md from agent.md + any compose files,
-// then applies template variables (agent name, session ID, date).
-func provisionClaudeMD(workDir string, cfg *agent.AgentConfig, sessionID string) error {
-	agentMD := filepath.Join(workDir, "agent.md")
-	claudeMD := filepath.Join(workDir, "CLAUDE.md")
+func permissionsConfigured(cfg *runtime.SessionConfig) bool {
+	if cfg == nil {
+		return false
+	}
+	perms := cfg.Permissions
+	return len(perms.Integrations) > 0 ||
+		len(perms.SubAgents) > 0 ||
+		perms.Filesystem.Read != agent.PermOn ||
+		perms.Filesystem.Write != agent.PermOn ||
+		perms.Filesystem.Execute != agent.PermOn
+}
 
-	// Start with agent.md content (always first)
-	var parts []string
-	if data, err := os.ReadFile(agentMD); err == nil {
-		parts = append(parts, strings.TrimSpace(string(data)))
-		os.Remove(agentMD)
+func loadOrResolveSessionConfig(workspace, sessionID string, fallback func() (*agent.AgentConfig, error)) (*runtime.SessionConfig, error) {
+	cfg, err := runtime.LoadSessionConfigInWorkspace(workspace, sessionID)
+	if err == nil {
+		return cfg, nil
+	}
+	if !os.IsNotExist(err) {
+		return nil, err
 	}
 
-	// Append compose files in order
-	for _, file := range cfg.Compose {
-		path := filepath.Join(workDir, file)
-		if data, err := os.ReadFile(path); err == nil {
-			parts = append(parts, strings.TrimSpace(string(data)))
-		}
+	agentCfg, err := fallback()
+	if err != nil {
+		return nil, err
 	}
-
-	if len(parts) == 0 {
-		return nil // nothing to provision
+	cfg = runtime.ResolveSessionConfig(agentCfg)
+	if saveErr := runtime.SaveSessionConfigInWorkspace(workspace, sessionID, cfg); saveErr != nil {
+		return nil, saveErr
 	}
-
-	content := strings.Join(parts, "\n\n---\n\n")
-
-	// Apply template variables
-	now := time.Now()
-	replacer := strings.NewReplacer(
-		"{{.AgentName}}", cfg.Name,
-		"{{.SessionID}}", sessionID,
-		"{{.Date}}", now.Format("2006-01-02"),
-		"{{.Model}}", cfg.Model,
-	)
-	content = replacer.Replace(content)
-
-	return os.WriteFile(claudeMD, []byte(content+"\n"), 0644)
+	return cfg, nil
 }

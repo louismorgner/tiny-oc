@@ -8,20 +8,22 @@ import (
 	"strings"
 	"time"
 
-	"github.com/tiny-oc/toc/internal/replay"
+	"github.com/tiny-oc/toc/internal/runtime"
 )
 
 // Event represents a parsed step or a completion signal from a tailed session.
 type Event struct {
-	Step     replay.Step
+	Event    runtime.Event
+	Step     runtime.Step
 	Finished bool   // true when the session completed
 	ExitCode string // non-empty when Finished is true
 }
 
 // Options configures the tailer.
 type Options struct {
-	JSONLPath     string        // path to the .jsonl file
-	WorkspacePath string        // sub-agent workspace (to check for toc-output.txt)
+	LogPath       string // path to the runtime log file
+	WorkspacePath string // sub-agent workspace (to check for toc-output.txt)
+	Provider      runtime.Provider
 	PollInterval  time.Duration // default 500ms
 }
 
@@ -50,7 +52,7 @@ func Tail(ctx context.Context, opts Options) (<-chan Event, error) {
 				return
 			case <-ticker.C:
 				// Check if JSONL file exists yet
-				fi, err := os.Stat(opts.JSONLPath)
+				fi, err := os.Stat(opts.LogPath)
 				if err != nil {
 					// File doesn't exist yet — check if session already finished without writing
 					if isSessionFinished(opts.WorkspacePath) {
@@ -62,13 +64,13 @@ func Tail(ctx context.Context, opts Options) (<-chan Event, error) {
 
 				// Read new data if file grew
 				if fi.Size() > offset {
-					newSteps, newOffset, newPartial := readNewLines(opts.JSONLPath, offset, partial)
+					newSteps, newOffset, newPartial := readNewLines(opts.LogPath, offset, partial, opts.Provider)
 					offset = newOffset
 					partial = newPartial
 
-					for _, step := range newSteps {
+					for _, event := range newSteps {
 						select {
-						case ch <- Event{Step: step}:
+						case ch <- Event{Event: event, Step: event.Step}:
 						case <-ctx.Done():
 							return
 						}
@@ -78,11 +80,11 @@ func Tail(ctx context.Context, opts Options) (<-chan Event, error) {
 				// Check for session completion
 				if isSessionFinished(opts.WorkspacePath) {
 					// Final read to catch any last writes
-					if fi2, err := os.Stat(opts.JSONLPath); err == nil && fi2.Size() > offset {
-						newSteps, _, _ := readNewLines(opts.JSONLPath, offset, partial)
-						for _, step := range newSteps {
+					if fi2, err := os.Stat(opts.LogPath); err == nil && fi2.Size() > offset {
+						newSteps, _, _ := readNewLines(opts.LogPath, offset, partial, opts.Provider)
+						for _, event := range newSteps {
 							select {
-							case ch <- Event{Step: step}:
+							case ch <- Event{Event: event, Step: event.Step}:
 							case <-ctx.Done():
 								return
 							}
@@ -98,7 +100,7 @@ func Tail(ctx context.Context, opts Options) (<-chan Event, error) {
 	return ch, nil
 }
 
-func readNewLines(path string, offset int64, partial []byte) ([]replay.Step, int64, []byte) {
+func readNewLines(path string, offset int64, partial []byte, provider runtime.Provider) ([]runtime.Event, int64, []byte) {
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, offset, partial
@@ -131,18 +133,18 @@ func readNewLines(path string, offset int64, partial []byte) ([]replay.Step, int
 		lines = lines[:len(lines)-1]
 	}
 
-	var steps []replay.Step
+	var events []runtime.Event
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
 		if line == "" {
 			continue
 		}
-		if parsed := replay.ParseJSONLLine([]byte(line)); parsed != nil {
-			steps = append(steps, parsed...)
+		if parsed := provider.ParseSessionLogLineEvents([]byte(line)); parsed != nil {
+			events = append(events, parsed...)
 		}
 	}
 
-	return steps, newOffset, partial
+	return events, newOffset, partial
 }
 
 func isSessionFinished(workspacePath string) bool {

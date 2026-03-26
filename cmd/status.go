@@ -74,7 +74,7 @@ func printStaticStatus(cfg *config.WorkspaceConfig) error {
 	agentTokens := make(map[string]usage.TokenUsage)
 	var totalTokens usage.TokenUsage
 	for _, s := range sf.Sessions {
-		tokens := usage.ForSession(s.WorkspacePath, s.ID)
+		tokens := usage.ForSession(&s)
 		combined := agentTokens[s.Agent]
 		combined.InputTokens += tokens.InputTokens
 		combined.OutputTokens += tokens.OutputTokens
@@ -167,7 +167,7 @@ func printStaticStatus(cfg *config.WorkspaceConfig) error {
 			case "stale":
 				badge = ui.Yellow("◌ stale")
 			}
-			tokens := usage.ForSession(s.WorkspacePath, s.ID)
+			tokens := usage.ForSession(&s)
 			tokenStr := tokens.FormatTotal()
 			nameStr := ""
 			if s.Name != "" {

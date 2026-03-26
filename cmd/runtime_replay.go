@@ -25,7 +25,7 @@ func init() {
 var runtimeReplayCmd = &cobra.Command{
 	Use:   "replay <session-id>",
 	Short: "Replay a session timeline — thinking, tools, and skills",
-	Long:  "Parse Claude Code session logs and show a structured timeline of agent behavior including reasoning, tool calls, and skill invocations.",
+	Long:  "Parse runtime session logs and show a structured timeline of agent behavior including reasoning, tool calls, and skill invocations.",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		sessionID := args[0]
@@ -87,13 +87,23 @@ func printReplayHuman(r *replay.Replay, thinkingOnly, actionsOnly, compact, full
 	}
 
 	fmt.Println()
-	fmt.Printf("  %s: %s — agent: %s — %s — %s\n",
-		ui.Bold("Session"),
-		ui.Cyan(shortID(r.SessionID)),
-		ui.Cyan(r.Agent),
-		ui.Dim(r.FormatDuration()),
-		ui.Dim(tokenStr),
-	)
+	fmt.Printf("  %s  %s\n", ui.BoldCyan(r.Agent), ui.Dim(shortID(r.SessionID)))
+	details := ""
+	if r.Runtime != "" {
+		details += r.Runtime
+	}
+	if r.Model != "" {
+		details += "/" + r.Model
+	}
+	if r.Status != "" {
+		if details != "" {
+			details += "  "
+		}
+		details += r.Status
+	}
+	details += "  " + r.FormatDuration() + "  " + tokenStr
+	fmt.Printf("  %s\n", ui.Dim(details))
+	fmt.Println(ui.TurnSeparator())
 	fmt.Println()
 
 	for _, step := range r.Steps {
@@ -115,12 +125,29 @@ func printReplayHuman(r *replay.Replay, thinkingOnly, actionsOnly, compact, full
 	}
 
 	fmt.Println()
-	fmt.Printf("  %s: %d | %s: %d | %s: %s | %s: %d\n",
-		ui.Bold("Files changed"), len(r.FilesChanged),
-		ui.Bold("Tools"), r.ToolCount,
-		ui.Bold("Tokens"), tokenStr,
-		ui.Bold("Errors"), r.ErrorCount,
+	fmt.Println(ui.TurnSeparator())
+	fmt.Println()
+	fmt.Printf("  %s %d   %s %d   %s %s   %s %d\n",
+		ui.Bold("files:"), len(r.FilesChanged),
+		ui.Bold("tools:"), r.ToolCount,
+		ui.Bold("tokens:"), tokenStr,
+		ui.Bold("errors:"), r.ErrorCount,
 	)
+	if r.ResumeCount > 0 {
+		fmt.Printf("  %s %d\n", ui.Bold("resumes:"), r.ResumeCount)
+	}
+	if r.RecoveryCount > 0 {
+		fmt.Printf("  %s %d\n", ui.Bold("recoveries:"), r.RecoveryCount)
+	}
+	if r.CompactionCount > 0 {
+		fmt.Printf("  %s %d\n", ui.Bold("compactions:"), r.CompactionCount)
+	}
+	if r.LastError != "" && r.Status != session.StatusCompletedOK && r.Status != "completed" {
+		fmt.Printf("  %s %s\n", ui.Bold("last error:"), ui.Dim(r.LastError))
+	}
+	if r.LastRecovery != "" {
+		fmt.Printf("  %s %s\n", ui.Bold("last recovery:"), ui.Dim(r.LastRecovery))
+	}
 	fmt.Println()
 	return nil
 }
@@ -131,97 +158,26 @@ type printOpts struct {
 	FullContent bool // verbose mode: show full content without truncation
 }
 
-func printStep(step replay.Step, opts printOpts) {
-	switch step.Type {
-	case "user":
-		if opts.FullContent {
-			printMultiLine("[user]     ", step.Content, nil)
-		} else {
-			text := replay.TruncateThinking(step.Content, 120)
-			fmt.Printf("  %s %s\n", ui.Green("[user]     "), text)
-		}
-	case "thinking":
-		if opts.FullContent {
-			printMultiLine("[think]    ", step.Content, ui.Dim)
-		} else {
-			text := replay.TruncateThinking(step.Content, 100)
-			fmt.Printf("  %s %s\n", ui.Dim("[think]    "), ui.Dim(text))
-		}
-	case "text":
-		if !opts.HideText {
-			if opts.FullContent {
-				printMultiLine("[assistant]", step.Content, nil)
-			} else {
-				text := replay.TruncateThinking(step.Content, 120)
-				fmt.Printf("  %s %s\n", ui.Cyan("[assistant]"), text)
-			}
-		}
-	case "tool":
-		printToolStep(step)
-	case "skill":
-		fmt.Printf("  %s %s\n", ui.Yellow("[skill]    "), ui.Cyan(step.Skill))
-	case "error":
-		text := step.Content
-		if len(text) > 100 {
-			text = text[:97] + "..."
-		}
-		fmt.Printf("  %s %s\n", ui.Red("[error]    "), text)
+func printStep(step runtime.Step, opts printOpts) {
+	meta := ui.StepMeta{
+		ToolName:   step.Tool,
+		Path:       step.Path,
+		Command:    step.Command,
+		Skill:      step.Skill,
+		Added:      step.Added,
+		Removed:    step.Removed,
+		Lines:      step.Lines,
+		ExitCode:   step.ExitCode,
+		TimedOut:   step.TimedOut,
+		DurationMS: step.DurationMS,
+		Full:       opts.FullContent,
 	}
-}
 
-// printMultiLine prints a labeled block with wrapped/indented content.
-func printMultiLine(label, content string, colorFn func(a ...interface{}) string) {
-	lines := strings.Split(content, "\n")
-	indent := strings.Repeat(" ", 2+len(label)+1) // "  " + label + " "
-	for i, line := range lines {
-		if colorFn != nil {
-			line = colorFn(line)
-		}
-		if i == 0 {
-			if colorFn != nil {
-				fmt.Printf("  %s %s\n", ui.Dim(label), line)
-			} else {
-				fmt.Printf("  %s %s\n", ui.Cyan(label), line)
-			}
-		} else {
-			fmt.Printf("%s%s\n", indent, line)
-		}
+	if opts.HideText && step.Type == "text" {
+		return
 	}
-}
 
-func printToolStep(step replay.Step) {
-	switch step.Tool {
-	case "Read":
-		fmt.Printf("  %s %s\n", ui.Dim("[read]     "), shortPath(step.Path))
-	case "Edit":
-		detail := ""
-		if step.Added > 0 || step.Removed > 0 {
-			detail = fmt.Sprintf(" +%d -%d lines", step.Added, step.Removed)
-		}
-		fmt.Printf("  %s %s%s\n", ui.Dim("[edit]     "), shortPath(step.Path), ui.Dim(detail))
-	case "Write":
-		detail := ""
-		if step.Lines > 0 {
-			detail = fmt.Sprintf(" %d lines", step.Lines)
-		}
-		fmt.Printf("  %s %s%s\n", ui.Dim("[write]    "), shortPath(step.Path), ui.Dim(detail))
-	case "Bash":
-		cmd := step.Command
-		if len(cmd) > 80 {
-			cmd = cmd[:77] + "..."
-		}
-		fmt.Printf("  %s %s\n", ui.Dim("[bash]     "), cmd)
-	case "Glob":
-		fmt.Printf("  %s %s\n", ui.Dim("[glob]     "), step.Content)
-	case "Grep":
-		fmt.Printf("  %s %s\n", ui.Dim("[grep]     "), step.Content)
-	default:
-		detail := step.Tool
-		if step.Path != "" {
-			detail += " " + shortPath(step.Path)
-		}
-		fmt.Printf("  %s %s\n", ui.Dim("[tool]     "), detail)
-	}
+	fmt.Print(ui.FormatStepRich(step.Type, step.Content, meta))
 }
 
 func shortID(id string) string {

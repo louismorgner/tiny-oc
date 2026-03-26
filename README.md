@@ -4,7 +4,7 @@
 
 A local CLI tool for managing and spawning AI agent sessions from reusable templates.
 
-Define agents as simple YAML configs, then spawn isolated sessions instantly. Built for engineers who want fast, reproducible agent workflows without cloud dependencies.
+Define agents as simple YAML configs, then spawn isolated sessions instantly. Built for engineers who want fast, reproducible agent workflows with a local-first control plane and pluggable runtimes.
 
 ## Install
 
@@ -14,7 +14,9 @@ curl -fsSL https://raw.githubusercontent.com/louismorgner/tiny-oc/main/get-toc.s
 
 Downloads the latest prebuilt binary for your platform. Supports macOS and Linux (amd64/arm64).
 
-Requires [Claude Code](https://docs.anthropic.com/en/docs/claude-code) to spawn agent sessions.
+Current runtime implementation: [Claude Code](https://docs.anthropic.com/en/docs/claude-code).
+
+`toc-native` is now on the internal beta path. Its current beta scope is local tools only: file operations, shell, glob/grep, and skills. External integrations are deferred until they are promoted into the native runtime as first-class tools.
 
 ### Build from source
 
@@ -54,14 +56,16 @@ toc status                                    # workspace overview
 
 When you run `toc agent spawn`, it:
 1. Copies the agent template to an isolated temp directory
-2. Launches a Claude Code session with the configured model
-3. Syncs context files back to the agent template in real-time (if configured)
-4. Tracks the session so you can resume it later
+2. Lets the selected runtime provider prepare the session workspace
+3. Launches a runtime session with the configured model
+4. Syncs configured snapshot files back to the parent agent template in real-time (if configured)
+5. Tracks the session so you can resume it later
 
 ## Documentation
 
+- [Core concepts](docs/core-concepts.md) — canonical vocabulary for sessions, snapshots, permissions, and instructions
 - [Getting started](docs/getting-started.md) — install, create your first agent, spawn a session
-- [Configuration reference](docs/configuration.md) — all config fields, context sync patterns, audit log format
+- [Configuration reference](docs/configuration.md) — all config fields, snapshot sync patterns, audit log format
 - [Skills guide](docs/skills.md) — create, install, and attach reusable capabilities
 - [Architecture](docs/architecture.md) — project structure and design decisions
 
@@ -98,8 +102,8 @@ When you run `toc agent spawn`, it:
 
 ## Roadmap
 
-- [x] Agent creation and isolated session spawning via Claude Code
-- [x] Context sync — persist session outputs back to agent templates
+- [x] Agent creation and isolated session spawning via a runtime provider
+- [x] Snapshot sync — persist selected session outputs back to agent templates
 - [x] Audit log — append-only JSON Lines log for compliance and traceability
 - [x] Skills — reusable, shareable agent capabilities
 - [x] Registry — unified catalog of skills and agent templates with search and install

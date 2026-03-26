@@ -43,24 +43,44 @@ var runtimeStatusCmd = &cobra.Command{
 }
 
 type statusJSON struct {
-	ID       string `json:"id"`
-	Name     string `json:"name,omitempty"`
-	Agent    string `json:"agent"`
-	Status   string `json:"status"`
-	Prompt   string `json:"prompt,omitempty"`
-	ExitCode *int   `json:"exit_code,omitempty"`
+	ID           string `json:"id"`
+	Name         string `json:"name,omitempty"`
+	Agent        string `json:"agent"`
+	Status       string `json:"status"`
+	Prompt       string `json:"prompt,omitempty"`
+	ExitCode     *int   `json:"exit_code,omitempty"`
+	Model        string `json:"model,omitempty"`
+	Runtime      string `json:"runtime,omitempty"`
+	RuntimeState string `json:"runtime_state,omitempty"`
+	ResumeCount  int    `json:"resume_count,omitempty"`
+	Recoveries   int    `json:"recovery_count,omitempty"`
+	Compactions  int    `json:"compactions,omitempty"`
+	LastError    string `json:"last_error,omitempty"`
+	LastRecovery string `json:"last_recovery,omitempty"`
+	TokenTotal   int64  `json:"token_total,omitempty"`
 }
 
 func statusJSONForSession(s *session.Session) statusJSON {
 	sj := statusJSON{
-		ID:     s.ID,
-		Name:   s.Name,
-		Agent:  s.Agent,
-		Status: s.ResolvedStatus(),
-		Prompt: s.Prompt,
+		ID:      s.ID,
+		Name:    s.Name,
+		Agent:   s.Agent,
+		Status:  s.ResolvedStatus(),
+		Prompt:  s.Prompt,
+		Runtime: s.RuntimeName(),
 	}
 	if exitCode, err := s.ReadExitCode(); err == nil {
 		sj.ExitCode = &exitCode
+	}
+	if summary, err := loadRuntimeStateSummary(s); err == nil && summary != nil {
+		sj.Model = summary.Model
+		sj.RuntimeState = summary.Status
+		sj.ResumeCount = summary.ResumeCount
+		sj.Recoveries = summary.RecoveryCount
+		sj.Compactions = summary.CompactionCount
+		sj.LastError = summary.LastError
+		sj.LastRecovery = summary.LastRecovery
+		sj.TokenTotal = summary.Tokens.Total()
 	}
 	return sj
 }
@@ -137,8 +157,35 @@ func showSubAgentStatus(ctx *runtime.Context, sessionID string) error {
 	}
 	fmt.Printf("  %s %s\n", ui.Bold("Status:"), badge)
 	fmt.Printf("  %s %s\n", ui.Bold("Session:"), ui.Dim(s.ID))
+	fmt.Printf("  %s %s\n", ui.Bold("Runtime:"), ui.Dim(s.RuntimeName()))
 	if exitCode, err := s.ReadExitCode(); err == nil {
 		fmt.Printf("  %s %d\n", ui.Bold("Exit code:"), exitCode)
+	}
+	if summary, err := loadRuntimeStateSummary(s); err == nil && summary != nil {
+		if summary.Model != "" {
+			fmt.Printf("  %s %s\n", ui.Bold("Model:"), ui.Dim(summary.Model))
+		}
+		if summary.Status != "" {
+			fmt.Printf("  %s %s\n", ui.Bold("State:"), ui.Dim(summary.Status))
+		}
+		if summary.ResumeCount > 0 {
+			fmt.Printf("  %s %d\n", ui.Bold("Resumes:"), summary.ResumeCount)
+		}
+		if summary.RecoveryCount > 0 {
+			fmt.Printf("  %s %d\n", ui.Bold("Recoveries:"), summary.RecoveryCount)
+		}
+		if summary.CompactionCount > 0 {
+			fmt.Printf("  %s %d\n", ui.Bold("Compactions:"), summary.CompactionCount)
+		}
+		if total := summary.Tokens.FormatTotal(); total != "" {
+			fmt.Printf("  %s %s\n", ui.Bold("Tokens:"), ui.Dim(total))
+		}
+		if summary.LastError != "" {
+			fmt.Printf("  %s %s\n", ui.Bold("Last error:"), ui.Dim(summary.LastError))
+		}
+		if summary.LastRecovery != "" {
+			fmt.Printf("  %s %s\n", ui.Bold("Last recovery:"), ui.Dim(summary.LastRecovery))
+		}
 	}
 	if s.Prompt != "" {
 		prompt := s.Prompt
@@ -177,11 +224,24 @@ func listSubAgentStatuses(ctx *runtime.Context) error {
 	}
 
 	fmt.Println()
-	fmt.Printf("  %-10s %-16s %-10s %s\n", ui.Bold("STATUS"), ui.Bold("AGENT"), ui.Bold("SESSION"), ui.Bold("NAME"))
-	fmt.Printf("  %-10s %-16s %-10s %s\n", ui.Dim("──────────"), ui.Dim("────────────────"), ui.Dim("──────────"), ui.Dim("────────────────────────────"))
+	fmt.Printf("  %-10s %-16s %-10s %-10s %s\n", ui.Bold("STATUS"), ui.Bold("AGENT"), ui.Bold("SESSION"), ui.Bold("TOKENS"), ui.Bold("NAME"))
+	fmt.Printf("  %-10s %-16s %-10s %-10s %s\n", ui.Dim("──────────"), ui.Dim("────────────────"), ui.Dim("──────────"), ui.Dim("──────────"), ui.Dim("────────────────────────────"))
 
 	for _, s := range children {
 		badge := statusBadge(s.ResolvedStatus())
+		tokenText := ""
+		if summary, err := loadRuntimeStateSummary(&s); err == nil && summary != nil {
+			tokenText = summary.Tokens.FormatTotal()
+			if tokenText == "" && summary.ResumeCount > 0 {
+				tokenText = fmt.Sprintf("resume:%d", summary.ResumeCount)
+			}
+			if tokenText == "" && summary.RecoveryCount > 0 {
+				tokenText = fmt.Sprintf("recover:%d", summary.RecoveryCount)
+			}
+		}
+		if len(tokenText) > 10 {
+			tokenText = tokenText[:10]
+		}
 
 		label := s.Name
 		if label == "" {
@@ -191,7 +251,7 @@ func listSubAgentStatuses(ctx *runtime.Context) error {
 			label = label[:37] + "..."
 		}
 
-		fmt.Printf("  %-10s %-16s %-10s %s\n", badge, ui.Cyan(s.Agent), ui.Dim(s.ID[:8]), ui.Dim(label))
+		fmt.Printf("  %-10s %-16s %-10s %-10s %s\n", badge, ui.Cyan(s.Agent), ui.Dim(s.ID[:8]), ui.Dim(tokenText), ui.Dim(label))
 	}
 
 	fmt.Println()

@@ -103,7 +103,7 @@ func (m statusModel) View() tea.View {
 	agentTokens := make(map[string]usage.TokenUsage)
 	var totalTokens usage.TokenUsage
 	for _, s := range m.sessions {
-		tokens := usage.ForSession(s.WorkspacePath, s.ID)
+		tokens := usage.ForSession(&s)
 		combined := agentTokens[s.Agent]
 		combined.InputTokens += tokens.InputTokens
 		combined.OutputTokens += tokens.OutputTokens
@@ -217,7 +217,7 @@ func (m statusModel) View() tea.View {
 				parent = dim(" ← " + pid)
 			}
 
-			tokens := usage.ForSession(s.WorkspacePath, s.ID)
+			tokens := usage.ForSession(&s)
 			tokenStr := tokens.FormatTotal()
 			tokenCol := ""
 			if tokenStr != "" {

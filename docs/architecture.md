@@ -2,9 +2,11 @@
 
 A brief overview of how toc is structured internally.
 
+For canonical vocabulary, see [Core concepts](core-concepts.md).
+
 ## Design principles
 
-- **Local-first** — everything runs on your machine, no cloud dependencies beyond Claude Code itself
+- **Local-first** — everything runs on your machine, with runtime integrations isolated behind explicit provider boundaries
 - **Template-driven** — agents are defined as config + instructions, versioned alongside your code
 - **Isolated sessions** — each spawn gets a fresh copy, so agents can't corrupt each other or your project
 - **Auditable** — every action is logged for traceability
@@ -23,33 +25,33 @@ toc agent spawn pr-reviewer
         ▼
 ┌─────────────────┐
 │  Create session  │  Generate UUID, create /tmp/toc-sessions/pr-reviewer-<ts>/
-│  workspace       │  Copy agent template to temp dir
+│  workspace       │  Copy the parent agent snapshot to a temp working dir
 └───────┬─────────┘
         │
         ▼
 ┌─────────────────┐
-│  Provision       │  Build CLAUDE.md from agent.md + compose files
-│  session         │  Apply template variables ({{.AgentName}}, {{.Date}}, etc.)
-│                  │  Resolve skills → .claude/skills/
-│                  │  Generate sync hooks → .claude/toc-sync.sh + settings.json
+│  Provision       │  Let the runtime provider prepare instructions,
+│  session         │  runtime dirs, hooks, and other session files
+│                  │  Resolve and persist session.json, then resolve skills
+│                  │  into the provider's runtime workspace
 └───────┬─────────┘
         │
         ▼
 ┌─────────────────┐
-│  Launch Claude   │  Execute: claude --model <model> --session-id <uuid>
+│  Launch runtime  │  Dispatch to the configured runtime provider
 │  Code            │  Working directory: session temp dir
 └───────┬─────────┘
         │
         ▼  (during session)
 ┌─────────────────┐
-│  Real-time sync  │  PostToolUse hook fires on Edit/Write/MultiEdit
-│                  │  Matching files copied back to agent template
+│  Real-time sync  │  Runtime-specific machinery can push matching files
+│                  │  back to the parent snapshot while the session runs
 └───────┬─────────┘
         │
         ▼  (session ending, if on_end configured)
 ┌─────────────────┐
-│  Session end     │  SessionEnd hook runs on_end prompt with tool access
-│  hook            │  Agent persists context before session closes
+│  Session end     │  Runtime-specific end-of-session behavior can persist
+│  hook            │  context before the session fully closes
 └───────┬─────────┘
         │
         ▼  (session closed)
@@ -94,11 +96,11 @@ toc agent spawn pr-reviewer
 │   ├── audit/                 # Append-only JSON Lines audit log
 │   ├── config/                # Workspace config and paths
 │   ├── registry/              # Remote registry: fetch, search, install skills and agents
-│   ├── runtime/               # Runtime context: env var resolution for agent sessions
+│   ├── runtime/               # Runtime context + provider implementations
 │   ├── session/               # Session tracking (sessions.yaml), parent-child relationships
 │   ├── skill/                 # Skill management: local + URL
 │   ├── spawn/                 # Session orchestration, sub-agent spawning
-│   ├── sync/                  # Context sync: patterns, hooks, file copy
+│   ├── sync/                  # Context sync: patterns and file copy primitives
 │   └── ui/                    # Terminal output helpers (colors, prompts)
 ├── registry/                  # Built-in skills and agent templates
 │   ├── agents/                # cto, mini-claw
@@ -115,11 +117,11 @@ Manages workspace state. `config.Exists()` checks if `.toc/` is initialized. All
 
 ### Spawn (`internal/spawn/`)
 
-Orchestrates session creation. This is the core flow — copies the agent template, builds CLAUDE.md from agent.md + compose files with template variable substitution, resolves skills, sets up sync hooks, and execs the `claude` CLI as a subprocess.
+Orchestrates session creation. This is the core flow — copies the agent template, resolves declarative agent config into a toc-owned per-session contract, writes `.toc/sessions/<id>/session.json`, delegates runtime-specific session preparation to the provider, resolves skills into the provider's runtime directory, records the selected runtime in session metadata, and dispatches process launch through the runtime provider.
 
 ### Sync (`internal/sync/`)
 
-Handles bidirectional file sync between session temp directories and agent templates. Implements glob pattern matching (including `**` recursive patterns) and generates the PostToolUse hook shell script.
+Handles snapshot sync between session temp directories and parent agent templates. It implements glob pattern matching (including `**` recursive patterns) and generic file-copy behavior; provider-specific hook or callback wiring lives in the runtime implementation.
 
 ### Audit (`internal/audit/`)
 
@@ -127,7 +129,9 @@ Append-only logger. Each event is a single JSON line written to `.toc/audit.log`
 
 ### Runtime (`internal/runtime/`)
 
-Provides session context for `toc runtime` commands. Reads `TOC_WORKSPACE`, `TOC_AGENT`, and `TOC_SESSION_ID` environment variables (injected at launch time) to resolve the workspace, load agent configs, and enforce sub-agent permissions from within a running session.
+Provides session context for `toc runtime` commands and the runtime provider boundary. It reads `TOC_WORKSPACE`, `TOC_AGENT`, and `TOC_SESSION_ID` environment variables (injected at launch time) to resolve the workspace, load session metadata, and enforce sub-agent permissions from within a running session. It also owns the resolved session contract, runtime-specific launch and observability behavior, detached-process wrappers, and translation into toc-owned normalized events stored under `.toc/sessions/<id>/events.jsonl`.
+
+For the current `toc-native` beta path, the native runtime scope is intentionally limited to local tools. Integrations remain outside the native tool loop until they are promoted into the runtime as first-class tools with the same session contract and observability semantics.
 
 ### Skills (`internal/skill/`)
 

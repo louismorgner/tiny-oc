@@ -140,3 +140,84 @@ func Header(text string) {
 func Command(cmd string) {
 	fmt.Printf("  %s %s\n", Dim("$"), Bold(cmd))
 }
+
+// FormatToolCall formats a tool call visualization for terminal display.
+// It shows the tool name and key parameter, plus a truncated output preview.
+// Returns the formatted string (caller writes it to the appropriate writer).
+func FormatToolCall(toolName, keyParam, output string, maxOutputLines int) string {
+	if maxOutputLines <= 0 {
+		maxOutputLines = 5
+	}
+
+	var b strings.Builder
+
+	// Header line: ○ ToolName key-param
+	header := fmt.Sprintf("  %s %s", Dim("○"), Bold(toolName))
+	if keyParam != "" {
+		header += " " + Dim(keyParam)
+	}
+	b.WriteString(header)
+	b.WriteByte('\n')
+
+	// Output preview (truncated)
+	output = strings.TrimRight(output, "\n\r ")
+	if output != "" {
+		lines := strings.Split(output, "\n")
+		truncated := false
+		if len(lines) > maxOutputLines {
+			lines = lines[:maxOutputLines]
+			truncated = true
+		}
+		for _, line := range lines {
+			b.WriteString("    " + Dim(line) + "\n")
+		}
+		if truncated {
+			b.WriteString("    " + Dim("...") + "\n")
+		}
+	}
+
+	return b.String()
+}
+
+// ToolCallKeyParam extracts the most relevant parameter to display
+// next to a tool name in the tool call visualization.
+func ToolCallKeyParam(toolName string, args map[string]interface{}) string {
+	switch toolName {
+	case "Bash":
+		if cmd, ok := args["command"].(string); ok {
+			return truncateInlineUI(cmd, 80)
+		}
+	case "Read":
+		if fp, ok := args["file_path"].(string); ok {
+			return fp
+		}
+	case "Write":
+		if fp, ok := args["file_path"].(string); ok {
+			return fp
+		}
+	case "Edit":
+		if fp, ok := args["file_path"].(string); ok {
+			return fp
+		}
+	case "Glob":
+		if p, ok := args["pattern"].(string); ok {
+			return p
+		}
+	case "Grep":
+		if p, ok := args["pattern"].(string); ok {
+			return truncateInlineUI(p, 60)
+		}
+	case "Skill":
+		if s, ok := args["skill"].(string); ok {
+			return s
+		}
+	}
+	return ""
+}
+
+func truncateInlineUI(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen-3] + "..."
+}

@@ -57,45 +57,71 @@ var runtimeWatchCmd = &cobra.Command{
 
 		// If session is already completed, replay all steps and exit
 		status := s.ResolvedStatus()
-		if status == "completed" || status == "failed" {
+		if status == "completed" || status == session.StatusCompletedOK || status == session.StatusCompletedError || status == session.StatusCancelled {
 			return watchCompleted(s, jsonFlag, verbose, status)
 		}
 
-		// Resolve JSONL path — use existing file if available, otherwise
-		// construct the expected path so the tailer can poll for it.
-		jsonlPath := replay.SessionJSONLPath(s.WorkspacePath, s.ID)
-		if jsonlPath == "" {
-			jsonlPath = replay.ExpectedJSONLPath(s.WorkspacePath, s.ID)
+		provider, err := runtime.Get(s.RuntimeName())
+		if err != nil {
+			return err
 		}
+
+		// Resolve the runtime log path — use an existing file if available,
+		// otherwise construct the expected path so the tailer can poll for it.
+		logPath := provider.SessionLogPath(s)
+		if logPath == "" {
+			logPath = provider.ExpectedSessionLogPath(s)
+		}
+		isNativeEventLog := logPath != "" && logPath == runtime.EventLogPath(s)
 
 		// Set up signal handling
 		ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 		defer cancel()
 
-		if replay.SessionJSONLPath(s.WorkspacePath, s.ID) == "" {
+		if provider.SessionLogPath(s) == "" {
 			ui.Info("Waiting for session %s to start...", shortID(s.ID))
 		} else {
-			ui.Info("Watching session %s (%s)...", shortID(s.ID), s.Agent)
+			fmt.Println()
+			fmt.Printf("  %s  %s\n", ui.BoldCyan(s.Agent), ui.Dim(shortID(s.ID)))
+			fmt.Printf("  %s\n", ui.Dim("watching..."))
+			fmt.Println(ui.TurnSeparator())
 		}
 		fmt.Println()
 
 		events, err := tail.Tail(ctx, tail.Options{
-			JSONLPath:     jsonlPath,
+			LogPath:       logPath,
 			WorkspacePath: s.WorkspacePath,
+			Provider:      provider,
 		})
 		if err != nil {
 			return err
 		}
 
+		skippedCached := 0
+		cachedCount := runtime.EventCount(s)
+
 		for event := range events {
 			if event.Finished {
+				_, _ = runtime.EnsureEventLog(s)
 				fmt.Println()
-				if event.ExitCode == "0" {
+				printRuntimeWatchSummary(s)
+				if currentStatus := s.ResolvedStatus(); currentStatus == session.StatusCancelled {
+					ui.Warn("Session cancelled")
+				} else if event.ExitCode == "0" {
 					ui.Success("Session completed")
 				} else {
 					ui.Error("Session failed (exit code %s)", event.ExitCode)
 				}
 				return nil
+			}
+
+			if skippedCached < cachedCount {
+				skippedCached++
+				continue
+			}
+
+			if !isNativeEventLog {
+				_ = runtime.AppendEvent(s, event.Event)
 			}
 
 			// Skip thinking unless verbose
@@ -140,10 +166,35 @@ func watchCompleted(s *session.Session, jsonFlag, verbose bool, status string) e
 	}
 
 	fmt.Println()
-	if status == "completed" {
+	printRuntimeWatchSummary(s)
+	if status == "completed" || status == session.StatusCompletedOK {
 		ui.Success("Session already completed (%s)", r.FormatDuration())
+	} else if status == session.StatusCancelled {
+		ui.Warn("Session cancelled (%s)", r.FormatDuration())
 	} else {
 		ui.Error("Session failed (%s)", r.FormatDuration())
 	}
 	return nil
+}
+
+func printRuntimeWatchSummary(s *session.Session) {
+	summary, err := loadRuntimeStateSummary(s)
+	if err != nil || summary == nil {
+		return
+	}
+
+	fmt.Println(ui.TurnSeparator())
+	fmt.Println()
+
+	failed := s.ResolvedStatus() != session.StatusCompletedOK && s.ResolvedStatus() != "completed"
+	fmt.Print(ui.FormatSessionSummary(
+		summary.Model,
+		summary.Tokens.FormatTotal(),
+		summary.ResumeCount,
+		summary.RecoveryCount,
+		summary.CompactionCount,
+		summary.LastError,
+		summary.LastRecovery,
+		failed,
+	))
 }

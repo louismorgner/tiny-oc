@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/tiny-oc/toc/internal/config"
+	"github.com/tiny-oc/toc/internal/runtimeinfo"
 	"gopkg.in/yaml.v3"
 )
 
@@ -26,11 +27,30 @@ type Session struct {
 	ID              string    `yaml:"id"`
 	Name            string    `yaml:"name,omitempty"`
 	Agent           string    `yaml:"agent"`
+	Runtime         string    `yaml:"runtime,omitempty"`
+	MetadataDir     string    `yaml:"metadata_dir,omitempty"`
 	CreatedAt       time.Time `yaml:"created_at"`
 	WorkspacePath   string    `yaml:"workspace_path"`
 	Status          string    `yaml:"status,omitempty"`
 	ParentSessionID string    `yaml:"parent_session_id,omitempty"`
 	Prompt          string    `yaml:"prompt,omitempty"`
+}
+
+func (s *Session) RuntimeName() string {
+	if s.Runtime == "" {
+		return runtimeinfo.DefaultRuntime
+	}
+	return s.Runtime
+}
+
+func (s *Session) MetadataDirPath() string {
+	if s.MetadataDir != "" {
+		return s.MetadataDir
+	}
+	if s.ParentSessionID == "" {
+		return filepath.Join(config.SessionsDir(), s.ID)
+	}
+	return ""
 }
 
 // ResolvedStatus returns the display status, checking filesystem signals.
@@ -50,6 +70,15 @@ func (s *Session) ResolvedStatus() string {
 	}
 	if s.Status == StatusCompleted {
 		return "completed"
+	}
+	if s.Status == StatusCompletedOK {
+		return StatusCompletedOK
+	}
+	if s.Status == StatusCompletedError {
+		return StatusCompletedError
+	}
+	if s.Status == StatusCancelled {
+		return StatusCancelled
 	}
 	// Legacy sessions without status field
 	return "completed"

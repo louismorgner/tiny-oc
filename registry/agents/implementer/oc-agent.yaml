@@ -1,0 +1,13 @@
+runtime: toc-native
+name: implementer
+description: Focused implementation agent — receives scoped tasks, executes precisely, reports results
+model: anthropic/claude-sonnet-4
+context:
+  - BOOTSTRAP.md
+compose:
+  - BOOTSTRAP.md
+permissions:
+  filesystem:
+    read: "on"
+    write: "on"
+    execute: "on"

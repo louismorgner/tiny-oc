@@ -36,9 +36,10 @@ func init() {
 }
 
 var nativeRunCmd = &cobra.Command{
-	Use:    "__native-run",
-	Short:  "Internal toc-native runtime entrypoint",
-	Hidden: true,
+	Use:          "__native-run",
+	Short:        "Internal toc-native runtime entrypoint",
+	Hidden:       true,
+	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if nativeRunDir == "" || nativeRunSessionID == "" || nativeRunAgent == "" || nativeRunWorkspace == "" {
 			return fmt.Errorf("missing required native runtime flags")

@@ -5,15 +5,92 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/tiny-oc/toc/internal/config"
 )
+
+const (
+	maxRetryAttempts = 3
+	retryBaseDelay   = 1 * time.Second
+)
+
+// isRetryableStatusCode returns true for HTTP status codes that indicate
+// a transient server-side error worth retrying.
+func isRetryableStatusCode(code int) bool {
+	switch code {
+	case http.StatusTooManyRequests,
+		http.StatusInternalServerError,
+		http.StatusBadGateway,
+		http.StatusServiceUnavailable,
+		http.StatusGatewayTimeout:
+		return true
+	}
+	return false
+}
+
+// isRetryableNetworkError returns true for transient network-level errors
+// (connection refused, DNS failures, timeouts).
+func isRetryableNetworkError(err error) bool {
+	if err == nil {
+		return false
+	}
+	var netErr net.Error
+	if errors.As(err, &netErr) {
+		return true
+	}
+	var opErr *net.OpError
+	if errors.As(err, &opErr) {
+		return true
+	}
+	return false
+}
+
+// retryDelay computes backoff delay for the given attempt (0-indexed).
+// For 429 responses, it respects the Retry-After header if present.
+func retryDelay(attempt int, resp *http.Response) time.Duration {
+	if resp != nil && resp.StatusCode == http.StatusTooManyRequests {
+		if ra := resp.Header.Get("Retry-After"); ra != "" {
+			if secs, err := strconv.Atoi(ra); err == nil && secs > 0 {
+				return time.Duration(secs) * time.Second
+			}
+		}
+	}
+	// Exponential backoff: 1s, 2s, 4s
+	return retryBaseDelay * (1 << attempt)
+}
+
+// openRouterAPIError formats a user-friendly error for an OpenRouter HTTP error.
+func openRouterAPIError(statusCode int, serverMsg string, exhaustedRetries bool) error {
+	switch {
+	case statusCode == http.StatusUnauthorized || statusCode == http.StatusForbidden:
+		return fmt.Errorf("OpenRouter authentication failed (HTTP %d). Check your API key with: toc config set-key openrouter", statusCode)
+	case statusCode == http.StatusTooManyRequests:
+		return fmt.Errorf("OpenRouter rate limit exceeded (HTTP 429). Wait a moment and retry.")
+	case statusCode >= 500 && statusCode < 600:
+		detail := fmt.Sprintf("HTTP %d %s", statusCode, http.StatusText(statusCode))
+		if serverMsg != "" {
+			detail += ": " + serverMsg
+		}
+		if exhaustedRetries {
+			return fmt.Errorf("OpenRouter server error after %d attempts (%s). Your session is saved and can be resumed.", maxRetryAttempts, detail)
+		}
+		return fmt.Errorf("OpenRouter server error (%s)", detail)
+	default:
+		if serverMsg != "" {
+			return fmt.Errorf("OpenRouter request failed (HTTP %d %s): %s", statusCode, http.StatusText(statusCode), serverMsg)
+		}
+		return fmt.Errorf("OpenRouter request failed (HTTP %d %s)", statusCode, http.StatusText(statusCode))
+	}
+}
 
 const defaultOpenRouterBaseURL = "https://openrouter.ai/api/v1"
 
@@ -134,45 +211,77 @@ func (c *openRouterClient) Chat(ctx context.Context, req chatRequest) (*chatResp
 		return nil, err
 	}
 
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/chat/completions", bytes.NewReader(body))
-	if err != nil {
-		return nil, err
-	}
-	httpReq.Header.Set("Authorization", "Bearer "+c.apiKey)
-	httpReq.Header.Set("Content-Type", "application/json")
-	if c.title != "" {
-		httpReq.Header.Set("X-OpenRouter-Title", c.title)
-	}
-	if c.referer != "" {
-		httpReq.Header.Set("HTTP-Referer", c.referer)
-	}
-
-	resp, err := c.httpClient.Do(httpReq)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	data, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-
-	var parsed chatResponse
-	if err := json.Unmarshal(data, &parsed); err != nil {
-		return nil, fmt.Errorf("failed to decode OpenRouter response: %w", err)
-	}
-	if resp.StatusCode >= 400 {
-		if parsed.Error != nil && parsed.Error.Message != "" {
-			return nil, fmt.Errorf("openrouter request failed (%d): %s", resp.StatusCode, parsed.Error.Message)
+	var lastErr error
+	for attempt := 0; attempt < maxRetryAttempts; attempt++ {
+		if attempt > 0 {
+			delay := retryDelay(attempt-1, nil)
+			fmt.Fprintf(os.Stderr, "OpenRouter returned an error, retrying in %s (attempt %d/%d)...\n", delay, attempt+1, maxRetryAttempts)
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-time.After(delay):
+			}
 		}
-		return nil, fmt.Errorf("openrouter request failed (%d)", resp.StatusCode)
-	}
-	if len(parsed.Choices) == 0 {
-		return nil, fmt.Errorf("openrouter returned no choices")
+
+		httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/chat/completions", bytes.NewReader(body))
+		if err != nil {
+			return nil, err
+		}
+		httpReq.Header.Set("Authorization", "Bearer "+c.apiKey)
+		httpReq.Header.Set("Content-Type", "application/json")
+		if c.title != "" {
+			httpReq.Header.Set("X-OpenRouter-Title", c.title)
+		}
+		if c.referer != "" {
+			httpReq.Header.Set("HTTP-Referer", c.referer)
+		}
+
+		resp, err := c.httpClient.Do(httpReq)
+		if err != nil {
+			if isRetryableNetworkError(err) {
+				lastErr = err
+				continue
+			}
+			return nil, err
+		}
+
+		data, readErr := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if readErr != nil {
+			return nil, readErr
+		}
+
+		if resp.StatusCode >= 400 {
+			var serverMsg string
+			var parsed chatResponse
+			if json.Unmarshal(data, &parsed) == nil && parsed.Error != nil {
+				serverMsg = parsed.Error.Message
+			}
+			if isRetryableStatusCode(resp.StatusCode) {
+				lastErr = openRouterAPIError(resp.StatusCode, serverMsg, false)
+				continue
+			}
+			return nil, openRouterAPIError(resp.StatusCode, serverMsg, false)
+		}
+
+		var parsed chatResponse
+		if err := json.Unmarshal(data, &parsed); err != nil {
+			return nil, fmt.Errorf("failed to decode OpenRouter response: %w", err)
+		}
+		if len(parsed.Choices) == 0 {
+			return nil, fmt.Errorf("openrouter returned no choices")
+		}
+		return &parsed, nil
 	}
 
-	return &parsed, nil
+	// All retries exhausted — produce a descriptive final error.
+	if lastErr != nil {
+		if isRetryableNetworkError(lastErr) {
+			return nil, fmt.Errorf("OpenRouter unreachable after %d attempts: %w. Your session is saved and can be resumed.", maxRetryAttempts, lastErr)
+		}
+		return nil, fmt.Errorf("OpenRouter server error after %d attempts. Your session is saved and can be resumed.", maxRetryAttempts)
+	}
+	return nil, fmt.Errorf("OpenRouter request failed after %d attempts", maxRetryAttempts)
 }
 
 func (c *openRouterClient) ChatStream(ctx context.Context, req chatRequest, onText func(string) error) (*chatResponse, error) {
@@ -183,36 +292,71 @@ func (c *openRouterClient) ChatStream(ctx context.Context, req chatRequest, onTe
 		return nil, err
 	}
 
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/chat/completions", bytes.NewReader(body))
-	if err != nil {
-		return nil, err
-	}
-	httpReq.Header.Set("Authorization", "Bearer "+c.apiKey)
-	httpReq.Header.Set("Content-Type", "application/json")
-	if c.title != "" {
-		httpReq.Header.Set("X-OpenRouter-Title", c.title)
-	}
-	if c.referer != "" {
-		httpReq.Header.Set("HTTP-Referer", c.referer)
-	}
+	var resp *http.Response
+	var lastErr error
+	for attempt := 0; attempt < maxRetryAttempts; attempt++ {
+		if attempt > 0 {
+			delay := retryDelay(attempt-1, resp)
+			fmt.Fprintf(os.Stderr, "OpenRouter returned an error, retrying in %s (attempt %d/%d)...\n", delay, attempt+1, maxRetryAttempts)
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-time.After(delay):
+			}
+		}
 
-	resp, err := c.httpClient.Do(httpReq)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode >= 400 {
-		data, err := io.ReadAll(resp.Body)
+		httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/chat/completions", bytes.NewReader(body))
 		if err != nil {
 			return nil, err
 		}
-		var parsed chatResponse
-		if err := json.Unmarshal(data, &parsed); err == nil && parsed.Error != nil && parsed.Error.Message != "" {
-			return nil, fmt.Errorf("openrouter request failed (%d): %s", resp.StatusCode, parsed.Error.Message)
+		httpReq.Header.Set("Authorization", "Bearer "+c.apiKey)
+		httpReq.Header.Set("Content-Type", "application/json")
+		if c.title != "" {
+			httpReq.Header.Set("X-OpenRouter-Title", c.title)
 		}
-		return nil, fmt.Errorf("openrouter request failed (%d)", resp.StatusCode)
+		if c.referer != "" {
+			httpReq.Header.Set("HTTP-Referer", c.referer)
+		}
+
+		resp, err = c.httpClient.Do(httpReq)
+		if err != nil {
+			if isRetryableNetworkError(err) {
+				lastErr = err
+				continue
+			}
+			return nil, err
+		}
+
+		if resp.StatusCode >= 400 {
+			data, readErr := io.ReadAll(resp.Body)
+			resp.Body.Close()
+			if readErr != nil {
+				return nil, readErr
+			}
+			var serverMsg string
+			var parsed chatResponse
+			if json.Unmarshal(data, &parsed) == nil && parsed.Error != nil {
+				serverMsg = parsed.Error.Message
+			}
+			if isRetryableStatusCode(resp.StatusCode) {
+				lastErr = openRouterAPIError(resp.StatusCode, serverMsg, false)
+				continue
+			}
+			return nil, openRouterAPIError(resp.StatusCode, serverMsg, false)
+		}
+
+		// Success — break out of retry loop and proceed to stream parsing.
+		lastErr = nil
+		break
 	}
+
+	if lastErr != nil {
+		if isRetryableNetworkError(lastErr) {
+			return nil, fmt.Errorf("OpenRouter unreachable after %d attempts: %w. Your session is saved and can be resumed.", maxRetryAttempts, lastErr)
+		}
+		return nil, fmt.Errorf("OpenRouter server error after %d attempts. Your session is saved and can be resumed.", maxRetryAttempts)
+	}
+	defer resp.Body.Close()
 
 	scanner := bufio.NewScanner(resp.Body)
 	scanner.Buffer(make([]byte, 0, 256*1024), 4*1024*1024)

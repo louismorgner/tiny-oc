@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"syscall"
 
@@ -110,6 +111,13 @@ func (nativeProvider) LaunchInteractive(opts LaunchOptions) error {
 			cmd.Env = append(cmd.Env, "OPENROUTER_API_KEY="+key)
 		}
 	}
+
+	// Ignore SIGINT in the parent while the child runs. The child process
+	// handles SIGINT itself (graceful finalization). Without this, Go's
+	// default handler kills the parent before post-session hooks can run.
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGINT)
+	defer signal.Stop(sigCh)
 
 	if err := cmd.Run(); err != nil {
 		// Swallow ExitError (e.g. from Ctrl+C / SIGINT) so that the caller

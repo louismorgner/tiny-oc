@@ -209,6 +209,7 @@ func showSubAgentStatus(ctx *runtime.Context, sessionID string) error {
 	case session.StatusCompletedError, session.StatusZombie:
 		ui.Info("Read output:  %s", ui.Bold(fmt.Sprintf("toc runtime output %s", sessionID)))
 		ui.Info("Resume:       %s", ui.Bold(fmt.Sprintf("toc runtime spawn %s --resume %s", s.Agent, sessionID)))
+		ui.Info("Diagnostics:  %s", ui.Bold(fmt.Sprintf("toc debug %s", sessionID)))
 		fmt.Println()
 	case session.StatusCancelled:
 		ui.Info("Resume: %s", ui.Bold(fmt.Sprintf("toc runtime spawn %s --resume %s", s.Agent, sessionID)))

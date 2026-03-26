@@ -10,7 +10,7 @@ import (
 	"github.com/tiny-oc/toc/internal/session"
 )
 
-const StateVersion = 3
+const StateVersion = 4
 
 type Message struct {
 	Role       string     `json:"role"`
@@ -79,8 +79,16 @@ type State struct {
 	Usage             TokenUsageSnapshot `json:"usage,omitempty"`
 	Messages          []Message          `json:"messages,omitempty"`
 	PendingTurn       *TurnCheckpoint    `json:"pending_turn,omitempty"`
+	CrashInfo         *CrashInfo         `json:"crash_info,omitempty"`
 	CreatedAt         time.Time          `json:"created_at"`
 	UpdatedAt         time.Time          `json:"updated_at"`
+}
+
+type CrashInfo struct {
+	PanicMessage string    `json:"panic_message,omitempty"`
+	StackTrace   string    `json:"stack_trace,omitempty"`
+	LastToolCall string    `json:"last_tool_call,omitempty"`
+	CrashTime    time.Time `json:"crash_time,omitempty"`
 }
 
 type TurnCheckpoint struct {

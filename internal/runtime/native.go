@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -98,7 +99,12 @@ func (nativeProvider) LaunchInteractive(opts LaunchOptions) error {
 	cmd.Dir = opts.Dir
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
+	stderrLog, err := os.OpenFile(StderrLogPathInWorkspace(opts.Workspace, opts.SessionID), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
+	if err != nil {
+		return fmt.Errorf("failed to open stderr log: %w", err)
+	}
+	defer stderrLog.Close()
+	cmd.Stderr = io.MultiWriter(os.Stderr, stderrLog)
 	cmd.Env = append(os.Environ(),
 		"TOC_WORKSPACE="+opts.Workspace,
 		"TOC_AGENT="+opts.AgentName,

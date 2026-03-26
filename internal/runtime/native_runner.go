@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	rdebug "runtime/debug"
 	"strings"
 	"syscall"
 	"time"
@@ -355,6 +356,40 @@ func runNativePrompt(client *openRouterClient, state *State, toolSpecs []NativeT
 const defaultMaxIterations = 24
 
 func runNativeLoop(client *openRouterClient, state *State, toolSpecs []NativeToolSpec, profile runtimeinfo.NativeModelProfile, toolCtx nativeToolContext, sess *session.Session, stdout io.Writer, detached bool) error {
+	defer func() {
+		recovered := recover()
+		if recovered == nil {
+			return
+		}
+
+		panicMessage := fmt.Sprint(recovered)
+		stackTrace := strings.TrimSpace(string(rdebug.Stack()))
+		crashTime := time.Now().UTC()
+		lastToolCall := LastToolCall(state)
+
+		state.Status = "crashed"
+		state.LastError = panicMessage
+		state.PendingTurn = nil
+		state.CrashInfo = &CrashInfo{
+			PanicMessage: panicMessage,
+			StackTrace:   stackTrace,
+			LastToolCall: lastToolCall,
+			CrashTime:    crashTime,
+		}
+		_ = SaveStateInWorkspace(state.Workspace, state.SessionID, state)
+		_ = AppendEvent(sess, Event{
+			Timestamp: crashTime,
+			Step: Step{
+				Type:       "crash",
+				Content:    panicMessage,
+				Tool:       lastToolCall,
+				StackTrace: stackTrace,
+			},
+		})
+
+		panic(recovered)
+	}()
+
 	maxIterations := defaultMaxIterations
 	if toolCtx.Config != nil && toolCtx.Config.RuntimeConfig.MaxIterations > 0 {
 		maxIterations = toolCtx.Config.RuntimeConfig.MaxIterations

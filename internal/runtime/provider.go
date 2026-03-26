@@ -19,9 +19,10 @@ type ModelOption struct {
 
 // Step represents a single action in a runtime session timeline.
 type Step struct {
-	Type       string `json:"type"`                  // "thinking", "text", "tool", "skill", "error"
+	Type       string `json:"type"`                  // "thinking", "text", "tool", "skill", "error", "crash"
 	Content    string `json:"content,omitempty"`     // thinking text, output text, error message
 	Tool       string `json:"tool,omitempty"`        // tool name (Read, Edit, Write, Bash, etc.)
+	StackTrace string `json:"stack_trace,omitempty"` // crash stack trace
 	Path       string `json:"path,omitempty"`        // file path for file-related tools
 	Lines      int    `json:"lines,omitempty"`       // lines read/written
 	Added      int    `json:"added,omitempty"`       // lines added (Edit)

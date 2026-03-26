@@ -8,7 +8,7 @@ Slack requires HTTPS redirect URIs. The CLI can only listen on localhost. This w
 
 ```
 Slack OAuth redirect
-  → https://toc.opencompany.cloud/slack/callback?code=xyz
+  → https://square-paper-84df.dev-f64.workers.dev/slack/callback?code=xyz
   → Worker 302 redirects to http://localhost:8976/callback?code=xyz
   → CLI's localhost server captures the code automatically
 ```
@@ -28,37 +28,17 @@ cd web/auth-callback
 npx wrangler deploy
 ```
 
-## One-time infrastructure setup
+## One-time setup
 
-These steps only need to be done once. After that, deployments are handled by CI.
-
-### 1. Cloudflare API token
+### Cloudflare API token
 
 1. Go to [Cloudflare API Tokens](https://dash.cloudflare.com/profile/api-tokens)
-2. Create a token with **Workers Scripts: Edit** permission, scoped to the account that owns `opencompany.cloud`
+2. Create a token with **Workers Scripts: Edit** permission
 3. Add it as a GitHub repository secret named `CLOUDFLARE_API_TOKEN`
 
-### 2. DNS / Worker route for `toc.opencompany.cloud`
+### Slack app redirect URI
 
-The worker needs to be reachable at `https://toc.opencompany.cloud/slack/callback`. There are two options:
-
-**Option A: Custom domain (recommended)**
-
-1. In the Cloudflare dashboard, go to **Workers & Pages > toc-auth-callback > Settings > Domains & Routes**
-2. Add a custom domain: `toc.opencompany.cloud`
-3. Cloudflare automatically provisions the DNS record and TLS certificate
-
-**Option B: Worker route**
-
-1. In the Cloudflare dashboard, go to the **opencompany.cloud** zone > **Workers Routes**
-2. Add a route: `toc.opencompany.cloud/slack/*` → `toc-auth-callback`
-3. Ensure a DNS record exists for `toc.opencompany.cloud` (a proxied AAAA record to `100::` works as a placeholder)
-
-The route pattern in `wrangler.toml` must match whichever option you choose.
-
-### 3. Slack app redirect URI
-
-In your [Slack app settings](https://api.slack.com/apps), add `https://toc.opencompany.cloud/slack/callback` as an allowed redirect URI under **OAuth & Permissions**.
+In your [Slack app settings](https://api.slack.com/apps), add `https://square-paper-84df.dev-f64.workers.dev/slack/callback` as an allowed redirect URI under **OAuth & Permissions**.
 
 ## Local development
 

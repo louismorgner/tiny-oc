@@ -71,7 +71,7 @@ func ResolveSessionConfig(cfg *agent.AgentConfig) *SessionConfig {
 		if cfg.MaxIterations > 0 {
 			sessionCfg.RuntimeConfig.MaxIterations = cfg.MaxIterations
 		}
-		sessionCfg.RuntimeConfig.CompactionTriggerChars = 24000
+		sessionCfg.RuntimeConfig.CompactionTriggerChars = 800000
 		sessionCfg.RuntimeConfig.CompactionKeepRecent = 12
 		sessionCfg.RuntimeConfig.CompactionMaxSummaryChars = 6000
 	}

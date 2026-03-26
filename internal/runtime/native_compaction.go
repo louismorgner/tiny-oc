@@ -10,7 +10,7 @@ import (
 
 const (
 	nativeCompactionSummaryPrefix       = "[toc-summary]"
-	defaultCompactionTriggerChars       = 24000
+	defaultCompactionTriggerChars       = 800000
 	defaultCompactionKeepRecentMessages = 12
 	defaultCompactionMaxSummaryChars    = 6000
 )

@@ -2,6 +2,8 @@ package integration
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -22,6 +24,7 @@ type OAuth2Config struct {
 	UserScopes   []string // user scopes — sent as "user_scope" param (Slack user tokens)
 	RedirectPort int      // used only for localhost callback fallback
 	RedirectURL  string   // if set, overrides the localhost redirect URI
+	State        string
 }
 
 // OAuth2TokenResponse represents the response from a token exchange.
@@ -35,10 +38,12 @@ type OAuth2TokenResponse struct {
 	OK           bool   `json:"ok"`
 	Error        string `json:"error"`
 	AuthedUser   *struct {
-		ID          string `json:"id"`
-		Scope       string `json:"scope"`
-		AccessToken string `json:"access_token"`
-		TokenType   string `json:"token_type"`
+		ID           string `json:"id"`
+		Scope        string `json:"scope"`
+		AccessToken  string `json:"access_token"`
+		RefreshToken string `json:"refresh_token,omitempty"`
+		ExpiresIn    int    `json:"expires_in,omitempty"`
+		TokenType    string `json:"token_type"`
 	} `json:"authed_user,omitempty"`
 }
 
@@ -84,6 +89,9 @@ func (c *OAuth2Config) AuthorizationURL() string {
 	if len(c.UserScopes) > 0 {
 		params.Set("user_scope", strings.Join(c.UserScopes, ","))
 	}
+	if c.State != "" {
+		params.Set("state", c.State)
+	}
 	return c.AuthURL + "?" + params.Encode()
 }
 
@@ -98,6 +106,11 @@ func (c *OAuth2Config) RunCallbackServer(ctx context.Context) (string, error) {
 		if errMsg := r.URL.Query().Get("error"); errMsg != "" {
 			errCh <- fmt.Errorf("OAuth error: %s — %s", errMsg, r.URL.Query().Get("error_description"))
 			fmt.Fprintf(w, "<html><body><h2>Authorization failed</h2><p>%s</p><p>You can close this tab.</p></body></html>", errMsg)
+			return
+		}
+		if c.State != "" && r.URL.Query().Get("state") != c.State {
+			errCh <- fmt.Errorf("invalid OAuth state")
+			fmt.Fprint(w, "<html><body><h2>Error</h2><p>Invalid OAuth state. You can close this tab.</p></body></html>")
 			return
 		}
 
@@ -168,8 +181,16 @@ func (c *OAuth2Config) ExchangeCode(code string) (*Credential, error) {
 
 	// Prefer user token from authed_user when user_scopes were requested.
 	accessToken := tokenResp.AccessToken
+	refreshToken := tokenResp.RefreshToken
+	expiresIn := tokenResp.ExpiresIn
 	if len(c.UserScopes) > 0 && tokenResp.AuthedUser != nil && tokenResp.AuthedUser.AccessToken != "" {
 		accessToken = tokenResp.AuthedUser.AccessToken
+		if tokenResp.AuthedUser.RefreshToken != "" {
+			refreshToken = tokenResp.AuthedUser.RefreshToken
+		}
+		if tokenResp.AuthedUser.ExpiresIn > 0 {
+			expiresIn = tokenResp.AuthedUser.ExpiresIn
+		}
 	}
 
 	if accessToken == "" {
@@ -178,11 +199,11 @@ func (c *OAuth2Config) ExchangeCode(code string) (*Credential, error) {
 
 	cred := &Credential{
 		AccessToken:  accessToken,
-		RefreshToken: tokenResp.RefreshToken,
+		RefreshToken: refreshToken,
 	}
 
-	if tokenResp.ExpiresIn > 0 {
-		expiresAt := time.Now().Add(time.Duration(tokenResp.ExpiresIn) * time.Second)
+	if expiresIn > 0 {
+		expiresAt := time.Now().Add(time.Duration(expiresIn) * time.Second)
 		cred.ExpiresAt = &expiresAt
 	}
 
@@ -250,9 +271,22 @@ func RefreshAccessToken(tokenURL, clientID, clientSecret, refreshToken string) (
 		return nil, fmt.Errorf("token refresh failed: %s", errMsg)
 	}
 
+	accessToken := tokenResp.AccessToken
+	nextRefreshToken := tokenResp.RefreshToken
+	expiresIn := tokenResp.ExpiresIn
+	if tokenResp.AuthedUser != nil && tokenResp.AuthedUser.AccessToken != "" {
+		accessToken = tokenResp.AuthedUser.AccessToken
+		if tokenResp.AuthedUser.RefreshToken != "" {
+			nextRefreshToken = tokenResp.AuthedUser.RefreshToken
+		}
+		if tokenResp.AuthedUser.ExpiresIn > 0 {
+			expiresIn = tokenResp.AuthedUser.ExpiresIn
+		}
+	}
+
 	cred := &Credential{
-		AccessToken:  tokenResp.AccessToken,
-		RefreshToken: tokenResp.RefreshToken,
+		AccessToken:  accessToken,
+		RefreshToken: nextRefreshToken,
 	}
 
 	// Keep the old refresh token if a new one wasn't issued
@@ -260,8 +294,8 @@ func RefreshAccessToken(tokenURL, clientID, clientSecret, refreshToken string) (
 		cred.RefreshToken = refreshToken
 	}
 
-	if tokenResp.ExpiresIn > 0 {
-		expiresAt := time.Now().Add(time.Duration(tokenResp.ExpiresIn) * time.Second)
+	if expiresIn > 0 {
+		expiresAt := time.Now().Add(time.Duration(expiresIn) * time.Second)
 		cred.ExpiresAt = &expiresAt
 	}
 
@@ -275,4 +309,12 @@ func (c *Credential) IsExpired(grace time.Duration) bool {
 		return false
 	}
 	return time.Now().Add(grace).After(*c.ExpiresAt)
+}
+
+func NewOAuthState() (string, error) {
+	buf := make([]byte, 16)
+	if _, err := rand.Read(buf); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(buf), nil
 }

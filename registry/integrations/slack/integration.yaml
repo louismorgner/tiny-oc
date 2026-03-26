@@ -5,7 +5,13 @@ auth:
   setup_url: https://api.slack.com/apps
   user_scopes:
     - channels:read
+    - groups:read
+    - im:read
+    - mpim:read
     - channels:history
+    - groups:history
+    - im:history
+    - mpim:history
     - chat:write
     - reactions:write
     - search:read
@@ -17,12 +23,38 @@ auth:
     5. Note your Client ID and Client Secret from "Basic Information"
     6. Run `toc integrate add slack` and paste them when prompted
 
+capabilities:
+  post:
+    description: Send messages to Slack conversations
+    actions:
+      - send_message
+  read:
+    description: Read message history from Slack conversations
+    actions:
+      - read_messages
+  react:
+    description: Add emoji reactions in Slack conversations
+    actions:
+      - react
+  discover:
+    description: List Slack conversations visible to the installed identity
+    actions:
+      - list_channels
+  search:
+    description: Search messages across everything the installed identity can search
+    actions:
+      - search_messages
+
 actions:
   send_message:
-    description: Send a message to a channel or DM (posted as you, not a bot)
+    description: Send a message to an existing Slack conversation (posted as you, not a bot)
     scopes:
-      "*": any channel or DM
-      dm: direct messages only
+      "*": any visible conversation
+      "#name": one named channel
+      "id/C123": one exact Slack conversation ID
+      "channels/*": any public or private channel
+      "dm/*": any existing direct message
+      "mpim/*": any existing group direct message
     params:
       - name: channel
         required: true
@@ -43,9 +75,14 @@ actions:
       - message.user
 
   read_messages:
-    description: Read message history from a channel
+    description: Read message history from a visible Slack conversation
     scopes:
-      "*": any channel
+      "*": any visible conversation
+      "#name": one named channel
+      "id/C123": one exact Slack conversation ID
+      "channels/*": any public or private channel
+      "dm/*": any existing direct message
+      "mpim/*": any existing group direct message
     params:
       - name: channel
         required: true
@@ -69,7 +106,7 @@ actions:
   search_messages:
     description: Search messages across all channels the user has access to
     scopes:
-      "*": all accessible channels
+      "*": all searchable messages visible to the installed identity
     params:
       - name: query
         required: true
@@ -98,16 +135,22 @@ actions:
       - messages.matches[].channel.name
 
   list_channels:
-    description: List public channels in the workspace
+    description: List Slack conversations visible to the installed identity
     scopes:
-      "*": all channels
+      "*": all visible conversations
+      "public/*": any public channel
+      "private/*": any private channel
+      "channels/*": any public or private channel
+      "dm/*": any existing direct message
+      "mpim/*": any existing group direct message
+      "conversations/*": any visible conversation
     params:
       - name: limit
         required: false
         default: "100"
       - name: types
         required: false
-        default: public_channel
+        default: public_channel,private_channel,im,mpim
     method: GET
     endpoint: https://slack.com/api/conversations.list
     auth_header: "Bearer {{token}}"
@@ -120,12 +163,20 @@ actions:
       - channels[].id
       - channels[].name
       - channels[].is_channel
+      - channels[].is_private
+      - channels[].is_im
+      - channels[].is_mpim
       - channels[].num_members
 
   react:
-    description: Add an emoji reaction to a message
+    description: Add an emoji reaction to a message in a visible Slack conversation
     scopes:
-      "*": any channel
+      "*": any visible conversation
+      "#name": one named channel
+      "id/C123": one exact Slack conversation ID
+      "channels/*": any public or private channel
+      "dm/*": any existing direct message
+      "mpim/*": any existing group direct message
     params:
       - name: channel
         required: true

@@ -2,6 +2,8 @@ package integration
 
 import (
 	"testing"
+
+	"github.com/tiny-oc/toc/internal/agent"
 )
 
 func TestParsePermission(t *testing.T) {
@@ -17,6 +19,7 @@ func TestParsePermission(t *testing.T) {
 		{"pulls.read:*", "pulls", "read", []string{"*"}, false},
 		{"pulls.comment:*", "pulls", "comment", []string{"*"}, false},
 		{"issues.*:*", "issues", "*", []string{"*"}, false},
+		{"*", "", "*", []string{"*"}, false},
 		{"send_message:*", "", "send_message", []string{"*"}, false},
 		{"send_message:dm", "", "send_message", []string{"dm"}, false},
 		{"read_messages:#eng,#ops", "", "read_messages", []string{"#eng", "#ops"}, false},
@@ -26,7 +29,7 @@ func TestParsePermission(t *testing.T) {
 		{"", "", "", nil, true},
 		{"issues.read", "", "", nil, true},  // missing scope
 		{":*", "", "", nil, true},           // missing resource.action
-		{"issues.read:", "", "", nil, true},  // empty scope
+		{"issues.read:", "", "", nil, true}, // empty scope
 	}
 
 	for _, tt := range tests {
@@ -179,6 +182,95 @@ func TestCheckPermission(t *testing.T) {
 					tt.permissions, tt.action, tt.target, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestEvaluatePermission_CapabilitySpecificity(t *testing.T) {
+	def := &Definition{
+		Name: "slack",
+		Capabilities: map[string]Capability{
+			"post": {
+				Actions: []string{"send_message", "react"},
+			},
+		},
+		Actions: map[string]Action{
+			"send_message": {},
+			"react":        {},
+		},
+	}
+
+	grants := agent.IntegrationPermissions{
+		{Mode: agent.PermAsk, Capability: "post:*"},
+		{Mode: agent.PermOn, Capability: "post:#eng"},
+	}
+
+	decision := EvaluatePermission(def, grants, "send_message", PermissionTarget{
+		Raw:      "#eng",
+		Name:     "eng",
+		ID:       "C123",
+		Kind:     "public",
+		Exact:    "id/C123",
+		Resolved: true,
+	})
+	if decision.Level != agent.PermOn {
+		t.Fatalf("expected on decision, got %#v", decision)
+	}
+}
+
+func TestEvaluatePermission_SlackExactIDMatchesRawID(t *testing.T) {
+	def := &Definition{
+		Name: "slack",
+		Actions: map[string]Action{
+			"send_message": {},
+		},
+	}
+
+	grants := agent.IntegrationPermissions{
+		{Mode: agent.PermOn, Capability: "send_message:id/C123"},
+	}
+
+	decision := EvaluatePermission(def, grants, "send_message", PermissionTarget{
+		Raw:      "C123",
+		ID:       "C123",
+		Exact:    "id/C123",
+		Resolved: true,
+	})
+	if decision.Level != agent.PermOn {
+		t.Fatalf("expected id-based permission to match, got %#v", decision)
+	}
+}
+
+func TestEvaluatePermission_SlackChannelWildcardMatchesExactChannelID(t *testing.T) {
+	def := &Definition{
+		Name: "slack",
+		Actions: map[string]Action{
+			"send_message": {},
+		},
+	}
+
+	grants := agent.IntegrationPermissions{
+		{Mode: agent.PermOn, Capability: "send_message:channels/*"},
+	}
+
+	decision := EvaluatePermission(def, grants, "send_message", PermissionTarget{
+		Raw:      "C123",
+		ID:       "C123",
+		Kind:     "channel",
+		Exact:    "id/C123",
+		Resolved: true,
+	})
+	if decision.Level != agent.PermOn {
+		t.Fatalf("expected channels/* to match exact channel id, got %#v", decision)
+	}
+}
+
+func TestDeterminePermissionTarget_SlackListChannelsDefaultIsConversations(t *testing.T) {
+	target, err := DeterminePermissionTarget("slack", "list_channels", map[string]string{}, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if target.Exact != "conversations/*" {
+		t.Fatalf("expected conversations/* default target, got %#v", target)
 	}
 }
 

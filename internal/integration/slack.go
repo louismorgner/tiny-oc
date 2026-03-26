@@ -10,56 +10,98 @@ import (
 	"time"
 )
 
-// SlackChannelResolver translates channel names (e.g. #general) to Slack channel IDs.
+type slackConversation struct {
+	ID   string
+	Name string
+	Kind string
+}
+
+// SlackChannelResolver translates Slack conversation references to IDs and metadata.
 // It caches the mapping per session to avoid repeated API calls.
 type SlackChannelResolver struct {
-	mu    sync.Mutex
-	cache map[string]string // name -> ID
-	token string
-	ready bool
+	mu     sync.Mutex
+	byName map[string]*slackConversation
+	byID   map[string]*slackConversation
+	token  string
+	ready  bool
 }
 
-// NewSlackChannelResolver creates a new resolver with the given access token.
 func NewSlackChannelResolver(token string) *SlackChannelResolver {
 	return &SlackChannelResolver{
-		cache: make(map[string]string),
-		token: token,
+		byName: make(map[string]*slackConversation),
+		byID:   make(map[string]*slackConversation),
+		token:  token,
 	}
 }
 
-// Resolve translates a channel reference to a Slack channel ID.
-// If the input is already a channel ID (starts with C, D, or G), it is returned as-is.
-// Channel names starting with # have the prefix stripped before lookup.
+// Resolve returns only the Slack conversation ID.
 func (r *SlackChannelResolver) Resolve(channel string) (string, error) {
-	// Already a channel ID
-	if isSlackChannelID(channel) {
-		return channel, nil
+	conversation, err := r.ResolveConversation(channel)
+	if err != nil {
+		return "", err
+	}
+	return conversation.ID, nil
+}
+
+// ResolveTarget returns the canonical permission target for a Slack conversation reference.
+func (r *SlackChannelResolver) ResolveTarget(channel string) (PermissionTarget, error) {
+	conversation, err := r.ResolveConversation(channel)
+	if err != nil {
+		return PermissionTarget{}, err
+	}
+	target := PermissionTarget{
+		Raw:      channel,
+		ID:       conversation.ID,
+		Kind:     conversation.Kind,
+		Resolved: true,
+		Exact:    "id/" + conversation.ID,
+	}
+	if conversation.Name != "" {
+		target.Name = conversation.Name
+	}
+	return target, nil
+}
+
+// ResolveConversation resolves a Slack conversation by name or ID.
+func (r *SlackChannelResolver) ResolveConversation(channel string) (*slackConversation, error) {
+	channel = strings.TrimSpace(channel)
+	if channel == "" {
+		return nil, fmt.Errorf("channel cannot be empty")
+	}
+	if isSlackConversationID(channel) {
+		return &slackConversation{
+			ID:   channel,
+			Kind: inferSlackConversationKind(channel),
+		}, nil
 	}
 
-	// Strip # prefix
 	name := strings.TrimPrefix(channel, "#")
 
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	// Check cache
-	if id, ok := r.cache[name]; ok {
-		return id, nil
+	if conversation, ok := r.byID[channel]; ok {
+		return conversation, nil
+	}
+	if conversation, ok := r.byName[name]; ok {
+		return conversation, nil
 	}
 
-	// Populate cache if not done yet
 	if !r.ready {
 		if err := r.populateCache(); err != nil {
-			return "", fmt.Errorf("failed to resolve channel '%s': %w", channel, err)
+			return nil, fmt.Errorf("failed to resolve channel '%s': %w", channel, err)
 		}
 		r.ready = true
 	}
 
-	id, ok := r.cache[name]
-	if !ok {
-		return "", fmt.Errorf("channel '%s' not found — use list_channels to see available channels", channel)
+	if conversation, ok := r.byID[channel]; ok {
+		return conversation, nil
 	}
-	return id, nil
+	if conversation, ok := r.byName[name]; ok {
+		return conversation, nil
+	}
+
+	return nil, fmt.Errorf("channel '%s' not found — use discover:* to list visible Slack conversations", channel)
 }
 
 func (r *SlackChannelResolver) populateCache() error {
@@ -67,7 +109,7 @@ func (r *SlackChannelResolver) populateCache() error {
 
 	cursor := ""
 	for {
-		url := "https://slack.com/api/conversations.list?types=public_channel,private_channel&limit=200"
+		url := "https://slack.com/api/conversations.list?types=public_channel,private_channel,mpim,im&limit=200"
 		if cursor != "" {
 			url += "&cursor=" + cursor
 		}
@@ -92,8 +134,11 @@ func (r *SlackChannelResolver) populateCache() error {
 		var result struct {
 			OK       bool `json:"ok"`
 			Channels []struct {
-				ID   string `json:"id"`
-				Name string `json:"name"`
+				ID        string `json:"id"`
+				Name      string `json:"name"`
+				IsPrivate bool   `json:"is_private"`
+				IsIM      bool   `json:"is_im"`
+				IsMPIM    bool   `json:"is_mpim"`
 			} `json:"channels"`
 			ResponseMetadata struct {
 				NextCursor string `json:"next_cursor"`
@@ -104,13 +149,20 @@ func (r *SlackChannelResolver) populateCache() error {
 		if err := json.Unmarshal(body, &result); err != nil {
 			return fmt.Errorf("failed to parse channel list: %w", err)
 		}
-
 		if !result.OK {
 			return fmt.Errorf("Slack API error: %s", result.Error)
 		}
 
 		for _, ch := range result.Channels {
-			r.cache[ch.Name] = ch.ID
+			conversation := &slackConversation{
+				ID:   ch.ID,
+				Name: ch.Name,
+				Kind: slackConversationKind(ch.IsPrivate, ch.IsIM, ch.IsMPIM),
+			}
+			r.byID[ch.ID] = conversation
+			if ch.Name != "" {
+				r.byName[ch.Name] = conversation
+			}
 		}
 
 		cursor = result.ResponseMetadata.NextCursor
@@ -122,13 +174,43 @@ func (r *SlackChannelResolver) populateCache() error {
 	return nil
 }
 
-// isSlackChannelID checks if a string looks like a Slack channel/DM/group ID.
-func isSlackChannelID(s string) bool {
+func slackConversationKind(isPrivate, isIM, isMPIM bool) string {
+	switch {
+	case isIM:
+		return "dm"
+	case isMPIM:
+		return "mpim"
+	case isPrivate:
+		return "private"
+	default:
+		return "public"
+	}
+}
+
+func inferSlackConversationKind(id string) string {
+	switch {
+	case strings.HasPrefix(id, "C"):
+		return "channel"
+	case strings.HasPrefix(id, "D"):
+		return "dm"
+	case strings.HasPrefix(id, "G"):
+		return "mpim"
+	default:
+		return ""
+	}
+}
+
+func isSlackConversationID(s string) bool {
 	if len(s) < 2 {
 		return false
 	}
 	prefix := s[0]
 	return (prefix == 'C' || prefix == 'D' || prefix == 'G') && isAlphanumeric(s[1:])
+}
+
+// isSlackChannelID is kept as a compatibility alias for existing tests/callers.
+func isSlackChannelID(s string) bool {
+	return isSlackConversationID(s)
 }
 
 func isAlphanumeric(s string) bool {
@@ -141,7 +223,6 @@ func isAlphanumeric(s string) bool {
 }
 
 // ValidateSlackClientID checks that a Slack Client ID looks valid.
-// Slack Client IDs are numeric strings (e.g. "1234567890.9876543210").
 func ValidateSlackClientID(id string) error {
 	if strings.HasPrefix(id, "xoxb-") || strings.HasPrefix(id, "xoxp-") {
 		return fmt.Errorf("this looks like a Slack token, not a Client ID — find the Client ID under Basic Information in your Slack app settings")
@@ -164,7 +245,6 @@ func ValidateSlackClientID(id string) error {
 }
 
 // ValidateSlackClientSecret checks that a Slack Client Secret looks valid.
-// Slack Client Secrets are 32-character hex strings.
 func ValidateSlackClientSecret(secret string) error {
 	if strings.HasPrefix(secret, "xoxb-") || strings.HasPrefix(secret, "xoxp-") {
 		return fmt.Errorf("this looks like a Slack token, not a Client Secret — find the Client Secret under Basic Information in your Slack app settings")
@@ -180,8 +260,7 @@ func ValidateSlackClientSecret(secret string) error {
 	return nil
 }
 
-// CheckSlackResponse inspects a Slack API response and returns a clean error
-// if the response indicates failure (ok: false).
+// CheckSlackResponse inspects a Slack API response and returns a clean error if ok is false.
 func CheckSlackResponse(statusCode int, data interface{}) error {
 	m, ok := data.(map[string]interface{})
 	if !ok {

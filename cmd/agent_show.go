@@ -90,8 +90,11 @@ var agentShowCmd = &cobra.Command{
 
 			if len(cfg.Perms.Integrations) > 0 {
 				fmt.Printf("  %s\n", ui.Bold("Integrations:"))
-				for name, level := range cfg.Perms.Integrations {
-					fmt.Printf("    %s %s: %s\n", ui.Dim("▪"), name, level)
+				for name, grants := range cfg.Perms.Integrations {
+					fmt.Printf("    %s %s:\n", ui.Dim("▪"), name)
+					for _, grant := range grants {
+						fmt.Printf("      %s %s\n", ui.Dim("▪"), grant.String())
+					}
 				}
 				fmt.Println()
 			}

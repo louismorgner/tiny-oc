@@ -95,6 +95,7 @@ func TestSlackOAuth2Config_AuthorizationURL_BothScopes(t *testing.T) {
 		[]string{"commands"},
 		[]string{"channels:read", "chat:write"},
 	)
+	cfg.State = "state-123"
 
 	url := cfg.AuthorizationURL()
 
@@ -103,6 +104,9 @@ func TestSlackOAuth2Config_AuthorizationURL_BothScopes(t *testing.T) {
 	}
 	if !strings.Contains(url, "user_scope=channels%3Aread%2Cchat%3Awrite") {
 		t.Errorf("AuthorizationURL() missing user_scope param\ngot: %s", url)
+	}
+	if !strings.Contains(url, "state=state-123") {
+		t.Errorf("AuthorizationURL() missing state param\ngot: %s", url)
 	}
 }
 

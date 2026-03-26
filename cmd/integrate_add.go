@@ -205,6 +205,11 @@ func runOAuth2Flow(name string, def *integration.Definition, manual bool, flagCl
 	}
 
 	oauth2Cfg := integration.SlackOAuth2Config(clientID, clientSecret, def.Auth.RequiredScopes, def.Auth.UserScopes)
+	state, err := integration.NewOAuthState()
+	if err != nil {
+		return nil, fmt.Errorf("failed to initialize OAuth state: %w", err)
+	}
+	oauth2Cfg.State = state
 
 	authURL := oauth2Cfg.AuthorizationURL()
 	fmt.Println()

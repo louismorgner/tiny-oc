@@ -119,14 +119,13 @@ func (claudeProvider) LaunchDetached(opts DetachedOptions) error {
 // BuildClaudeDetachedScript builds the wrapper script for a detached Claude session.
 func BuildClaudeDetachedScript(opts DetachedOptions, promptPath string) string {
 	args := "claude --dangerously-skip-permissions"
-	if opts.Resume {
-		args += " --continue"
-	}
 	args += fmt.Sprintf(" -p \"$(cat %q)\"", promptPath)
 	if opts.Model != "" {
 		args += fmt.Sprintf(" --model %s", opts.Model)
 	}
-	if opts.SessionID != "" {
+	if opts.Resume && opts.SessionID != "" {
+		args += fmt.Sprintf(" --resume %s", opts.SessionID)
+	} else if opts.SessionID != "" {
 		args += fmt.Sprintf(" --session-id %s", opts.SessionID)
 	}
 

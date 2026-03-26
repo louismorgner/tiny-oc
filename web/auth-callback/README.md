@@ -8,7 +8,7 @@ Slack requires HTTPS redirect URIs. The CLI can only listen on localhost. This w
 
 ```
 Slack OAuth redirect
-  → https://square-paper-84df.dev-f64.workers.dev/slack/callback?code=xyz
+  → https://toc-auth-callback.dev-f64.workers.dev/slack/callback?code=xyz
   → Worker 302 redirects to http://localhost:8976/callback?code=xyz
   → CLI's localhost server captures the code automatically
 ```
@@ -38,7 +38,7 @@ npx wrangler deploy
 
 ### Slack app redirect URI
 
-In your [Slack app settings](https://api.slack.com/apps), add `https://square-paper-84df.dev-f64.workers.dev/slack/callback` as an allowed redirect URI under **OAuth & Permissions**.
+In your [Slack app settings](https://api.slack.com/apps), add `https://toc-auth-callback.dev-f64.workers.dev/slack/callback` as an allowed redirect URI under **OAuth & Permissions**.
 
 ## Local development
 

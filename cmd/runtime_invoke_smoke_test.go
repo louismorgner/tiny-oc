@@ -151,7 +151,7 @@ func TestRuntimeInvokeSlackSmoke_OffPermissionBlocksBeforeHTTP(t *testing.T) {
 	withRuntimeEnv(t, workspace, "test-agent", "sess-off", func() {
 		withWorkingDir(t, workspace, func() {
 			err := runtimeInvokeCmd.RunE(runtimeInvokeCmd, []string{"slack", "send_message", "--channel", "C123", "--text", "hello"})
-			if err == nil || !strings.Contains(err.Error(), "permission denied") {
+			if err == nil || !strings.Contains(err.Error(), "does not have permission") {
 				t.Fatalf("expected permission denied error, got %v", err)
 			}
 		})

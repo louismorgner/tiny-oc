@@ -19,11 +19,12 @@ type slackConversation struct {
 // SlackChannelResolver translates Slack conversation references to IDs and metadata.
 // It caches the mapping per session to avoid repeated API calls.
 type SlackChannelResolver struct {
-	mu     sync.Mutex
-	byName map[string]*slackConversation
-	byID   map[string]*slackConversation
-	token  string
-	ready  bool
+	mu      sync.Mutex
+	byName  map[string]*slackConversation
+	byID    map[string]*slackConversation
+	token   string
+	ready   bool
+	baseURL string // override for testing; defaults to https://slack.com
 }
 
 func NewSlackChannelResolver(token string) *SlackChannelResolver {
@@ -80,13 +81,13 @@ func (r *SlackChannelResolver) ResolveConversation(channel string) (*slackConver
 	if conversation, ok := r.byName[name]; ok {
 		return conversation, nil
 	}
-	if isSlackConversationID(channel) {
+	if isSlackConversationID(name) {
 		// Raw C-prefixed IDs do not encode public vs private, so when we have no
 		// cached metadata we preserve only the weaker "channel" classification.
 		// That allows channels/* and id/... grants, but not public/* or private/*.
 		return &slackConversation{
-			ID:   channel,
-			Kind: inferSlackConversationKind(channel),
+			ID:   name,
+			Kind: inferSlackConversationKind(name),
 		}, nil
 	}
 
@@ -110,9 +111,14 @@ func (r *SlackChannelResolver) ResolveConversation(channel string) (*slackConver
 func (r *SlackChannelResolver) populateCache() error {
 	client := &http.Client{Timeout: 15 * time.Second}
 
+	base := r.baseURL
+	if base == "" {
+		base = "https://slack.com"
+	}
+
 	cursor := ""
 	for {
-		url := "https://slack.com/api/conversations.list?types=public_channel,private_channel,mpim,im&limit=200"
+		url := base + "/api/conversations.list?types=public_channel,private_channel,mpim,im&limit=200"
 		if cursor != "" {
 			url += "&cursor=" + cursor
 		}
@@ -266,6 +272,12 @@ func ValidateSlackClientSecret(secret string) error {
 
 // CheckSlackResponse inspects a Slack API response and returns a clean error if ok is false.
 func CheckSlackResponse(statusCode int, data interface{}) error {
+	return CheckSlackResponseForAction(statusCode, data, "")
+}
+
+// CheckSlackResponseForAction inspects a Slack API response and returns
+// a structured InvokeError that identifies the failure layer and suggests a fix.
+func CheckSlackResponseForAction(statusCode int, data interface{}, action string) error {
 	m, ok := data.(map[string]interface{})
 	if !ok {
 		return nil
@@ -281,7 +293,7 @@ func CheckSlackResponse(statusCode int, data interface{}) error {
 		if e, ok := m["error"].(string); ok {
 			errMsg = e
 		}
-		return fmt.Errorf("slack API error: %s", errMsg)
+		return ClassifySlackError(errMsg, action)
 	}
 
 	return nil

@@ -1,6 +1,12 @@
 package integration
 
-import "testing"
+import (
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+)
 
 func TestIsSlackChannelID(t *testing.T) {
 	tests := []struct {
@@ -112,12 +118,101 @@ func TestSlackChannelResolver_NotFound(t *testing.T) {
 	}
 }
 
+func TestSlackChannelResolver_FallbackToRawID(t *testing.T) {
+	resolver := NewSlackChannelResolver("test-token")
+	resolver.ready = true // Mark as populated (empty cache)
+
+	// A bare channel ID is caught by the early return (line 35)
+	id, err := resolver.Resolve("C01NOTINCACHE")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if id != "C01NOTINCACHE" {
+		t.Errorf("got %q, want C01NOTINCACHE", id)
+	}
+
+	// A #-prefixed channel ID that's not in cache should fall back
+	// to the stripped name since it looks like a valid channel ID.
+	id, err = resolver.Resolve("#C01NOTINCACHE")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if id != "C01NOTINCACHE" {
+		t.Errorf("got %q, want C01NOTINCACHE", id)
+	}
+}
+
+func TestSlackChannelResolver_FallbackOnPopulateError(t *testing.T) {
+	// Mock server that returns a Slack API error, causing populateCache to fail
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"ok":    false,
+			"error": "invalid_auth",
+		})
+	}))
+	defer server.Close()
+
+	resolver := NewSlackChannelResolver("bad-token")
+	resolver.baseURL = server.URL
+	// Don't mark ready — force populateCache to be called and fail
+
+	// Input like "#C02ABCDEF" is not itself a channel ID (has # prefix),
+	// so it won't be caught by the early return. After populate fails,
+	// the stripped name "C02ABCDEF" is a valid channel ID and should be
+	// returned as a fallback.
+	id, err := resolver.Resolve("#C02ABCDEF")
+	if err != nil {
+		t.Fatalf("expected fallback to succeed, got error: %v", err)
+	}
+	if id != "C02ABCDEF" {
+		t.Errorf("got %q, want C02ABCDEF", id)
+	}
+
+	// Non-ID name should return an error when populate fails
+	_, err = resolver.Resolve("#nonexistent")
+	if err == nil {
+		t.Error("expected error for non-ID channel name when populate fails")
+	}
+}
+
+func TestCheckSlackResponseForAction_MissingScope(t *testing.T) {
+	data := map[string]interface{}{"ok": false, "error": "missing_scope"}
+	err := CheckSlackResponseForAction(200, data, "send_message")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+
+	invokeErr, ok := err.(*InvokeError)
+	if !ok {
+		t.Fatalf("expected *InvokeError, got %T", err)
+	}
+	if invokeErr.Kind != ErrMissingOAuthScope {
+		t.Errorf("kind = %v, want ErrMissingOAuthScope", invokeErr.Kind)
+	}
+}
+
+func TestCheckSlackResponseForAction_InvalidAuth(t *testing.T) {
+	data := map[string]interface{}{"ok": false, "error": "invalid_auth"}
+	err := CheckSlackResponseForAction(200, data, "read_messages")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+
+	invokeErr, ok := err.(*InvokeError)
+	if !ok {
+		t.Fatalf("expected *InvokeError, got %T", err)
+	}
+	if invokeErr.Kind != ErrCredentialError {
+		t.Errorf("kind = %v, want ErrCredentialError", invokeErr.Kind)
+	}
+}
+
 func TestCheckSlackResponse(t *testing.T) {
 	tests := []struct {
-		name    string
-		data    interface{}
-		wantErr bool
-		errMsg  string
+		name      string
+		data      interface{}
+		wantErr   bool
+		errSubstr string // substring to check in error message
 	}{
 		{
 			name:    "success response",
@@ -125,16 +220,16 @@ func TestCheckSlackResponse(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name:    "error response",
-			data:    map[string]interface{}{"ok": false, "error": "channel_not_found"},
-			wantErr: true,
-			errMsg:  "slack API error: channel_not_found",
+			name:      "error response",
+			data:      map[string]interface{}{"ok": false, "error": "channel_not_found"},
+			wantErr:   true,
+			errSubstr: "channel_not_found",
 		},
 		{
-			name:    "error without message",
-			data:    map[string]interface{}{"ok": false},
-			wantErr: true,
-			errMsg:  "slack API error: unknown_error",
+			name:      "error without message",
+			data:      map[string]interface{}{"ok": false},
+			wantErr:   true,
+			errSubstr: "unknown_error",
 		},
 		{
 			name:    "non-map response",
@@ -154,8 +249,8 @@ func TestCheckSlackResponse(t *testing.T) {
 			if tt.wantErr {
 				if err == nil {
 					t.Error("expected error, got nil")
-				} else if err.Error() != tt.errMsg {
-					t.Errorf("error = %q, want %q", err.Error(), tt.errMsg)
+				} else if !strings.Contains(err.Error(), tt.errSubstr) {
+					t.Errorf("error %q does not contain %q", err.Error(), tt.errSubstr)
 				}
 			} else {
 				if err != nil {

@@ -111,9 +111,11 @@ func (nativeProvider) LaunchInteractive(opts LaunchOptions) error {
 		"TOC_SESSION_ID="+opts.SessionID,
 	)
 
-	// Inject stored OpenRouter key if not already in the environment
+	// Inject stored OpenRouter key if not already in the environment.
+	// Read from the workspace root, not CWD — the process may be running
+	// from a session temp dir that has no .toc/secrets.yaml.
 	if os.Getenv("OPENROUTER_API_KEY") == "" {
-		if key := config.OpenRouterKey(); key != "" {
+		if key := config.OpenRouterKeyFrom(opts.Workspace); key != "" {
 			cmd.Env = append(cmd.Env, "OPENROUTER_API_KEY="+key)
 		}
 	}
@@ -179,10 +181,12 @@ func BuildNativeDetachedScript(executable string, opts DetachedOptions, promptPa
 		command += " --resume"
 	}
 
-	// Inject stored OpenRouter key into detached script if not in current env
+	// Inject stored OpenRouter key into detached script if not in current env.
+	// Read from the workspace root, not CWD — the spawning process may be
+	// running from a session temp dir that has no .toc/secrets.yaml.
 	openRouterExport := ""
 	if os.Getenv("OPENROUTER_API_KEY") == "" {
-		if key := config.OpenRouterKey(); key != "" {
+		if key := config.OpenRouterKeyFrom(opts.Workspace); key != "" {
 			openRouterExport = fmt.Sprintf("export OPENROUTER_API_KEY=%q\n", key)
 		}
 	}

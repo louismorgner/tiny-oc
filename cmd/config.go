@@ -86,7 +86,9 @@ var configGetKeyCmd = &cobra.Command{
 			return fmt.Errorf("unknown provider '%s' — supported providers: openrouter", provider)
 		}
 
-		secrets, err := config.LoadSecrets()
+		// Load secrets from workspace root — handles both direct workspace
+		// and session context (where CWD is a temp dir but TOC_WORKSPACE is set).
+		secrets, err := config.LoadSecretsFrom(config.WorkspaceRoot())
 		if err != nil {
 			return err
 		}

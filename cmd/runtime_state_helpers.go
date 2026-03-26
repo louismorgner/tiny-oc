@@ -16,12 +16,16 @@ type runtimeStateSummary struct {
 	CompactionCount int
 	LastError       string
 	LastRecovery    string
+	CrashInfo       *runtime.CrashInfo
 	Tokens          usage.TokenUsage
 }
 
 func loadRuntimeStateSummary(s *session.Session) (*runtimeStateSummary, error) {
 	if s == nil {
 		return nil, nil
+	}
+	if err := runtime.PreserveCrashInfo(s); err != nil {
+		return nil, err
 	}
 
 	state, err := runtime.LoadState(s)
@@ -40,6 +44,7 @@ func loadRuntimeStateSummary(s *session.Session) (*runtimeStateSummary, error) {
 		CompactionCount: state.CompactionCount,
 		LastError:       state.LastError,
 		LastRecovery:    state.LastRecovery,
+		CrashInfo:       state.CrashInfo,
 		Tokens: usage.TokenUsage{
 			InputTokens:  state.Usage.InputTokens,
 			OutputTokens: state.Usage.OutputTokens,

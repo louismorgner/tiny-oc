@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -185,4 +186,14 @@ func (d *Definition) GetAction(action string) (*Action, error) {
 		return nil, fmt.Errorf("integration '%s' has no action '%s'", d.Name, action)
 	}
 	return &a, nil
+}
+
+// ActionNames returns a sorted list of action names defined in this integration.
+func (d *Definition) ActionNames() []string {
+	names := make([]string, 0, len(d.Actions))
+	for name := range d.Actions {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
 }

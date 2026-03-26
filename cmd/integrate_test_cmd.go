@@ -1,7 +1,9 @@
 package cmd
 
 import (
+	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 
@@ -60,6 +62,48 @@ var integrateTestCmd = &cobra.Command{
 		}
 		defer resp.Body.Close()
 
+		// For Slack, parse the response body and use CheckSlackResponse
+		if name == "slack" {
+			body, err := io.ReadAll(resp.Body)
+			if err != nil {
+				ui.Error("Failed to read response: %s", err)
+				return nil
+			}
+
+			var data map[string]interface{}
+			if err := json.Unmarshal(body, &data); err != nil {
+				ui.Error("Invalid response from Slack")
+				return nil
+			}
+
+			if slackErr := integration.CheckSlackResponse(resp.StatusCode, data); slackErr != nil {
+				errStr := slackErr.Error()
+				ui.Error("Authentication failed — %s", errStr)
+
+				// Provide specific guidance based on error type
+				if strings.Contains(errStr, "invalid_auth") {
+					ui.Info("The token may be revoked or malformed. Re-add with: %s", ui.Bold("toc integrate add slack"))
+				} else if strings.Contains(errStr, "missing_scope") {
+					ui.Info("The token is missing required scopes. Re-add with: %s", ui.Bold("toc integrate add slack"))
+				} else if strings.Contains(errStr, "not_authed") {
+					ui.Info("No authentication token provided. Re-add with: %s", ui.Bold("toc integrate add slack"))
+				}
+
+				// Warn about bot vs user token for search
+				if cred.AccessToken != "" && strings.HasPrefix(cred.AccessToken, "xoxb-") {
+					ui.Warn("You're using a bot token (xoxb-). search:read requires a user token (xoxp-). Re-add with: %s", ui.Bold("toc integrate add slack"))
+				}
+
+				return nil
+			}
+
+			user, _ := data["user"].(string)
+			team, _ := data["team"].(string)
+			ui.Success("Credentials valid — authenticated as %s in workspace %s", ui.Bold(user), ui.Bold(team))
+			return nil
+		}
+
+		// Non-Slack: check HTTP status code
 		if resp.StatusCode == 200 || resp.StatusCode == 201 {
 			ui.Success("Credentials valid — %s responded with %d", name, resp.StatusCode)
 		} else if resp.StatusCode == 401 || resp.StatusCode == 403 {

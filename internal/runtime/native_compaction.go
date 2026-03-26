@@ -10,7 +10,7 @@ import (
 
 const (
 	nativeCompactionSummaryPrefix       = "[toc-summary]"
-	defaultCompactionTriggerChars       = 24000
+	defaultCompactionTriggerChars       = 800000
 	defaultCompactionKeepRecentMessages = 12
 	defaultCompactionMaxSummaryChars    = 6000
 )
@@ -99,8 +99,11 @@ func compactMessages(messages []Message, keepRecent, maxSummaryChars int) ([]Mes
 
 	compactedCount := len(head)
 	compacted := append([]Message{}, preserved...)
+	// Use "user" role for the summary so it works with all providers.
+	// OpenAI-compatible models reject multiple system messages or system
+	// messages after position 0, which caused 400 errors via OpenRouter.
 	compacted = append(compacted, Message{
-		Role:    "system",
+		Role:    "user",
 		Content: nativeCompactionSummaryPrefix + "\n" + summaryText,
 	})
 	compacted = append(compacted, tail...)
@@ -188,7 +191,12 @@ func estimateMessageChars(messages []Message) int {
 }
 
 func isCompactionSummary(msg Message) bool {
-	return msg.Role == "system" && strings.HasPrefix(strings.TrimSpace(msg.Content), nativeCompactionSummaryPrefix)
+	// Accept both "user" (current) and "system" (pre-fix) roles so that
+	// resumed sessions with old-format summaries are still recognized.
+	if msg.Role != "user" && msg.Role != "system" {
+		return false
+	}
+	return strings.HasPrefix(strings.TrimSpace(msg.Content), nativeCompactionSummaryPrefix)
 }
 
 func truncateInline(s string, max int) string {

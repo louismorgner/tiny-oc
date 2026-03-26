@@ -11,6 +11,7 @@ import (
 )
 
 func init() {
+	agentRemoveCmd.Flags().BoolP("force", "f", false, "skip confirmation prompt")
 	agentCmd.AddCommand(agentRemoveCmd)
 }
 
@@ -29,13 +30,16 @@ var agentRemoveCmd = &cobra.Command{
 			return fmt.Errorf("agent '%s' not found", name)
 		}
 
-		confirmed, err := ui.Confirm(fmt.Sprintf("Remove agent %s?", name), false)
-		if err != nil {
-			return err
-		}
-		if !confirmed {
-			ui.Info("Cancelled.")
-			return nil
+		force, _ := cmd.Flags().GetBool("force")
+		if !force {
+			confirmed, err := ui.Confirm(fmt.Sprintf("Remove agent %s?", name), false)
+			if err != nil {
+				return err
+			}
+			if !confirmed {
+				ui.Info("Cancelled.")
+				return nil
+			}
 		}
 
 		if err := agent.Remove(name); err != nil {

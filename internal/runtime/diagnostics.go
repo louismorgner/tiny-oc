@@ -74,6 +74,7 @@ func PreserveCrashInfo(sess *session.Session) error {
 	if status != session.StatusZombie && panicMessage == "" && stackTrace == "" {
 		return nil
 	}
+	// Already have persisted crash details and didn't discover anything new.
 	if state.CrashInfo != nil && !state.CrashInfo.CrashTime.IsZero() && (panicMessage == "" || state.CrashInfo.PanicMessage != "") && (stackTrace == "" || state.CrashInfo.StackTrace != "") {
 		return nil
 	}
@@ -164,6 +165,10 @@ func findCrashArtifacts(sess *session.Session) (string, string) {
 		}
 	}
 	return "", ""
+}
+
+func ReadDiagnosticTail(path string) ([]byte, error) {
+	return readFileTail(path, diagnosticTailBytes)
 }
 
 func readFileTail(path string, limit int64) ([]byte, error) {

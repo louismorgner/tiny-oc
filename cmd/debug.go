@@ -495,7 +495,7 @@ func readDebugArtifact(paths ...string) *debugArtifact {
 		if path == "" {
 			continue
 		}
-		data, err := os.ReadFile(path)
+		data, err := iruntime.ReadDiagnosticTail(path)
 		if err != nil {
 			continue
 		}
@@ -530,32 +530,44 @@ func writeDebugBundle(path string, report *debugReport) error {
 	if err != nil {
 		return err
 	}
-	defer f.Close()
 
 	gz := gzip.NewWriter(f)
-	defer gz.Close()
-
 	tw := tar.NewWriter(gz)
-	defer tw.Close()
 
 	summary, err := json.MarshalIndent(report, "", "  ")
 	if err != nil {
+		_ = f.Close()
 		return err
 	}
 	if err := writeTarEntry(tw, "summary.json", append(summary, '\n')); err != nil {
+		_ = tw.Close()
+		_ = gz.Close()
+		_ = f.Close()
 		return err
 	}
 
 	for _, artifact := range report.MetadataFiles {
-		data, err := os.ReadFile(artifact.Path)
+		data, err := iruntime.ReadDiagnosticTail(artifact.Path)
 		if err != nil {
 			continue
 		}
 		if err := writeTarEntry(tw, artifact.Name, data); err != nil {
+			_ = tw.Close()
+			_ = gz.Close()
+			_ = f.Close()
 			return err
 		}
 	}
-	return nil
+	if err := tw.Close(); err != nil {
+		_ = gz.Close()
+		_ = f.Close()
+		return err
+	}
+	if err := gz.Close(); err != nil {
+		_ = f.Close()
+		return err
+	}
+	return f.Close()
 }
 
 func writeTarEntry(tw *tar.Writer, name string, data []byte) error {

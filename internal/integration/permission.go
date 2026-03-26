@@ -372,6 +372,8 @@ func slackScopeSpecificity(scope string, target PermissionTarget) int {
 		}
 		return -1
 	case scope == "channels":
+		// Legacy form: only matches fully classified channels. Unresolved raw C...
+		// IDs use the weaker "channel" kind and therefore require channels/* or id/....
 		if target.Kind == "public" || target.Kind == "private" {
 			return scopeScoreResourceWildcard
 		}

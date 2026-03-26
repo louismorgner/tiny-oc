@@ -279,6 +279,8 @@ func hasIntegrationGrant(grants agent.IntegrationPermissions, candidate agent.In
 }
 
 func withLockedFile(path string, fn func() error) error {
+	// Unix-only flock is acceptable for the current target environments.
+	// If Windows support becomes a goal, this needs a platform abstraction.
 	lockPath := path + ".lock"
 	f, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0600)
 	if err != nil {

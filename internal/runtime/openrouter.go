@@ -102,12 +102,17 @@ type openRouterClient struct {
 	referer    string
 }
 
+type cacheControl struct {
+	Type string `json:"type"`
+}
+
 type chatRequest struct {
-	Model    string              `json:"model"`
-	Messages []Message           `json:"messages"`
-	Tools    []toolDefinition    `json:"tools,omitempty"`
-	Stream   bool                `json:"stream"`
-	Provider *providerPreference `json:"provider,omitempty"`
+	Model        string              `json:"model"`
+	Messages     []Message           `json:"messages"`
+	Tools        []toolDefinition    `json:"tools,omitempty"`
+	Stream       bool                `json:"stream"`
+	Provider     *providerPreference `json:"provider,omitempty"`
+	CacheControl *cacheControl       `json:"cache_control,omitempty"`
 }
 
 type providerPreference struct {
@@ -125,6 +130,11 @@ type toolDescriptor struct {
 	Parameters  map[string]interface{} `json:"parameters"`
 }
 
+type promptTokensDetails struct {
+	CachedTokens    int64 `json:"cached_tokens,omitempty"`
+	CacheWriteTokens int64 `json:"cache_write_tokens,omitempty"`
+}
+
 type chatResponse struct {
 	ID      string `json:"id,omitempty"`
 	Model   string `json:"model,omitempty"`
@@ -133,9 +143,10 @@ type chatResponse struct {
 		FinishReason string  `json:"finish_reason"`
 	} `json:"choices"`
 	Usage struct {
-		PromptTokens     int64 `json:"prompt_tokens"`
-		CompletionTokens int64 `json:"completion_tokens"`
-		TotalTokens      int64 `json:"total_tokens"`
+		PromptTokens        int64              `json:"prompt_tokens"`
+		CompletionTokens    int64              `json:"completion_tokens"`
+		TotalTokens         int64              `json:"total_tokens"`
+		PromptTokensDetails *promptTokensDetails `json:"prompt_tokens_details,omitempty"`
 	} `json:"usage"`
 	Error *struct {
 		Message string `json:"message"`
@@ -151,9 +162,10 @@ type chatStreamChunk struct {
 		FinishReason string          `json:"finish_reason"`
 	} `json:"choices"`
 	Usage struct {
-		PromptTokens     int64 `json:"prompt_tokens"`
-		CompletionTokens int64 `json:"completion_tokens"`
-		TotalTokens      int64 `json:"total_tokens"`
+		PromptTokens        int64              `json:"prompt_tokens"`
+		CompletionTokens    int64              `json:"completion_tokens"`
+		TotalTokens         int64              `json:"total_tokens"`
+		PromptTokensDetails *promptTokensDetails `json:"prompt_tokens_details,omitempty"`
 	} `json:"usage"`
 	Error *struct {
 		Message string `json:"message"`
@@ -437,7 +449,12 @@ func mergeStreamChunk(resp *chatResponse, chunk *chatStreamChunk) (string, error
 		resp.Model = chunk.Model
 	}
 	if chunk.Usage.TotalTokens > 0 || chunk.Usage.PromptTokens > 0 || chunk.Usage.CompletionTokens > 0 {
-		resp.Usage = chunk.Usage
+		resp.Usage.PromptTokens = chunk.Usage.PromptTokens
+		resp.Usage.CompletionTokens = chunk.Usage.CompletionTokens
+		resp.Usage.TotalTokens = chunk.Usage.TotalTokens
+		if chunk.Usage.PromptTokensDetails != nil {
+			resp.Usage.PromptTokensDetails = chunk.Usage.PromptTokensDetails
+		}
 	}
 
 	var streamedText strings.Builder

@@ -384,26 +384,22 @@ func runNativeLoop(client *openRouterClient, state *State, toolSpecs []NativeToo
 		}
 
 		streamEmitter := newTextStreamEmitter(sess, stdout)
+		req := chatRequest{
+			Model:        state.Model,
+			Messages:     state.Messages,
+			Tools:        tools,
+			Provider:     &providerPreference{RequireParameters: true},
+			CacheControl: &cacheControl{Type: "ephemeral"},
+		}
 		var resp *chatResponse
 		if profile.SupportsStreaming {
-			resp, err = client.ChatStream(context.Background(), chatRequest{
-				Model:    state.Model,
-				Messages: state.Messages,
-				Tools:    tools,
-				Stream:   true,
-				Provider: &providerPreference{RequireParameters: true},
-			}, streamEmitter.WriteChunk)
+			req.Stream = true
+			resp, err = client.ChatStream(context.Background(), req, streamEmitter.WriteChunk)
 			if flushErr := streamEmitter.Finish(); err == nil && flushErr != nil {
 				err = flushErr
 			}
 		} else {
-			resp, err = client.Chat(context.Background(), chatRequest{
-				Model:    state.Model,
-				Messages: state.Messages,
-				Tools:    tools,
-				Stream:   false,
-				Provider: &providerPreference{RequireParameters: true},
-			})
+			resp, err = client.Chat(context.Background(), req)
 		}
 		if err != nil {
 			return err
@@ -520,6 +516,10 @@ func accumulateUsage(state *State, resp *chatResponse) {
 	}
 	state.Usage.InputTokens += resp.Usage.PromptTokens
 	state.Usage.OutputTokens += resp.Usage.CompletionTokens
+	if d := resp.Usage.PromptTokensDetails; d != nil {
+		state.Usage.CacheRead += d.CachedTokens
+		state.Usage.CacheCreate += d.CacheWriteTokens
+	}
 }
 
 type textStreamEmitter struct {

@@ -5,3 +5,6 @@ skills:
   - name: agentic-memory
     description: Persistent memory system with daily logs and long-term storage for cross-session continuity
     tags: [memory, persistence, agentic, continuity]
+  - name: tlc-setup
+    description: Set up and configure the TLA+ TLC model checker in a repo, including CLI workflows, config files, and CI-friendly automation
+    tags: [tlc, tla-plus, formal-methods, verification, setup]

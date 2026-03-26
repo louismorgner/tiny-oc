@@ -107,7 +107,7 @@ toc agent spawn pr-reviewer
 │   └── usage/                 # Token usage parsing and formatting
 ├── registry/                  # Built-in skills, agents, and integration definitions
 │   ├── agents/                # cto, mini-claw
-│   ├── skills/                # open-source-cto, agentic-memory
+│   ├── skills/                # open-source-cto, agentic-memory, tlc-setup
 │   └── integrations/          # github, slack
 ├── web/                       # OAuth callback worker (Cloudflare)
 ├── e2e/                       # End-to-end smoke tests

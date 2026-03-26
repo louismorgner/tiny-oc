@@ -115,6 +115,7 @@ The toc registry includes skills and agent templates:
 |---|---|---|
 | `open-source-cto` | skill | Technical decision-making and code quality standards from an open-source CTO perspective |
 | `agentic-memory` | skill | Persistent memory system with daily logs and long-term storage for cross-session continuity |
+| `tlc-setup` | skill | Set up and configure the TLA+ TLC model checker in a repo, including CLI workflows, config files, and CI-friendly automation |
 | `cto` | agent | Technical leadership agent — code quality, architecture, and open-source standards |
 | `mini-claw` | agent | Persistent agent with identity, memory, and session awareness — inspired by OpenClaw |
 

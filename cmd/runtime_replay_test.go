@@ -43,7 +43,7 @@ func TestPrintReplayHuman_IncludesNativeFailureContext(t *testing.T) {
 		}
 	})
 
-	for _, want := range []string{"toc-native", "openai/gpt-4o-mini", "cancelled", "Resumes: 2", "Compactions: 1", "[compact]", "Last error: session cancelled by parent session parent-1"} {
+	for _, want := range []string{"toc-native", "openai/gpt-4o-mini", "cancelled", "resumes: 2", "compactions: 1", "compact", "last error: session cancelled by parent session parent-1"} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("expected %q in output: %q", want, output)
 		}

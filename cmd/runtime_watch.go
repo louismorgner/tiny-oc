@@ -81,7 +81,10 @@ var runtimeWatchCmd = &cobra.Command{
 		if provider.SessionLogPath(s) == "" {
 			ui.Info("Waiting for session %s to start...", shortID(s.ID))
 		} else {
-			ui.Info("Watching session %s (%s)...", shortID(s.ID), s.Agent)
+			fmt.Println()
+			fmt.Printf("  %s  %s\n", ui.BoldCyan(s.Agent), ui.Dim(shortID(s.ID)))
+			fmt.Printf("  %s\n", ui.Dim("watching..."))
+			fmt.Println(ui.TurnSeparator())
 		}
 		fmt.Println()
 
@@ -180,25 +183,18 @@ func printRuntimeWatchSummary(s *session.Session) {
 		return
 	}
 
-	if summary.Model != "" {
-		ui.Info("Model: %s", ui.Dim(summary.Model))
-	}
-	if summary.ResumeCount > 0 {
-		ui.Info("Resumes: %d", summary.ResumeCount)
-	}
-	if summary.RecoveryCount > 0 {
-		ui.Info("Recoveries: %d", summary.RecoveryCount)
-	}
-	if summary.CompactionCount > 0 {
-		ui.Info("Compactions: %d", summary.CompactionCount)
-	}
-	if total := summary.Tokens.FormatTotal(); total != "" {
-		ui.Info("Tokens: %s", ui.Dim(total))
-	}
-	if summary.LastError != "" && s.ResolvedStatus() != session.StatusCompletedOK && s.ResolvedStatus() != "completed" {
-		ui.Info("Last error: %s", ui.Dim(summary.LastError))
-	}
-	if summary.LastRecovery != "" {
-		ui.Info("Last recovery: %s", ui.Dim(summary.LastRecovery))
-	}
+	fmt.Println(ui.TurnSeparator())
+	fmt.Println()
+
+	failed := s.ResolvedStatus() != session.StatusCompletedOK && s.ResolvedStatus() != "completed"
+	fmt.Print(ui.FormatSessionSummary(
+		summary.Model,
+		summary.Tokens.FormatTotal(),
+		summary.ResumeCount,
+		summary.RecoveryCount,
+		summary.CompactionCount,
+		summary.LastError,
+		summary.LastRecovery,
+		failed,
+	))
 }

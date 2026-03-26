@@ -91,9 +91,24 @@ func RunNativeSession(opts NativeRunOptions, stdin io.Reader, stdout io.Writer) 
 		return finalizeNativeSession(client, state, sessionCfg, toolSpecs, profile, toolCtx, stdout, true)
 	}
 
+	isTTY := ui.IsTTY(os.Stdout)
+
+	// Print session banner in interactive mode
+	if isTTY {
+		modelName := state.Model
+		if modelName == "" {
+			modelName = "default"
+		}
+		fmt.Fprint(stdout, ui.SessionBanner(opts.Agent, opts.SessionID, modelName))
+	}
+
 	reader := bufio.NewReader(stdin)
 	for {
-		fmt.Fprint(stdout, "> ")
+		if isTTY {
+			fmt.Fprint(stdout, ui.UserPromptPrefix(opts.Agent))
+		} else {
+			fmt.Fprint(stdout, ui.PlainPromptPrefix())
+		}
 		line, err := reader.ReadString('\n')
 		if err != nil {
 			if err == io.EOF {
@@ -114,6 +129,11 @@ func RunNativeSession(opts NativeRunOptions, stdin io.Reader, stdout io.Writer) 
 			continue
 		}
 		if line == "/exit" || line == "/quit" {
+			if isTTY {
+				fmt.Fprintln(stdout)
+				fmt.Fprintln(stdout, ui.TurnSeparator())
+				ui.Info("Session ended")
+			}
 			return finalizeNativeSession(client, state, sessionCfg, toolSpecs, profile, toolCtx, stdout, false)
 		}
 
@@ -382,8 +402,13 @@ func runNativeLoop(client *openRouterClient, state *State, toolSpecs []NativeToo
 			}); err != nil {
 				return err
 			}
-			if _, err := fmt.Fprintln(stdout, text); err != nil {
-				return err
+			if ui.IsTTY(os.Stdout) {
+				fmt.Fprintln(stdout, ui.AssistantHeader())
+				fmt.Fprint(stdout, ui.AssistantResponse(text))
+			} else {
+				if _, err := fmt.Fprintln(stdout, text); err != nil {
+					return err
+				}
 			}
 		}
 
@@ -398,7 +423,12 @@ func runNativeLoop(client *openRouterClient, state *State, toolSpecs []NativeToo
 				var parsedArgs map[string]interface{}
 				_ = json.Unmarshal([]byte(call.Function.Arguments), &parsedArgs)
 				keyParam := ui.ToolCallKeyParam(call.Function.Name, parsedArgs)
-				viz := ui.FormatToolCall(call.Function.Name, keyParam, result.Message, 5)
+				var viz string
+				if ui.IsTTY(os.Stdout) {
+					viz = ui.FormatToolCallRich(call.Function.Name, keyParam, result.Message, 5)
+				} else {
+					viz = ui.FormatToolCall(call.Function.Name, keyParam, result.Message, 5)
+				}
 				fmt.Fprint(stdout, viz)
 			}
 
@@ -464,16 +494,63 @@ type textStreamEmitter struct {
 	pending          string
 	wroteOutput      bool
 	lastChunkNewline bool
+	// TTY buffered mode: collect all text and render as markdown at the end
+	ttyMode    bool
+	fullBuffer strings.Builder
+	spinnerIdx int
+	spinnerOn  bool
 }
 
 func newTextStreamEmitter(sess *session.Session, stdout io.Writer) *textStreamEmitter {
-	return &textStreamEmitter{sess: sess, stdout: stdout, lastChunkNewline: true}
+	isTTY := ui.IsTTY(os.Stdout)
+	return &textStreamEmitter{
+		sess:             sess,
+		stdout:           stdout,
+		lastChunkNewline: true,
+		ttyMode:          isTTY,
+	}
 }
 
 func (e *textStreamEmitter) WriteChunk(chunk string) error {
 	if e == nil || chunk == "" {
 		return nil
 	}
+
+	if e.ttyMode {
+		// In TTY mode: buffer everything, show spinner
+		e.fullBuffer.WriteString(chunk)
+		e.wroteOutput = true
+
+		// Show/update spinner
+		if !e.spinnerOn {
+			e.spinnerOn = true
+			fmt.Fprint(e.stdout, ui.ThinkingIndicator(e.spinnerIdx))
+		} else {
+			// Update spinner frame periodically (every ~20 chunks)
+			e.spinnerIdx++
+			if e.spinnerIdx%20 == 0 {
+				// Clear spinner line and redraw
+				fmt.Fprint(e.stdout, "\r"+ui.ThinkingIndicator(e.spinnerIdx))
+			}
+		}
+
+		// Still emit events for the event log
+		e.pending += chunk
+		for {
+			idx := strings.IndexByte(e.pending, '\n')
+			if idx < 0 {
+				break
+			}
+			segment := e.pending[:idx]
+			e.pending = e.pending[idx+1:]
+			if err := e.emitSegment(segment); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+
+	// Non-TTY: stream directly as before
 	if _, err := io.WriteString(e.stdout, chunk); err != nil {
 		return err
 	}
@@ -513,10 +590,31 @@ func (e *textStreamEmitter) Finish() error {
 	if e == nil {
 		return nil
 	}
+
+	// Emit any remaining buffered segments for the event log
 	if err := e.emitSegment(e.pending); err != nil {
 		return err
 	}
 	e.pending = ""
+
+	if e.ttyMode {
+		// Clear spinner line
+		if e.spinnerOn {
+			fmt.Fprint(e.stdout, "\r\033[K") // clear line
+		}
+
+		// Render the full response as markdown
+		if e.wroteOutput {
+			text := strings.TrimSpace(e.fullBuffer.String())
+			if text != "" {
+				fmt.Fprintln(e.stdout, ui.AssistantHeader())
+				fmt.Fprint(e.stdout, ui.AssistantResponse(text))
+			}
+		}
+		return nil
+	}
+
+	// Non-TTY: ensure trailing newline
 	if e.wroteOutput && !e.lastChunkNewline {
 		if _, err := io.WriteString(e.stdout, "\n"); err != nil {
 			return err

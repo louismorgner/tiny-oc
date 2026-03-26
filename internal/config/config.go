@@ -83,15 +83,7 @@ func ExistsIn(root string) bool {
 }
 
 func Load() (*WorkspaceConfig, error) {
-	data, err := os.ReadFile(ConfigPath())
-	if err != nil {
-		return nil, fmt.Errorf("failed to read config: %w", err)
-	}
-	var cfg WorkspaceConfig
-	if err := yaml.Unmarshal(data, &cfg); err != nil {
-		return nil, fmt.Errorf("failed to parse config: %w", err)
-	}
-	return &cfg, nil
+	return LoadFrom(".")
 }
 
 func Save(cfg *WorkspaceConfig) error {
@@ -142,18 +134,7 @@ func Init(name string) error {
 
 // LoadSecrets reads the secrets file. Returns an empty Secrets if the file does not exist.
 func LoadSecrets() (*Secrets, error) {
-	data, err := os.ReadFile(SecretsPath())
-	if err != nil {
-		if os.IsNotExist(err) {
-			return &Secrets{}, nil
-		}
-		return nil, fmt.Errorf("failed to read secrets: %w", err)
-	}
-	var s Secrets
-	if err := yaml.Unmarshal(data, &s); err != nil {
-		return nil, fmt.Errorf("failed to parse secrets: %w", err)
-	}
-	return &s, nil
+	return LoadSecretsFrom(".")
 }
 
 // SaveSecrets writes the secrets file with restricted permissions (0600).
@@ -171,11 +152,7 @@ func SaveSecrets(s *Secrets) error {
 // OpenRouterKey returns the stored OpenRouter API key, or empty string if not set.
 // It reads from .toc/secrets.yaml relative to the current working directory.
 func OpenRouterKey() string {
-	s, err := LoadSecrets()
-	if err != nil {
-		return ""
-	}
-	return s.OpenRouterKey
+	return OpenRouterKeyFrom(".")
 }
 
 // LoadSecretsFrom reads the secrets file from a specific workspace root directory.

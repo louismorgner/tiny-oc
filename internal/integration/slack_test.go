@@ -48,28 +48,14 @@ func TestSlackChannelResolver_ResolveChannelID(t *testing.T) {
 }
 
 func TestSlackChannelResolver_ResolveName(t *testing.T) {
-	// Set up a mock Slack API
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		resp := map[string]interface{}{
-			"ok": true,
-			"channels": []map[string]interface{}{
-				{"id": "C001", "name": "general"},
-				{"id": "C002", "name": "random"},
-				{"id": "C003", "name": "engineering"},
-			},
-			"response_metadata": map[string]string{
-				"next_cursor": "",
-			},
-		}
-		json.NewEncoder(w).Encode(resp)
-	}))
-	defer server.Close()
-
 	resolver := NewSlackChannelResolver("test-token")
 	// Pre-populate cache to avoid hitting real API
-	resolver.cache["general"] = "C001"
-	resolver.cache["random"] = "C002"
-	resolver.cache["engineering"] = "C003"
+	resolver.byName["general"] = &slackConversation{ID: "C001", Name: "general", Kind: "public"}
+	resolver.byName["random"] = &slackConversation{ID: "C002", Name: "random", Kind: "public"}
+	resolver.byName["engineering"] = &slackConversation{ID: "C003", Name: "engineering", Kind: "private"}
+	resolver.byID["C001"] = resolver.byName["general"]
+	resolver.byID["C002"] = resolver.byName["random"]
+	resolver.byID["C003"] = resolver.byName["engineering"]
 	resolver.ready = true
 
 	tests := []struct {
@@ -92,6 +78,33 @@ func TestSlackChannelResolver_ResolveName(t *testing.T) {
 				t.Errorf("Resolve(%q) = %q, want %q", tt.input, id, tt.want)
 			}
 		})
+	}
+}
+
+func TestSlackChannelResolver_ResolveTarget(t *testing.T) {
+	resolver := NewSlackChannelResolver("test-token")
+	resolver.byName["general"] = &slackConversation{ID: "C001", Name: "general", Kind: "public"}
+	resolver.byID["C001"] = resolver.byName["general"]
+	resolver.ready = true
+
+	target, err := resolver.ResolveTarget("#general")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if target.ID != "C001" || target.Exact != "id/C001" || target.Kind != "public" {
+		t.Fatalf("unexpected target: %#v", target)
+	}
+}
+
+func TestSlackChannelResolver_RawChannelIDKeepsWeakerKindWithoutMetadata(t *testing.T) {
+	resolver := NewSlackChannelResolver("test-token")
+
+	target, err := resolver.ResolveTarget("C001")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if target.Kind != "channel" {
+		t.Fatalf("expected unresolved raw C id to keep generic channel kind, got %#v", target)
 	}
 }
 
@@ -196,10 +209,10 @@ func TestCheckSlackResponseForAction_InvalidAuth(t *testing.T) {
 
 func TestCheckSlackResponse(t *testing.T) {
 	tests := []struct {
-		name       string
-		data       interface{}
-		wantErr    bool
-		errSubstr  string // substring to check in error message
+		name      string
+		data      interface{}
+		wantErr   bool
+		errSubstr string // substring to check in error message
 	}{
 		{
 			name:    "success response",

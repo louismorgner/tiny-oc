@@ -10,34 +10,108 @@ import (
 // Permission represents a parsed resource.action:scope permission entry.
 type Permission struct {
 	Resource string   // e.g. "issues", "*"
-	Action   string   // e.g. "read", "*"
-	Scopes   []string // e.g. ["*"], ["louismorgner/tiny-oc", "other/repo"]
+	Action   string   // e.g. "read", "*", "post"
+	Scopes   []string // e.g. ["*"], ["#eng", "#ops"], ["channels/*"]
+}
+
+// PermissionTarget is the resolved target that permission checks operate on.
+type PermissionTarget struct {
+	Raw      string
+	Exact    string // canonical exact selector, usually an immutable ID
+	Name     string // human-readable name, without leading '#'
+	ID       string // provider ID, if known
+	Kind     string // e.g. public, private, dm, mpim
+	Resolved bool
+}
+
+// PermissionDecision captures the result of permission evaluation.
+type PermissionDecision struct {
+	Level        agent.PermissionLevel
+	Grant        agent.IntegrationPermissionGrant
+	Subject      string
+	MatchedScope string
+}
+
+// Specificity scores intentionally create this precedence order:
+// exact ID > raw provider ID > named Slack channel > class wildcard > conversation wildcard > "*".
+// Action matches also rank exact action above capability expansion above broad wildcards.
+// When two grants produce the same score, the first grant in the manifest wins.
+const (
+	actionScoreWildcard         = 1
+	actionScoreCapability       = 40
+	actionScoreExactAction      = 50
+	actionScoreResourceBase     = 10
+	actionScoreResourceSpecific = 20
+	actionScoreVerbSpecific     = 10
+
+	scopeScoreWildcard             = 1
+	scopeScoreConversationWildcard = 20
+	scopeScoreResourceWildcard     = 40
+	scopeScoreLegacyName           = 95
+	scopeScoreNamedChannel         = 100
+	scopeScoreRawProviderID        = 110
+	scopeScoreExactID              = 120
+
+	scopeScoreLegacyDM        = 60
+	scopeScoreClassWildcard   = 65
+	scopeScoreSpecificClass   = 70
+	scopeScoreFallbackExact   = 50
+	scopeScoreFallbackRaw     = 50
+	scopeScoreFallbackLiteral = 80
+)
+
+func (t PermissionTarget) Display() string {
+	switch {
+	case t.Raw != "":
+		return t.Raw
+	case t.Exact != "":
+		return t.Exact
+	default:
+		return "*"
+	}
+}
+
+func (t PermissionTarget) ExactPermissionScope() string {
+	switch {
+	case t.ID != "":
+		return "id/" + t.ID
+	case t.Exact != "":
+		return t.Exact
+	case t.Raw != "":
+		return t.Raw
+	default:
+		return "*"
+	}
 }
 
 // ParsePermission parses a permission string in resource.action:scope format.
 // Examples:
 //   - "issues.read:*"
 //   - "issues.write:louismorgner/tiny-oc"
-//   - "pulls.read:*"
-//   - "issues.*:*"
-//   - "send_message:*"        (no dot — action only, resource is empty)
-//   - "send_message:dm"
+//   - "send_message:*"
 //   - "read_messages:#eng,#ops"
+//   - "post:channels/*"
+//   - "*"
 func ParsePermission(s string) (*Permission, error) {
 	s = strings.TrimSpace(s)
 	if s == "" {
 		return nil, fmt.Errorf("empty permission string")
 	}
+	if s == "*" {
+		return &Permission{
+			Resource: "",
+			Action:   "*",
+			Scopes:   []string{"*"},
+		}, nil
+	}
 
-	// Split on colon to get resource.action and scope
 	colonIdx := strings.LastIndex(s, ":")
 	if colonIdx < 0 {
 		return nil, fmt.Errorf("invalid permission format '%s': missing ':' separator (expected resource.action:scope)", s)
 	}
 
-	resourceAction := s[:colonIdx]
-	scopeStr := s[colonIdx+1:]
-
+	resourceAction := strings.TrimSpace(s[:colonIdx])
+	scopeStr := strings.TrimSpace(s[colonIdx+1:])
 	if resourceAction == "" {
 		return nil, fmt.Errorf("invalid permission format '%s': empty resource.action", s)
 	}
@@ -45,7 +119,6 @@ func ParsePermission(s string) (*Permission, error) {
 		return nil, fmt.Errorf("invalid permission format '%s': empty scope", s)
 	}
 
-	// Parse scopes (comma-separated)
 	scopes := strings.Split(scopeStr, ",")
 	for i := range scopes {
 		scopes[i] = strings.TrimSpace(scopes[i])
@@ -54,18 +127,13 @@ func ParsePermission(s string) (*Permission, error) {
 		}
 	}
 
-	// Split resource.action on dot
 	var resource, action string
-	dotIdx := strings.LastIndex(resourceAction, ".")
-	if dotIdx < 0 {
-		// No dot — treat as action-only (e.g. "send_message:*")
-		resource = ""
-		action = resourceAction
-	} else {
+	if dotIdx := strings.LastIndex(resourceAction, "."); dotIdx >= 0 {
 		resource = resourceAction[:dotIdx]
 		action = resourceAction[dotIdx+1:]
+	} else {
+		action = resourceAction
 	}
-
 	if action == "" {
 		return nil, fmt.Errorf("invalid permission format '%s': empty action", s)
 	}
@@ -77,7 +145,7 @@ func ParsePermission(s string) (*Permission, error) {
 	}, nil
 }
 
-// ParsePermissions parses a list of permission strings.
+// ParsePermissions parses a list of raw permission strings.
 func ParsePermissions(perms []string) ([]*Permission, error) {
 	result := make([]*Permission, 0, len(perms))
 	for _, s := range perms {
@@ -90,115 +158,402 @@ func ParsePermissions(perms []string) ([]*Permission, error) {
 	return result, nil
 }
 
-// CheckPermission checks if a specific action with a target scope is allowed
-// by the given permission list. Returns true if allowed, false if denied.
-// Default deny — no matching permission means no access.
-func CheckPermission(permissions []*Permission, actionName string, target string) bool {
-	// Split the action name into resource and action parts
-	var targetResource, targetAction string
-	if dotIdx := strings.LastIndex(actionName, "."); dotIdx >= 0 {
-		targetResource = actionName[:dotIdx]
-		targetAction = actionName[dotIdx+1:]
-	} else {
-		targetResource = ""
-		targetAction = actionName
-	}
+// EvaluatePermission resolves the effective permission level for the given action and target.
+func EvaluatePermission(def *Definition, grants agent.IntegrationPermissions, actionName string, target PermissionTarget) PermissionDecision {
+	best := PermissionDecision{Level: agent.PermOff}
+	bestScore := -1
 
-	for _, perm := range permissions {
-		if matchesAction(perm, targetResource, targetAction) && matchesScope(perm, target) {
-			return true
-		}
-	}
-	return false
-}
-
-// matchesAction checks if a permission entry matches the requested resource.action.
-func matchesAction(perm *Permission, resource, action string) bool {
-	// Resource matching must be explicit:
-	// - perm.Resource == "*" matches any resource (including empty)
-	// - perm.Resource == "" only matches actions with no resource component
-	// - perm.Resource == "foo" only matches resource "foo"
-	if perm.Resource == "*" {
-		// wildcard resource — matches anything
-	} else if perm.Resource != resource {
-		return false
-	}
-
-	// Check action match
-	if perm.Action != "*" && perm.Action != action {
-		return false
-	}
-
-	return true
-}
-
-// matchesScope checks if any of the permission's scopes cover the target.
-func matchesScope(perm *Permission, target string) bool {
-	for _, scope := range perm.Scopes {
-		if scope == "*" {
-			return true
-		}
-		if scope == target {
-			return true
-		}
-	}
-	return false
-}
-
-// ValidatePermissionsAgainstDefinition checks that all permissions reference
-// valid actions and scopes from the integration definition.
-func ValidatePermissionsAgainstDefinition(perms []string, def *Definition) error {
-	parsed, err := ParsePermissions(perms)
-	if err != nil {
-		return err
-	}
-
-	for _, p := range parsed {
-		// Build the full action name for lookup
-		actionName := p.Action
-		if p.Resource != "" {
-			actionName = p.Resource + "." + p.Action
-		}
-
-		// Wildcard action — check that at least one action exists with the resource prefix
-		if p.Action == "*" {
-			if p.Resource == "" || p.Resource == "*" {
-				continue // full wildcard — covers everything
-			}
-			found := false
-			for name := range def.Actions {
-				if strings.HasPrefix(name, p.Resource+".") || name == p.Resource {
-					found = true
-					break
-				}
-			}
-			if !found {
-				return fmt.Errorf("no actions matching resource '%s' in integration '%s'", p.Resource, def.Name)
-			}
+	for _, grant := range grants {
+		perm, err := ParsePermission(grant.Capability)
+		if err != nil {
 			continue
 		}
 
-		// Check exact action exists
-		if _, ok := def.Actions[actionName]; !ok {
-			// Also try without resource prefix for action-only permissions
-			if p.Resource == "" {
-				if _, ok := def.Actions[p.Action]; !ok {
-					return fmt.Errorf("unknown action '%s' in integration '%s'", actionName, def.Name)
-				}
-			} else {
-				return fmt.Errorf("unknown action '%s' in integration '%s'", actionName, def.Name)
+		subject := permissionSubject(perm)
+		actionScore := actionSpecificity(def, perm, actionName)
+		if actionScore < 0 {
+			continue
+		}
+
+		scopeScore, matchedScope := scopeSpecificity(def, perm, target)
+		if scopeScore < 0 {
+			continue
+		}
+
+		score := actionScore + scopeScore
+		if score > bestScore {
+			level := grant.Mode
+			if level == "" {
+				level = agent.PermOn
 			}
+			best = PermissionDecision{
+				Level:        level,
+				Grant:        grant,
+				Subject:      subject,
+				MatchedScope: matchedScope,
+			}
+			bestScore = score
 		}
 	}
 
+	return best
+}
+
+// CheckPermission preserves the legacy bool API for existing callers/tests.
+func CheckPermission(permissions []*Permission, actionName string, target string) bool {
+	def := &Definition{Actions: map[string]Action{}}
+	for _, perm := range permissions {
+		subject := permissionSubject(perm)
+		if subject != "*" {
+			def.Actions[subject] = Action{}
+		}
+	}
+	decision := EvaluatePermission(def, rawPermissionsToGrants(permissions), actionName, PermissionTarget{Raw: target, Exact: target})
+	return decision.Level != agent.PermOff
+}
+
+// ValidatePermissionsAgainstDefinition checks that all permissions reference
+// valid actions/capabilities and sane target syntax for the given integration.
+func ValidatePermissionsAgainstDefinition(grants agent.IntegrationPermissions, def *Definition) error {
+	for _, grant := range grants {
+		perm, err := ParsePermission(grant.Capability)
+		if err != nil {
+			return err
+		}
+
+		if err := validatePermissionSubject(perm, def); err != nil {
+			return err
+		}
+		if err := validatePermissionScopes(perm, def); err != nil {
+			return err
+		}
+	}
 	return nil
+}
+
+func rawPermissionsToGrants(perms []*Permission) agent.IntegrationPermissions {
+	grants := make(agent.IntegrationPermissions, 0, len(perms))
+	for _, perm := range perms {
+		scope := strings.Join(perm.Scopes, ",")
+		subject := permissionSubject(perm)
+		capability := subject
+		if scope != "*" || subject != "*" {
+			capability = subject + ":" + scope
+		}
+		grants = append(grants, agent.IntegrationPermissionGrant{
+			Mode:       agent.PermOn,
+			Capability: capability,
+		})
+	}
+	return grants
+}
+
+func permissionSubject(perm *Permission) string {
+	if perm.Resource == "" {
+		return perm.Action
+	}
+	return perm.Resource + "." + perm.Action
+}
+
+func actionSpecificity(def *Definition, perm *Permission, actionName string) int {
+	if perm.Resource == "" {
+		if perm.Action == "*" {
+			return actionScoreWildcard
+		}
+		if _, ok := def.Actions[perm.Action]; ok && perm.Action == actionName {
+			return actionScoreExactAction
+		}
+		if capability, ok := def.Capabilities[perm.Action]; ok {
+			for _, action := range capability.Actions {
+				if action == actionName {
+					return actionScoreCapability
+				}
+			}
+			return -1
+		}
+		if perm.Action == actionName {
+			return actionScoreExactAction
+		}
+		return -1
+	}
+
+	targetResource, targetAction := splitActionName(actionName)
+	if !matchesAction(perm, targetResource, targetAction) {
+		return -1
+	}
+
+	score := actionScoreResourceBase
+	if perm.Resource != "*" {
+		score += actionScoreResourceSpecific
+	}
+	if perm.Action != "*" {
+		score += actionScoreVerbSpecific
+	}
+	return score
+}
+
+func splitActionName(actionName string) (string, string) {
+	if dotIdx := strings.LastIndex(actionName, "."); dotIdx >= 0 {
+		return actionName[:dotIdx], actionName[dotIdx+1:]
+	}
+	return "", actionName
+}
+
+func matchesAction(perm *Permission, resource, action string) bool {
+	if perm.Resource == "*" {
+	} else if perm.Resource != resource {
+		return false
+	}
+	if perm.Action != "*" && perm.Action != action {
+		return false
+	}
+	return true
+}
+
+func scopeSpecificity(def *Definition, perm *Permission, target PermissionTarget) (int, string) {
+	bestScore := -1
+	bestScope := ""
+	for _, scope := range perm.Scopes {
+		var score int
+		if def != nil && def.Name == "slack" {
+			score = slackScopeSpecificity(scope, target)
+		} else {
+			score = genericScopeSpecificity(scope, target)
+		}
+		if score > bestScore {
+			bestScore = score
+			bestScope = scope
+		}
+	}
+	return bestScore, bestScope
+}
+
+func genericScopeSpecificity(scope string, target PermissionTarget) int {
+	switch {
+	case scope == "*":
+		return scopeScoreWildcard
+	case scope == target.Exact && target.Exact != "":
+		return scopeScoreFallbackExact
+	case scope == target.Raw:
+		return scopeScoreFallbackRaw
+	default:
+		return -1
+	}
+}
+
+func slackScopeSpecificity(scope string, target PermissionTarget) int {
+	scope = strings.TrimSpace(scope)
+	switch {
+	case scope == "*":
+		return scopeScoreWildcard
+	case strings.HasPrefix(scope, "id/"):
+		if target.ID != "" && scope == "id/"+target.ID {
+			return scopeScoreExactID
+		}
+		return -1
+	case isSlackClassScope(scope):
+		return slackClassScopeSpecificity(scope, target.Kind)
+	case strings.HasPrefix(scope, "#"):
+		if target.Name != "" && scope == "#"+target.Name {
+			return scopeScoreNamedChannel
+		}
+		return -1
+	case isSlackConversationID(scope):
+		if target.ID != "" && scope == target.ID {
+			return scopeScoreRawProviderID
+		}
+		if target.Raw == scope {
+			return scopeScoreRawProviderID
+		}
+		return -1
+	case scope == "dm":
+		if target.Kind == "dm" {
+			return scopeScoreLegacyDM
+		}
+		return -1
+	case scope == "channels":
+		// Legacy form: only matches fully classified channels. Unresolved raw C...
+		// IDs use the weaker "channel" kind and therefore require channels/* or id/....
+		if target.Kind == "public" || target.Kind == "private" {
+			return scopeScoreResourceWildcard
+		}
+		return -1
+	case target.Name != "" && scope == target.Name:
+		return scopeScoreLegacyName
+	case scope == target.Raw:
+		return scopeScoreFallbackLiteral
+	default:
+		return -1
+	}
+}
+
+func slackClassScopeSpecificity(scope, kind string) int {
+	switch scope {
+	case "public/*":
+		if kind == "public" {
+			return scopeScoreSpecificClass
+		}
+	case "private/*":
+		if kind == "private" {
+			return scopeScoreSpecificClass
+		}
+	case "channels/*":
+		if kind == "public" || kind == "private" || kind == "channel" {
+			return scopeScoreClassWildcard
+		}
+	case "dm/*":
+		if kind == "dm" {
+			return scopeScoreClassWildcard
+		}
+	case "mpim/*":
+		if kind == "mpim" {
+			return scopeScoreClassWildcard
+		}
+	case "conversations/*":
+		if kind != "" {
+			return scopeScoreConversationWildcard
+		}
+	}
+	return -1
+}
+
+func validatePermissionSubject(perm *Permission, def *Definition) error {
+	subject := permissionSubject(perm)
+	if subject == "*" {
+		return nil
+	}
+
+	if perm.Resource == "" {
+		if _, ok := def.Actions[perm.Action]; ok {
+			return nil
+		}
+		if _, ok := def.Capabilities[perm.Action]; ok {
+			return nil
+		}
+		return fmt.Errorf("unknown action or capability '%s' in integration '%s'", subject, def.Name)
+	}
+
+	if perm.Action == "*" {
+		for name := range def.Actions {
+			if strings.HasPrefix(name, perm.Resource+".") {
+				return nil
+			}
+		}
+		return fmt.Errorf("no actions matching resource '%s' in integration '%s'", perm.Resource, def.Name)
+	}
+
+	if _, ok := def.Actions[subject]; ok {
+		return nil
+	}
+	return fmt.Errorf("unknown action '%s' in integration '%s'", subject, def.Name)
+}
+
+func validatePermissionScopes(perm *Permission, def *Definition) error {
+	if def.Name != "slack" {
+		for _, scope := range perm.Scopes {
+			if strings.TrimSpace(scope) == "" {
+				return fmt.Errorf("invalid empty scope in integration '%s'", def.Name)
+			}
+			if strings.ContainsAny(scope, "\n\r\t") {
+				return fmt.Errorf("invalid scope '%s' in integration '%s'", scope, def.Name)
+			}
+		}
+		return nil
+	}
+	for _, scope := range perm.Scopes {
+		if scope == "*" ||
+			strings.HasPrefix(scope, "#") ||
+			strings.HasPrefix(scope, "id/") ||
+			isSlackClassScope(scope) ||
+			isSlackConversationID(scope) ||
+			scope == "dm" ||
+			scope == "channels" {
+			continue
+		}
+		// Preserve backward compatibility for literal exact targets like "general".
+		if strings.TrimSpace(scope) != "" {
+			continue
+		}
+		return fmt.Errorf("invalid slack scope '%s'", scope)
+	}
+	return nil
+}
+
+func isSlackClassScope(scope string) bool {
+	switch scope {
+	case "public/*", "private/*", "channels/*", "dm/*", "mpim/*", "conversations/*":
+		return true
+	default:
+		return false
+	}
+}
+
+// DeterminePermissionTarget resolves the permission target for a runtime invocation.
+func DeterminePermissionTarget(integrationName, actionName string, params map[string]string, resolver *SlackChannelResolver) (PermissionTarget, error) {
+	switch integrationName {
+	case "github":
+		if repo, ok := params["repo"]; ok {
+			return PermissionTarget{Raw: repo, Exact: repo}, nil
+		}
+	case "slack":
+		switch actionName {
+		case "send_message", "read_messages", "react":
+			channel, ok := params["channel"]
+			if !ok {
+				return PermissionTarget{Raw: "*", Exact: "*"}, nil
+			}
+			if resolver == nil {
+				return PermissionTarget{Raw: channel, Exact: channel}, nil
+			}
+			return resolver.ResolveTarget(channel)
+		case "search_messages":
+			return PermissionTarget{Raw: "*", Exact: "*"}, nil
+		case "list_channels":
+			return slackListTargetFromParams(params), nil
+		}
+	case "linear":
+		if team, ok := params["team"]; ok {
+			target := "team/" + team
+			return PermissionTarget{Raw: target, Exact: target}, nil
+		}
+	}
+
+	return PermissionTarget{Raw: "*", Exact: "*"}, nil
+}
+
+func slackListTargetFromParams(params map[string]string) PermissionTarget {
+	types := strings.TrimSpace(params["types"])
+	if types == "" {
+		types = "public_channel,private_channel,im,mpim"
+	}
+
+	parts := strings.Split(types, ",")
+	normalized := make(map[string]bool, len(parts))
+	for _, part := range parts {
+		normalized[strings.TrimSpace(part)] = true
+	}
+
+	switch {
+	case len(normalized) == 1 && normalized["public_channel"]:
+		return PermissionTarget{Raw: "public/*", Exact: "public/*", Kind: "public"}
+	case len(normalized) == 1 && normalized["private_channel"]:
+		return PermissionTarget{Raw: "private/*", Exact: "private/*", Kind: "private"}
+	case len(normalized) == 1 && normalized["im"]:
+		return PermissionTarget{Raw: "dm/*", Exact: "dm/*", Kind: "dm"}
+	case len(normalized) == 1 && normalized["mpim"]:
+		return PermissionTarget{Raw: "mpim/*", Exact: "mpim/*", Kind: "mpim"}
+	case normalized["public_channel"] || normalized["private_channel"] || normalized["im"] || normalized["mpim"]:
+		return PermissionTarget{Raw: "conversations/*", Exact: "conversations/*", Kind: "conversation"}
+	default:
+		return PermissionTarget{Raw: "*", Exact: "*"}
+	}
 }
 
 // PermissionManifest is the resolved permission set written at spawn time.
 type PermissionManifest struct {
-	SessionID    string                           `json:"session_id"`
-	Agent        string                           `json:"agent"`
-	Filesystem   agent.FilesystemPermissions      `json:"filesystem,omitempty"`
-	Integrations map[string][]string              `json:"integrations"`
-	SubAgents    map[string]agent.PermissionLevel `json:"sub_agents,omitempty"`
+	SessionID    string                                  `json:"session_id"`
+	Agent        string                                  `json:"agent"`
+	Filesystem   agent.FilesystemPermissions             `json:"filesystem,omitempty"`
+	Integrations map[string]agent.IntegrationPermissions `json:"integrations"`
+	SubAgents    map[string]agent.PermissionLevel        `json:"sub_agents,omitempty"`
 }

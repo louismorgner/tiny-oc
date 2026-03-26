@@ -16,10 +16,11 @@ const remoteIntegrationBase = "https://raw.githubusercontent.com/louismorgner/ti
 
 // Definition represents an integration definition loaded from YAML.
 type Definition struct {
-	Name        string            `yaml:"name"`
-	Description string            `yaml:"description"`
-	Auth        AuthConfig        `yaml:"auth"`
-	Actions     map[string]Action `yaml:"actions"`
+	Name         string                `yaml:"name"`
+	Description  string                `yaml:"description"`
+	Auth         AuthConfig            `yaml:"auth"`
+	Capabilities map[string]Capability `yaml:"capabilities,omitempty"`
+	Actions      map[string]Action     `yaml:"actions"`
 }
 
 // AuthConfig describes how authentication works for this integration.
@@ -42,6 +43,12 @@ type Action struct {
 	BodyFormat  string            `yaml:"body_format"` // json, query, form
 	RateLimit   *RateLimit        `yaml:"rate_limit,omitempty"`
 	Returns     []string          `yaml:"returns,omitempty"`
+}
+
+// Capability maps a human-readable capability to one or more concrete actions.
+type Capability struct {
+	Description string   `yaml:"description"`
+	Actions     []string `yaml:"actions"`
 }
 
 // Param describes a parameter for an action.
@@ -151,6 +158,16 @@ func (d *Definition) Validate() error {
 	for name, action := range d.Actions {
 		if err := validateAction(d.Name, name, action); err != nil {
 			return err
+		}
+	}
+	for name, capability := range d.Capabilities {
+		if len(capability.Actions) == 0 {
+			return fmt.Errorf("integration '%s' capability '%s': no actions defined", d.Name, name)
+		}
+		for _, action := range capability.Actions {
+			if _, ok := d.Actions[action]; !ok {
+				return fmt.Errorf("integration '%s' capability '%s': unknown action '%s'", d.Name, name, action)
+			}
 		}
 	}
 	return nil

@@ -199,6 +199,82 @@ capabilities:
 
 When a user writes `post:#eng`, toc expands it to `send_message:#eng` + `react:#eng` at enforcement time.
 
+### Proposed Slack capability syntax
+
+Slack should expose a small, opinionated permission surface that matches how humans think about Slack while still respecting Slack's actual resource model.
+
+#### Capability names
+
+- `post:<target>` — send a message to a conversation
+- `read:<target>` — read message history from a conversation
+- `react:<target>` — add reactions in a conversation
+- `discover:<target>` — list conversations the installed Slack identity can see
+- `search:*` — search messages across everything the installed Slack identity can search
+
+#### Target syntax
+
+For Slack, `<target>` should be one of:
+
+- `#eng` — a single channel by name
+- `id/C123ABC456` — a single conversation by immutable Slack ID
+- `public/*` — any public channel
+- `private/*` — any private channel visible to the installed identity
+- `channels/*` — any public or private channel visible to the installed identity
+- `dm/*` — any existing 1:1 DM visible to the installed identity
+- `mpim/*` — any existing group DM visible to the installed identity
+- `conversations/*` — any visible Slack conversation
+
+#### Deliberate constraints
+
+- `search` should stay workspace-wide: `search:*`
+  Slack's `search.messages` API is not naturally channel-scoped. Requiring `in:#channel` inside the query would be brittle and easy to bypass.
+- `#name` should only mean channels, not DMs
+  Channel names are reasonably human-readable; DM identities are not stable enough to treat the same way.
+- Starting a new DM should be a separate future capability
+  Posting into an existing DM and opening a DM with a user are different operations in Slack and should not be collapsed into one permission.
+- IDs should always remain available as the escape hatch
+  `id/C123...`, `id/D123...`, and `id/G123...` are less friendly than names, but they are the only immutable selectors Slack guarantees.
+- Raw `C...` IDs should not be treated as implicitly public
+  If a human wants exact-ID matching, they should grant `id/C123...`. Broad classes like `public/*` and `private/*` should be reserved for cases where toc has actual conversation metadata.
+
+#### Recommended examples
+
+```yaml
+permissions:
+  integrations:
+    slack:
+      - post:#eng
+      - read:#eng
+```
+
+```yaml
+permissions:
+  integrations:
+    slack:
+      - post:channels/*
+      - react:channels/*
+      - read:#incidents,#eng-leads
+      - search:*
+```
+
+```yaml
+permissions:
+  integrations:
+    slack:
+      - read:id/C06ABC12345
+      - post:id/C06ABC12345
+      - react:id/C06ABC12345
+```
+
+#### Future-only syntax we should not promise yet
+
+- `post:@alice`
+- `read:@alice`
+- `search:#eng`
+- glob patterns like `post:#eng-*`
+
+Those may become valid later, but only after we have an explicit Slack identity-resolution model and a safe story for DM creation/opening.
+
 ### Migration path
 
 1. Continue supporting raw action names (`send_message:*`) for power users

@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
 
 	"github.com/tiny-oc/toc/internal/config"
 	"github.com/tiny-oc/toc/internal/runtimeinfo"
@@ -31,9 +32,9 @@ type FilesystemPermissions struct {
 
 // Permissions is the unified permission spec for an agent.
 type Permissions struct {
-	Filesystem   FilesystemPermissions      `yaml:"filesystem,omitempty"`
-	Integrations map[string][]string        `yaml:"integrations,omitempty"`
-	SubAgents    map[string]PermissionLevel `yaml:"sub-agents,omitempty"`
+	Filesystem   FilesystemPermissions             `yaml:"filesystem,omitempty"`
+	Integrations map[string]IntegrationPermissions `yaml:"integrations,omitempty"`
+	SubAgents    map[string]PermissionLevel        `yaml:"sub-agents,omitempty"`
 }
 
 type AgentConfig struct {
@@ -59,7 +60,7 @@ func (cfg *AgentConfig) EffectivePermissions() Permissions {
 			Write:   PermOn,
 			Execute: PermOn,
 		},
-		Integrations: make(map[string][]string),
+		Integrations: make(map[string]IntegrationPermissions),
 		SubAgents:    make(map[string]PermissionLevel),
 	}
 
@@ -74,7 +75,7 @@ func (cfg *AgentConfig) EffectivePermissions() Permissions {
 			p.Filesystem.Execute = cfg.Perms.Filesystem.Execute
 		}
 		for k, v := range cfg.Perms.Integrations {
-			p.Integrations[k] = v
+			p.Integrations[k] = append(IntegrationPermissions(nil), v...)
 		}
 		for k, v := range cfg.Perms.SubAgents {
 			p.SubAgents[k] = v
@@ -170,6 +171,15 @@ func (cfg *AgentConfig) Validate() []string {
 		for name, perms := range cfg.Perms.Integrations {
 			if len(perms) == 0 {
 				problems = append(problems, fmt.Sprintf("integrations.%s: empty permission list", name))
+				continue
+			}
+			for _, grant := range perms {
+				if grant.Mode != "" && !validPermissionLevel(grant.Mode) {
+					problems = append(problems, fmt.Sprintf("invalid permission level for integrations.%s: %s", name, grant.Mode))
+				}
+				if strings.TrimSpace(grant.Capability) == "" {
+					problems = append(problems, fmt.Sprintf("integrations.%s: empty permission capability", name))
+				}
 			}
 		}
 		for name, level := range cfg.Perms.SubAgents {

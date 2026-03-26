@@ -3,13 +3,18 @@ package cmd
 import (
 	"encoding/json"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
+	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/tiny-oc/toc/internal/agent"
 	"github.com/tiny-oc/toc/internal/audit"
 	"github.com/tiny-oc/toc/internal/integration"
 	"github.com/tiny-oc/toc/internal/runtime"
+	"github.com/tiny-oc/toc/internal/ui"
 )
 
 // invokeRateLimiter is initialized per-invocation with the session path.
@@ -90,24 +95,67 @@ Examples:
 			return integration.NewNoIntegrationPermError(ctx.Agent, integrationName)
 		}
 
-		parsedPerms, err := integration.ParsePermissions(integrationPerms)
-		if err != nil {
-			return fmt.Errorf("invalid permissions in manifest: %w", err)
-		}
-
-		// Determine the target scope from params
-		target := determineTarget(integrationName, actionName, params)
-		if !integration.CheckPermission(parsedPerms, actionName, target) {
-			return integration.NewPermissionDeniedError(ctx.Agent, integrationName, actionName)
-		}
-
 		// Step 3: Load integration definition
 		def, err := integration.LoadFromRegistry(integrationName)
 		if err != nil {
 			return fmt.Errorf("unknown integration '%s': %w", integrationName, err)
 		}
 
-		// Step 4: Check rate limit — also validates the action exists
+		if err := integration.ValidatePermissionsAgainstDefinition(integrationPerms, def); err != nil {
+			return fmt.Errorf("invalid permissions in manifest: %w", err)
+		}
+
+		// Slack: set up conversation resolver for permission checks and invocation.
+		var cred *integration.Credential
+		var resolver *integration.SlackChannelResolver
+		if integrationName == "slack" {
+			cred, err = integration.LoadCredentialFromWorkspace(ctx.Workspace, integrationName)
+			if err != nil {
+				return integration.NewCredentialError(integrationName, err)
+			}
+			resolver = integration.NewSlackChannelResolver(cred.AccessToken)
+		}
+
+		// Step 4: Resolve the target and check permissions.
+		target, err := integration.DeterminePermissionTarget(integrationName, actionName, params, resolver)
+		if err != nil {
+			return err
+		}
+		decision := integration.EvaluatePermission(def, integrationPerms, actionName, target)
+		switch decision.Level {
+		case agent.PermOff:
+			return integration.NewPermissionDeniedError(ctx.Agent, integrationName, actionName)
+		case agent.PermAsk:
+			approved, alwaysAllow, err := requestInvocationApproval(ctx, integrationName, actionName, params, target)
+			if err != nil {
+				return err
+			}
+			if !approved {
+				return fmt.Errorf("permission denied: user declined")
+			}
+			if alwaysAllow {
+				if err := appendSessionPermissionOverride(ctx, integrationName, decision.Subject, target); err != nil {
+					ui.Warn("Could not persist session-scoped approval override: %s", err)
+				}
+			}
+		}
+
+		// Use the canonical conversation ID for Slack once permission evaluation succeeded.
+		if integrationName == "slack" && target.ID != "" {
+			if _, ok := params["channel"]; ok {
+				params["channel"] = target.ID
+			}
+		}
+
+		// Step 6: Load credentials for non-Slack integrations after permission checks pass.
+		if cred == nil {
+			cred, err = integration.LoadCredentialFromWorkspace(ctx.Workspace, integrationName)
+			if err != nil {
+				return integration.NewCredentialError(integrationName, err)
+			}
+		}
+
+		// Step 5: Check rate limit — also validates the action exists
 		actionDef, err := def.GetAction(actionName)
 		if err != nil {
 			available := def.ActionNames()
@@ -115,12 +163,6 @@ Examples:
 		}
 		if !invokeRateLimiter.Allow(ctx.SessionID, integrationName+"."+actionName, actionDef.RateLimit) {
 			return fmt.Errorf("rate limit exceeded for %s.%s — try again later", integrationName, actionName)
-		}
-
-		// Step 5: Load credentials
-		cred, err := integration.LoadCredentialFromWorkspace(ctx.Workspace, integrationName)
-		if err != nil {
-			return integration.NewCredentialError(integrationName, err)
 		}
 
 		// Step 6: Make the call
@@ -134,9 +176,9 @@ Examples:
 			Workspace:   ctx.Workspace,
 		}
 
-		// Slack: set up channel resolver for transparent name-to-ID translation
+		// Slack: re-use the permission-time resolver so channel IDs stay consistent.
 		if integrationName == "slack" {
-			invokeReq.ChannelResolver = integration.NewSlackChannelResolver(cred.AccessToken)
+			invokeReq.ChannelResolver = resolver
 		}
 
 		resp, err := integration.Invoke(invokeReq)
@@ -150,7 +192,7 @@ Examples:
 			"session_id":  ctx.SessionID,
 			"integration": integrationName,
 			"action":      actionName,
-			"target":      target,
+			"target":      target.Display(),
 			"status_code": resp.StatusCode,
 		})
 
@@ -316,22 +358,113 @@ func loadPermissionManifest(ctx *runtime.Context) (*integration.PermissionManife
 }
 
 // determineTarget extracts the scope target from params based on the integration type.
-func determineTarget(integrationName, actionName string, params map[string]string) string {
-	switch integrationName {
-	case "github":
-		if repo, ok := params["repo"]; ok {
-			return repo
+func requestInvocationApproval(ctx *runtime.Context, integrationName, actionName string, params map[string]string, target integration.PermissionTarget) (bool, bool, error) {
+	if ui.IsTTY(os.Stdin) && ui.IsTTY(os.Stdout) {
+		choice, err := ui.Select(
+			fmt.Sprintf("[%s] Agent %q wants to run %s on %s", integrationName, ctx.Agent, actionName, target.Display()),
+			[]ui.SelectOption{
+				{Label: "Allow once", Value: "allow"},
+				{Label: "Always allow this target for this session", Value: "allow_always"},
+				{Label: "Deny", Value: "deny"},
+			},
+			0,
+		)
+		if err != nil {
+			return false, false, err
 		}
-	case "slack":
-		if ch, ok := params["channel"]; ok {
-			return ch
-		}
-	case "linear":
-		if team, ok := params["team"]; ok {
-			return "team/" + team
-		}
+		return choice == "allow" || choice == "allow_always", choice == "allow_always", nil
 	}
 
-	// Fall back to "*" for actions without a clear target
-	return "*"
+	approvalID, err := runtime.WritePendingApproval(ctx.Workspace, ctx.SessionID, runtime.PendingApprovalRequest{
+		SessionID:   ctx.SessionID,
+		Agent:       ctx.Agent,
+		Integration: integrationName,
+		Action:      actionName,
+		Target:      target.Display(),
+		Params:      params,
+	})
+	if err != nil {
+		return false, false, err
+	}
+
+	resp, err := runtime.WaitForPendingApproval(ctx.Workspace, ctx.SessionID, approvalID, 5*time.Minute)
+	if err != nil {
+		return false, false, fmt.Errorf("permission denied: %w", err)
+	}
+
+	switch resp.Decision {
+	case "allow":
+		return true, false, nil
+	case "allow_always":
+		return true, true, nil
+	default:
+		return false, false, nil
+	}
+}
+
+func appendSessionPermissionOverride(ctx *runtime.Context, integrationName, subject string, target integration.PermissionTarget) error {
+	path := filepath.Join(ctx.Workspace, ".toc", "sessions", ctx.SessionID, "permissions.json")
+	return withLockedFile(path, func() error {
+		manifest, err := runtime.LoadPermissionManifestInWorkspace(ctx.Workspace, ctx.SessionID)
+		if err != nil {
+			return err
+		}
+		override := agent.IntegrationPermissionGrant{
+			Mode:       agent.PermOn,
+			Capability: subject + ":" + target.ExactPermissionScope(),
+		}
+		if hasIntegrationGrant(manifest.Integrations[integrationName], override) {
+			return nil
+		}
+		manifest.Integrations[integrationName] = append(manifest.Integrations[integrationName], override)
+		return atomicWriteJSON(path, manifest)
+	})
+}
+
+func hasIntegrationGrant(grants agent.IntegrationPermissions, candidate agent.IntegrationPermissionGrant) bool {
+	for _, grant := range grants {
+		if grant.Mode == candidate.Mode && grant.Capability == candidate.Capability {
+			return true
+		}
+	}
+	return false
+}
+
+func withLockedFile(path string, fn func() error) error {
+	// Unix-only flock is acceptable for the current target environments.
+	// If Windows support becomes a goal, this needs a platform abstraction.
+	lockPath := path + ".lock"
+	f, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0600)
+	if err != nil {
+		return fmt.Errorf("failed to open lock file: %w", err)
+	}
+	defer f.Close()
+
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX); err != nil {
+		return fmt.Errorf("failed to acquire file lock: %w", err)
+	}
+	defer syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
+
+	return fn()
+}
+
+func atomicWriteJSON(path string, v interface{}) error {
+	data, err := json.MarshalIndent(v, "", "  ")
+	if err != nil {
+		return err
+	}
+	tmp, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+".tmp-*")
+	if err != nil {
+		return err
+	}
+	tmpPath := tmp.Name()
+	defer os.Remove(tmpPath)
+	if _, err := tmp.Write(append(data, '\n')); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmpPath, path)
 }

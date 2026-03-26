@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 
 	"github.com/tiny-oc/toc/internal/agent"
+	"github.com/tiny-oc/toc/internal/integration"
 	"github.com/tiny-oc/toc/internal/runtimeinfo"
 	"github.com/tiny-oc/toc/internal/session"
 )
@@ -81,7 +82,19 @@ func ValidateSessionConfig(cfg *SessionConfig) error {
 	if cfg == nil {
 		return fmt.Errorf("session config is nil")
 	}
-	return runtimeinfo.ValidateModelSelection(cfg.Runtime, cfg.Model, cfg.AllowCustomNativeModel)
+	if err := runtimeinfo.ValidateModelSelection(cfg.Runtime, cfg.Model, cfg.AllowCustomNativeModel); err != nil {
+		return err
+	}
+	for name, grants := range cfg.Permissions.Integrations {
+		def, err := integration.LoadFromRegistry(name)
+		if err != nil {
+			return fmt.Errorf("invalid integration '%s': %w", name, err)
+		}
+		if err := integration.ValidatePermissionsAgainstDefinition(grants, def); err != nil {
+			return fmt.Errorf("invalid permissions for integration '%s': %w", name, err)
+		}
+	}
+	return nil
 }
 
 func resolvedLLMProvider(runtimeName string) string {

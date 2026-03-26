@@ -3,7 +3,6 @@ package cmd
 import (
 	"fmt"
 	"sort"
-	"strings"
 
 	"github.com/spf13/cobra"
 	"github.com/tiny-oc/toc/internal/integration"
@@ -65,10 +64,11 @@ and the permitted actions with their scope restrictions.`,
 				continue
 			}
 
-			fmt.Printf("    %s\n", strings.Join(perms, "    "))
+			for _, grant := range perms {
+				fmt.Printf("    %s\n", grant.String())
+			}
 		}
 
 		return nil
 	},
 }
-

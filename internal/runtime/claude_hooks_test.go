@@ -14,9 +14,13 @@ func TestBuildClaudePermissionHookScript_ContainsDecisions(t *testing.T) {
 			Write:   agent.PermAsk,
 			Execute: agent.PermOff,
 		},
-		Integrations: map[string][]string{
-			"slack":  {"send_message:*"},
-			"github": {"issues.read:*"},
+		Integrations: map[string]agent.IntegrationPermissions{
+			"slack": {
+				{Mode: agent.PermOn, Capability: "send_message:*"},
+			},
+			"github": {
+				{Mode: agent.PermOn, Capability: "issues.read:*"},
+			},
 		},
 	}
 

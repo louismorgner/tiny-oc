@@ -158,6 +158,60 @@ func TestCheckSlackResponse(t *testing.T) {
 	}
 }
 
+func TestValidateSlackClientID(t *testing.T) {
+	tests := []struct {
+		name    string
+		input   string
+		wantErr bool
+	}{
+		{"valid numeric ID", "1234567890.9876543210", false},
+		{"valid simple numeric", "123456789", false},
+		{"token xoxb prefix", "xoxb-1234-abcdef", true},
+		{"token xoxp prefix", "xoxp-1234-abcdef", true},
+		{"contains letters", "abc123", true},
+		{"contains dash", "123-456", true},
+		{"empty string", "", true},
+		{"single dot", ".", true},
+		{"triple dot", "...", true},
+		{"too short", "12345", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateSlackClientID(tt.input)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("ValidateSlackClientID(%q) error = %v, wantErr %v", tt.input, err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestValidateSlackClientSecret(t *testing.T) {
+	tests := []struct {
+		name    string
+		input   string
+		wantErr bool
+	}{
+		{"valid 32-char hex", "abcdef1234567890abcdef1234567890", false},
+		{"valid mixed case hex", "ABCDEF1234567890abcdef1234567890", false},
+		{"token xoxb prefix", "xoxb-fake-test", true},
+		{"token xoxp prefix", "xoxp-fake-test", true},
+		{"too short", "abcdef", true},
+		{"empty string", "", true},
+		{"contains non-hex", "abcdef1234567890abcdef123456789g", true},
+		{"contains dash", "abcdef1234567890-bcdef1234567890", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateSlackClientSecret(tt.input)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("ValidateSlackClientSecret(%q) error = %v, wantErr %v", tt.input, err, tt.wantErr)
+			}
+		})
+	}
+}
+
 func TestCheckPermission_SlackPatterns(t *testing.T) {
 	tests := []struct {
 		name        string

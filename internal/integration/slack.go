@@ -140,6 +140,46 @@ func isAlphanumeric(s string) bool {
 	return true
 }
 
+// ValidateSlackClientID checks that a Slack Client ID looks valid.
+// Slack Client IDs are numeric strings (e.g. "1234567890.9876543210").
+func ValidateSlackClientID(id string) error {
+	if strings.HasPrefix(id, "xoxb-") || strings.HasPrefix(id, "xoxp-") {
+		return fmt.Errorf("this looks like a Slack token, not a Client ID — find the Client ID under Basic Information in your Slack app settings")
+	}
+	if len(id) < 8 {
+		return fmt.Errorf("Slack Client ID should be numeric (e.g. 1234567890.9876543210) — find it under Basic Information in your Slack app settings")
+	}
+	hasDigit := false
+	for _, c := range id {
+		if c >= '0' && c <= '9' {
+			hasDigit = true
+		} else if c != '.' {
+			return fmt.Errorf("Slack Client ID should be numeric (e.g. 1234567890.9876543210) — find it under Basic Information in your Slack app settings")
+		}
+	}
+	if !hasDigit {
+		return fmt.Errorf("Slack Client ID should be numeric (e.g. 1234567890.9876543210) — find it under Basic Information in your Slack app settings")
+	}
+	return nil
+}
+
+// ValidateSlackClientSecret checks that a Slack Client Secret looks valid.
+// Slack Client Secrets are 32-character hex strings.
+func ValidateSlackClientSecret(secret string) error {
+	if strings.HasPrefix(secret, "xoxb-") || strings.HasPrefix(secret, "xoxp-") {
+		return fmt.Errorf("this looks like a Slack token, not a Client Secret — find the Client Secret under Basic Information in your Slack app settings")
+	}
+	if len(secret) < 20 || len(secret) > 64 {
+		return fmt.Errorf("Slack Client Secret should be ~32 character hex string — find it under Basic Information in your Slack app settings")
+	}
+	for _, c := range secret {
+		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')) {
+			return fmt.Errorf("Slack Client Secret should be a hex string — find it under Basic Information in your Slack app settings")
+		}
+	}
+	return nil
+}
+
 // CheckSlackResponse inspects a Slack API response and returns a clean error
 // if the response indicates failure (ok: false).
 func CheckSlackResponse(statusCode int, data interface{}) error {

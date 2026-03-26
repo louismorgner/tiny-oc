@@ -33,8 +33,8 @@ var nativeModelProfiles = []NativeModelProfile{
 		SupportsStreaming: true,
 	},
 	{
-		ID:                "anthropic/claude-3.7-sonnet",
-		Label:             "Claude 3.7 Sonnet",
+		ID:                "anthropic/claude-sonnet-4",
+		Label:             "Claude Sonnet 4",
 		Description:       "strong coding and reasoning via OpenRouter",
 		SupportsTools:     true,
 		SupportsStreaming: true,

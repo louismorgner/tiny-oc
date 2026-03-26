@@ -2,7 +2,10 @@ package cmd
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"os/exec"
 	"runtime"
 	"strings"
@@ -115,7 +118,19 @@ var integrateAddCmd = &cobra.Command{
 		fmt.Println()
 		ui.Success("Integration '%s' configured", name)
 		ui.Info("Credentials encrypted at %s", ui.Dim(".toc/integrations/"+name+"/credentials.enc"))
-		ui.Info("Test with: %s", ui.Bold(fmt.Sprintf("toc integrate test %s", name)))
+
+		// Run inline auth verification for Slack
+		if name == "slack" {
+			fmt.Println()
+			ui.Info("Verifying credentials with auth.test...")
+			if err := runInlineAuthTest(cred); err != nil {
+				ui.Warn("Credential verification failed: %s", err)
+				ui.Info("You can retry with: %s", ui.Bold("toc integrate test slack"))
+			}
+		} else {
+			ui.Info("Test with: %s", ui.Bold(fmt.Sprintf("toc integrate test %s", name)))
+		}
+
 		fmt.Println()
 		return nil
 	},
@@ -125,7 +140,10 @@ func runOAuth2Flow(name string, def *integration.Definition, manual bool, flagCl
 	clientID := flagClientID
 	clientSecret := flagClientSecret
 
-	if clientID == "" || clientSecret == "" {
+	// Show setup instructions as a numbered wizard for OAuth2 integrations
+	if (clientID == "" || clientSecret == "") && def.Auth.SetupInstructions != "" {
+		showSetupWizard(def)
+	} else if clientID == "" || clientSecret == "" {
 		ui.Info("This integration uses OAuth2. You'll need your app's Client ID and Client Secret.")
 		if def.Auth.SetupURL != "" {
 			ui.Info("Create an app at: %s", ui.Cyan(def.Auth.SetupURL))
@@ -144,6 +162,13 @@ func runOAuth2Flow(name string, def *integration.Definition, manual bool, flagCl
 		return nil, fmt.Errorf("client ID cannot be empty")
 	}
 
+	// Validate credential format for Slack
+	if name == "slack" {
+		if err := integration.ValidateSlackClientID(clientID); err != nil {
+			return nil, err
+		}
+	}
+
 	if clientSecret == "" {
 		var err error
 		clientSecret, err = ui.Prompt("Enter Client Secret", "")
@@ -153,6 +178,13 @@ func runOAuth2Flow(name string, def *integration.Definition, manual bool, flagCl
 	}
 	if clientSecret == "" {
 		return nil, fmt.Errorf("client secret cannot be empty")
+	}
+
+	// Validate credential format for Slack
+	if name == "slack" {
+		if err := integration.ValidateSlackClientSecret(clientSecret); err != nil {
+			return nil, err
+		}
 	}
 
 	// For non-slack integrations, fall back to PAT until we add provider-specific configs
@@ -208,6 +240,52 @@ func runOAuth2Flow(name string, def *integration.Definition, manual bool, flagCl
 	return cred, nil
 }
 
+// showSetupWizard displays the integration's setup instructions as a numbered
+// wizard with pauses between steps so the user can complete each one.
+func showSetupWizard(def *integration.Definition) {
+	ui.Header("Setup wizard")
+
+	lines := strings.Split(strings.TrimSpace(def.Auth.SetupInstructions), "\n")
+
+	// Show required scopes up front
+	scopes := def.Auth.UserScopes
+	if len(scopes) == 0 {
+		scopes = def.Auth.RequiredScopes
+	}
+	if len(scopes) > 0 {
+		ui.Info("Required scopes: %s", ui.Bold(strings.Join(scopes, ", ")))
+		fmt.Println()
+	}
+
+	// Filter out blank lines so the "last step" check is accurate.
+	var steps []string
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line != "" {
+			steps = append(steps, line)
+		}
+	}
+
+	for i, line := range steps {
+		// Highlight the redirect URL step
+		if strings.Contains(line, "Redirect URL") || strings.Contains(line, "redirect_uri") || strings.Contains(line, integration.SlackOAuthCallbackURL) {
+			fmt.Println("  " + ui.Yellow(line))
+			fmt.Println()
+			ui.Warn("OAuth will fail if the redirect URL is not added exactly as shown above.")
+			fmt.Println()
+		} else {
+			fmt.Println("  " + line)
+			fmt.Println()
+		}
+
+		// Pause between steps (except the last one, which is usually "run toc integrate add")
+		if i < len(steps)-1 {
+			ui.WaitForEnter("Press Enter when ready for the next step...")
+			fmt.Println()
+		}
+	}
+}
+
 // runHostedOAuth2Flow opens the browser and starts a localhost callback server.
 // The hosted HTTPS worker receives Slack's redirect and bounces the user back
 // to localhost where the code is captured automatically.
@@ -242,6 +320,63 @@ func runManualOAuth2Flow(authURL string) (string, error) {
 	}
 
 	return integration.ParseCodeFromURL(raw)
+}
+
+// runInlineAuthTest calls Slack's auth.test endpoint immediately after OAuth
+// to verify the token works, so the user doesn't have to run a separate command.
+func runInlineAuthTest(cred *integration.Credential) error {
+	data, err := callSlackAuthTest(cred.AccessToken)
+	if err != nil {
+		return err
+	}
+	user, _ := data["user"].(string)
+	team, _ := data["team"].(string)
+	ui.Success("Authenticated as %s in workspace %s", ui.Bold(user), ui.Bold(team))
+	return nil
+}
+
+// callSlackAuthTest calls Slack's auth.test API and returns the parsed response.
+// On Slack API errors it returns a descriptive error with guidance.
+func callSlackAuthTest(token string) (map[string]interface{}, error) {
+	req, err := http.NewRequest("GET", "https://slack.com/api/auth.test", nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("User-Agent", "toc/1.0")
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("connection failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response: %w", err)
+	}
+
+	var data map[string]interface{}
+	if err := json.Unmarshal(body, &data); err != nil {
+		return nil, fmt.Errorf("invalid response from Slack")
+	}
+
+	if err := integration.CheckSlackResponse(resp.StatusCode, data); err != nil {
+		errStr := err.Error()
+		if strings.Contains(errStr, "invalid_auth") {
+			return nil, fmt.Errorf("%s — the token may have been revoked or is malformed", errStr)
+		}
+		if strings.Contains(errStr, "missing_scope") {
+			return nil, fmt.Errorf("%s — re-add the integration with the correct scopes", errStr)
+		}
+		if strings.Contains(errStr, "not_authed") {
+			return nil, fmt.Errorf("%s — no authentication token was provided", errStr)
+		}
+		return nil, err
+	}
+
+	return data, nil
 }
 
 func openBrowser(url string) {

@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"bufio"
 	"fmt"
 	"os"
 	"strings"
@@ -213,6 +214,15 @@ func ToolCallKeyParam(toolName string, args map[string]interface{}) string {
 		}
 	}
 	return ""
+}
+
+// WaitForEnter prints a prompt and blocks until the user presses Enter.
+func WaitForEnter(prompt string) {
+	if prompt == "" {
+		prompt = "Press Enter to continue..."
+	}
+	fmt.Printf("  %s %s", Dim("⏎"), Dim(prompt))
+	bufio.NewReader(os.Stdin).ReadBytes('\n')
 }
 
 func truncateInlineUI(s string, maxLen int) string {

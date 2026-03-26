@@ -115,7 +115,7 @@ func TestBuildDetachedScript_WithoutModel(t *testing.T) {
 	}
 }
 
-func TestBuildDetachedScript_Resume_UsesContinueFlag(t *testing.T) {
+func TestBuildDetachedScript_Resume_UsesResumeFlag(t *testing.T) {
 	dir := t.TempDir()
 	promptPath := filepath.Join(dir, "toc-prompt.txt")
 	os.WriteFile(promptPath, []byte("resume prompt"), 0644)
@@ -126,8 +126,14 @@ func TestBuildDetachedScript_Resume_UsesContinueFlag(t *testing.T) {
 		Resume: true,
 	}, promptPath)
 
-	if !strings.Contains(script, "--continue") {
-		t.Error("resume script should use --continue flag")
+	if !strings.Contains(script, "--resume sess-789") {
+		t.Error("resume script should use --resume <session-id> flag")
+	}
+	if strings.Contains(script, "--continue") {
+		t.Error("resume script should not use --continue flag")
+	}
+	if strings.Contains(script, "--session-id") {
+		t.Error("resume script should not use --session-id (--resume already targets the session)")
 	}
 	if !strings.Contains(script, "echo $$ >") {
 		t.Error("resume script should write PID file")
@@ -137,7 +143,7 @@ func TestBuildDetachedScript_Resume_UsesContinueFlag(t *testing.T) {
 	}
 }
 
-func TestBuildDetachedScript_NoResume_NoContinueFlag(t *testing.T) {
+func TestBuildDetachedScript_NoResume_NoResumeFlag(t *testing.T) {
 	dir := t.TempDir()
 	promptPath := filepath.Join(dir, "toc-prompt.txt")
 	os.WriteFile(promptPath, []byte("test"), 0644)
@@ -150,6 +156,12 @@ func TestBuildDetachedScript_NoResume_NoContinueFlag(t *testing.T) {
 
 	if strings.Contains(script, "--continue") {
 		t.Error("non-resume script should not contain --continue flag")
+	}
+	if strings.Contains(script, "--resume") {
+		t.Error("non-resume script should not contain --resume flag")
+	}
+	if !strings.Contains(script, "--session-id sess") {
+		t.Error("non-resume script should use --session-id")
 	}
 }
 
@@ -206,7 +218,7 @@ func TestLoadOrResolveSessionConfig_PrefersPersistedConfig(t *testing.T) {
 		return &agent.AgentConfig{
 			Name:    "native-child",
 			Runtime: runtimeinfo.NativeRuntime,
-			Model:   "anthropic/claude-3.7-sonnet",
+			Model:   "anthropic/claude-sonnet-4",
 		}, nil
 	})
 	if err != nil {

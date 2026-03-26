@@ -1,0 +1,98 @@
+name: exa
+description: Exa API — semantic web search with highlights, summaries, and content extraction
+auth:
+  method: api_key
+  setup_url: https://dashboard.exa.ai/api-keys
+  setup_instructions: |
+    1. Go to https://dashboard.exa.ai/api-keys and sign in (or create an account)
+    2. Click "Create API Key" and copy the key
+    3. Run `toc integrate add exa` and paste the key when prompted
+
+actions:
+  search:
+    description: Semantic search the web — returns highlighted snippets by default for token efficiency
+    scopes:
+      "*": any search query
+    params:
+      - name: query
+        required: true
+      - name: numResults
+        required: false
+        default: "5"
+      - name: type
+        required: false
+        default: auto
+      - name: category
+        required: false
+      - name: includeDomains
+        required: false
+      - name: excludeDomains
+        required: false
+      - name: startPublishedDate
+        required: false
+      - name: endPublishedDate
+        required: false
+      - name: includeText
+        required: false
+      - name: excludeText
+        required: false
+    method: POST
+    endpoint: https://api.exa.ai/search
+    auth_header: "x-api-key: {{token}}"
+    body_format: json
+    rate_limit:
+      max: 30
+      window: 60s
+    returns:
+      - results[].title
+      - results[].url
+      - results[].publishedDate
+      - results[].author
+      - results[].highlights
+
+  find_similar:
+    description: Find web pages similar to a given URL
+    scopes:
+      "*": any URL
+    params:
+      - name: url
+        required: true
+      - name: numResults
+        required: false
+        default: "5"
+      - name: includeDomains
+        required: false
+      - name: excludeDomains
+        required: false
+    method: POST
+    endpoint: https://api.exa.ai/findSimilar
+    auth_header: "x-api-key: {{token}}"
+    body_format: json
+    rate_limit:
+      max: 30
+      window: 60s
+    returns:
+      - results[].title
+      - results[].url
+      - results[].publishedDate
+      - results[].author
+      - results[].highlights
+
+  get_contents:
+    description: Get page content for known URLs — use when you have URLs and need their text
+    scopes:
+      "*": any URL
+    params:
+      - name: ids
+        required: true
+    method: POST
+    endpoint: https://api.exa.ai/contents
+    auth_header: "x-api-key: {{token}}"
+    body_format: json
+    rate_limit:
+      max: 30
+      window: 60s
+    returns:
+      - results[].title
+      - results[].url
+      - results[].text

@@ -41,8 +41,7 @@ Credentials are encrypted with AES-256-GCM. The master encryption key is stored 
 
 Encrypted credentials live at:
 
-- `~/.toc/integrations/<name>/credentials.enc` — user-level credentials
-- `<workspace>/.toc/integrations/<name>/credentials.enc` — workspace-level copy for sessions
+- `<workspace>/.toc/integrations/<name>/credentials.enc` — stored at `toc integrate add` time, read directly by sessions at invocation time (no per-session copy is made)
 
 For OAuth2 integrations, client config is stored separately at `~/.toc/integrations/<name>/oauth2_client.enc` to support automatic token refresh.
 

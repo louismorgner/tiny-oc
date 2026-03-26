@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/tiny-oc/toc/internal/config"
@@ -43,16 +44,37 @@ var integrateTestCmd = &cobra.Command{
 		ui.Info("Testing %s credentials...", ui.Bold(name))
 
 		// Use the first GET action as the test, or fall back to a known test endpoint
-		testURL, authHeader := getTestEndpoint(name, def, cred)
+		testURL, headerName, headerValue := getTestEndpoint(name, def, cred)
+
+		// For Slack, use the shared auth test helper
+		if name == "slack" {
+			data, err := callSlackAuthTest(cred.AccessToken)
+			if err != nil {
+				ui.Error("Authentication failed — %s", err)
+				ui.Info("Re-add with: %s", ui.Bold("toc integrate add slack"))
+
+				// Warn about bot vs user token for search
+				if strings.HasPrefix(cred.AccessToken, "xoxb-") {
+					ui.Warn("You're using a bot token (xoxb-). search:read requires a user token (xoxp-).")
+				}
+
+				return nil
+			}
+
+			user, _ := data["user"].(string)
+			team, _ := data["team"].(string)
+			ui.Success("Credentials valid — authenticated as %s in workspace %s", ui.Bold(user), ui.Bold(team))
+			return nil
+		}
 
 		req, err := http.NewRequest("GET", testURL, nil)
 		if err != nil {
 			return fmt.Errorf("failed to create test request: %w", err)
 		}
-		req.Header.Set("Authorization", authHeader)
+		req.Header.Set(headerName, headerValue)
 		req.Header.Set("User-Agent", "toc/1.0")
 
-		client := &http.Client{}
+		client := &http.Client{Timeout: 10 * time.Second}
 		resp, err := client.Do(req)
 		if err != nil {
 			ui.Error("Connection failed: %s", err)
@@ -60,6 +82,7 @@ var integrateTestCmd = &cobra.Command{
 		}
 		defer resp.Body.Close()
 
+		// Non-Slack: check HTTP status code
 		if resp.StatusCode == 200 || resp.StatusCode == 201 {
 			ui.Success("Credentials valid — %s responded with %d", name, resp.StatusCode)
 		} else if resp.StatusCode == 401 || resp.StatusCode == 403 {
@@ -73,25 +96,36 @@ var integrateTestCmd = &cobra.Command{
 	},
 }
 
-func getTestEndpoint(name string, def *integration.Definition, cred *integration.Credential) (string, string) {
-	// Use well-known test endpoints per integration
+// getTestEndpoint returns the URL, header name, and header value for testing credentials.
+func getTestEndpoint(name string, def *integration.Definition, cred *integration.Credential) (string, string, string) {
 	switch name {
 	case "github":
-		authHeader := strings.ReplaceAll("Bearer {{token}}", "{{token}}", cred.AccessToken)
-		return "https://api.github.com/user", authHeader
+		return "https://api.github.com/user", "Authorization", "Bearer " + cred.AccessToken
 	case "slack":
-		authHeader := "Bearer " + cred.AccessToken
-		return "https://slack.com/api/auth.test", authHeader
+		return "https://slack.com/api/auth.test", "Authorization", "Bearer " + cred.AccessToken
+	case "exa":
+		return "https://api.exa.ai/search", "x-api-key", cred.AccessToken
 	default:
 		// Find the first GET action and use that
 		for _, action := range def.Actions {
 			if action.Method == "GET" {
-				authHeader := strings.ReplaceAll(action.AuthHeader, "{{token}}", cred.AccessToken)
-				return action.Endpoint, authHeader
+				headerName, headerValue := parseAuthHeader(action.AuthHeader, cred.AccessToken)
+				return action.Endpoint, headerName, headerValue
 			}
 		}
-		// Last resort
-		authHeader := strings.ReplaceAll("Bearer {{token}}", "{{token}}", cred.AccessToken)
-		return def.Auth.SetupURL, authHeader
+		return def.Auth.SetupURL, "Authorization", "Bearer " + cred.AccessToken
 	}
+}
+
+// parseAuthHeader splits an auth_header template into header name and value.
+// If the template contains ": ", the left side is the header name.
+// Otherwise, "Authorization" is used as the header name.
+func parseAuthHeader(template, token string) (string, string) {
+	if idx := strings.Index(template, ": "); idx > 0 {
+		name := template[:idx]
+		value := strings.ReplaceAll(template[idx+2:], "{{token}}", token)
+		return name, value
+	}
+	value := strings.ReplaceAll(template, "{{token}}", token)
+	return "Authorization", value
 }

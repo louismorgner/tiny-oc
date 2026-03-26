@@ -452,3 +452,231 @@ func TestRunNativeSession_RecoversInterruptedTurnOnResume(t *testing.T) {
 		t.Fatalf("expected first event to be recovery, got %#v", parsed.Events[0].Step)
 	}
 }
+
+func TestAccumulateUsage(t *testing.T) {
+	tests := []struct {
+		name        string
+		state       *State
+		resp        *chatResponse
+		wantInput   int64
+		wantOutput  int64
+		wantCacheR  int64
+		wantCacheW  int64
+	}{
+		{
+			name:  "nil state",
+			state: nil,
+			resp:  &chatResponse{},
+		},
+		{
+			name:  "nil response",
+			state: &State{},
+			resp:  nil,
+		},
+		{
+			name:  "basic tokens without cache details",
+			state: &State{},
+			resp: func() *chatResponse {
+				r := &chatResponse{}
+				r.Usage.PromptTokens = 10
+				r.Usage.CompletionTokens = 5
+				return r
+			}(),
+			wantInput:  10,
+			wantOutput: 5,
+		},
+		{
+			name:  "tokens with cache details",
+			state: &State{},
+			resp: func() *chatResponse {
+				r := &chatResponse{}
+				r.Usage.PromptTokens = 20
+				r.Usage.CompletionTokens = 8
+				r.Usage.PromptTokensDetails = &promptTokensDetails{
+					CachedTokens:     12,
+					CacheWriteTokens: 6,
+				}
+				return r
+			}(),
+			wantInput:  20,
+			wantOutput: 8,
+			wantCacheR: 12,
+			wantCacheW: 6,
+		},
+		{
+			name: "accumulates across multiple calls",
+			state: &State{
+				Usage: TokenUsageSnapshot{
+					InputTokens:  10,
+					OutputTokens: 5,
+					CacheRead:    3,
+					CacheCreate:  2,
+				},
+			},
+			resp: func() *chatResponse {
+				r := &chatResponse{}
+				r.Usage.PromptTokens = 15
+				r.Usage.CompletionTokens = 7
+				r.Usage.PromptTokensDetails = &promptTokensDetails{
+					CachedTokens:     9,
+					CacheWriteTokens: 4,
+				}
+				return r
+			}(),
+			wantInput:  25,
+			wantOutput: 12,
+			wantCacheR: 12,
+			wantCacheW: 6,
+		},
+		{
+			name:  "nil prompt_tokens_details leaves cache at zero",
+			state: &State{},
+			resp: func() *chatResponse {
+				r := &chatResponse{}
+				r.Usage.PromptTokens = 10
+				r.Usage.CompletionTokens = 5
+				r.Usage.PromptTokensDetails = nil
+				return r
+			}(),
+			wantInput:  10,
+			wantOutput: 5,
+			wantCacheR: 0,
+			wantCacheW: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			accumulateUsage(tt.state, tt.resp)
+			if tt.state == nil {
+				return
+			}
+			if tt.state.Usage.InputTokens != tt.wantInput {
+				t.Errorf("InputTokens = %d, want %d", tt.state.Usage.InputTokens, tt.wantInput)
+			}
+			if tt.state.Usage.OutputTokens != tt.wantOutput {
+				t.Errorf("OutputTokens = %d, want %d", tt.state.Usage.OutputTokens, tt.wantOutput)
+			}
+			if tt.state.Usage.CacheRead != tt.wantCacheR {
+				t.Errorf("CacheRead = %d, want %d", tt.state.Usage.CacheRead, tt.wantCacheR)
+			}
+			if tt.state.Usage.CacheCreate != tt.wantCacheW {
+				t.Errorf("CacheCreate = %d, want %d", tt.state.Usage.CacheCreate, tt.wantCacheW)
+			}
+		})
+	}
+}
+
+func TestMergeStreamChunk_CacheTokens(t *testing.T) {
+	tests := []struct {
+		name          string
+		resp          *chatResponse
+		chunk         *chatStreamChunk
+		wantCacheR    int64
+		wantCacheW    int64
+		wantNilDetail bool
+	}{
+		{
+			name:  "nil chunk",
+			resp:  &chatResponse{},
+			chunk: nil,
+		},
+		{
+			name:  "nil resp",
+			resp:  nil,
+			chunk: &chatStreamChunk{},
+		},
+		{
+			name: "chunk with cache details populates resp",
+			resp: &chatResponse{},
+			chunk: func() *chatStreamChunk {
+				c := &chatStreamChunk{}
+				c.Usage.PromptTokens = 20
+				c.Usage.CompletionTokens = 10
+				c.Usage.TotalTokens = 30
+				c.Usage.PromptTokensDetails = &promptTokensDetails{
+					CachedTokens:     15,
+					CacheWriteTokens: 5,
+				}
+				return c
+			}(),
+			wantCacheR: 15,
+			wantCacheW: 5,
+		},
+		{
+			name: "chunk without cache details preserves existing",
+			resp: func() *chatResponse {
+				r := &chatResponse{}
+				r.Usage.PromptTokensDetails = &promptTokensDetails{
+					CachedTokens:     10,
+					CacheWriteTokens: 3,
+				}
+				return r
+			}(),
+			chunk: func() *chatStreamChunk {
+				c := &chatStreamChunk{}
+				c.Usage.PromptTokens = 25
+				c.Usage.TotalTokens = 35
+				c.Usage.PromptTokensDetails = nil
+				return c
+			}(),
+			wantCacheR: 10,
+			wantCacheW: 3,
+		},
+		{
+			name: "chunk with zero usage does not overwrite",
+			resp: func() *chatResponse {
+				r := &chatResponse{}
+				r.Usage.PromptTokens = 20
+				r.Usage.PromptTokensDetails = &promptTokensDetails{
+					CachedTokens:     8,
+					CacheWriteTokens: 2,
+				}
+				return r
+			}(),
+			chunk: func() *chatStreamChunk {
+				c := &chatStreamChunk{}
+				// all usage fields zero — should not overwrite
+				return c
+			}(),
+			wantCacheR: 8,
+			wantCacheW: 2,
+		},
+		{
+			name: "no cache details anywhere",
+			resp: &chatResponse{},
+			chunk: func() *chatStreamChunk {
+				c := &chatStreamChunk{}
+				c.Usage.PromptTokens = 10
+				c.Usage.TotalTokens = 15
+				return c
+			}(),
+			wantNilDetail: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mergeStreamChunk(tt.resp, tt.chunk)
+			if tt.resp == nil || tt.chunk == nil {
+				return // just verifying no panic
+			}
+			d := tt.resp.Usage.PromptTokensDetails
+			if tt.wantNilDetail {
+				if d != nil {
+					t.Fatalf("expected nil PromptTokensDetails, got %+v", d)
+				}
+				return
+			}
+			if d == nil {
+				t.Fatal("expected non-nil PromptTokensDetails")
+			}
+			if d.CachedTokens != tt.wantCacheR {
+				t.Errorf("CachedTokens = %d, want %d", d.CachedTokens, tt.wantCacheR)
+			}
+			if d.CacheWriteTokens != tt.wantCacheW {
+				t.Errorf("CacheWriteTokens = %d, want %d", d.CacheWriteTokens, tt.wantCacheW)
+			}
+		})
+	}
+}

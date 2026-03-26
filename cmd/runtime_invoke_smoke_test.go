@@ -16,7 +16,19 @@ import (
 	"github.com/tiny-oc/toc/internal/runtime"
 )
 
+// useTestMasterKey overrides integration.MasterKeyFunc with a static in-memory
+// key for the duration of the test, avoiding OS keychain (macOS "security" binary).
+func useTestMasterKey(t *testing.T) {
+	t.Helper()
+	original := integration.MasterKeyFunc
+	// Fixed 32-byte AES-256 test key.
+	testKey := []byte("test-master-key-0123456789abcdef")
+	integration.MasterKeyFunc = func() ([]byte, error) { return testKey, nil }
+	t.Cleanup(func() { integration.MasterKeyFunc = original })
+}
+
 func TestRuntimeInvokeSlackSmoke_CapabilityAllowsPost(t *testing.T) {
+	useTestMasterKey(t)
 	var gotChannel string
 	var gotAuth string
 
@@ -56,16 +68,15 @@ func TestRuntimeInvokeSlackSmoke_CapabilityAllowsPost(t *testing.T) {
 	}
 
 	withRuntimeEnv(t, workspace, "test-agent", "sess-1", func() {
-		withWorkingDir(t, workspace, func() {
-			out := captureStdout(t, func() {
-				if err := runtimeInvokeCmd.RunE(runtimeInvokeCmd, []string{"slack", "send_message", "--channel", "C123", "--text", "hello"}); err != nil {
-					t.Fatal(err)
-				}
-			})
-			if !strings.Contains(out, `"status_code": 200`) {
-				t.Fatalf("expected success output, got %s", out)
+		withWorkingDir(t, workspace)
+		out := captureStdout(t, func() {
+			if err := runtimeInvokeCmd.RunE(runtimeInvokeCmd, []string{"slack", "send_message", "--channel", "C123", "--text", "hello"}); err != nil {
+				t.Fatal(err)
 			}
 		})
+		if !strings.Contains(out, `"status_code": 200`) {
+			t.Fatalf("expected success output, got %s", out)
+		}
 	})
 
 	if gotChannel != "C123" {
@@ -77,6 +88,7 @@ func TestRuntimeInvokeSlackSmoke_CapabilityAllowsPost(t *testing.T) {
 }
 
 func TestRuntimeInvokeSlackSmoke_AskAllowAlwaysWritesOverride(t *testing.T) {
+	useTestMasterKey(t)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/chat.postMessage" {
 			http.NotFound(w, r)
@@ -105,11 +117,10 @@ func TestRuntimeInvokeSlackSmoke_AskAllowAlwaysWritesOverride(t *testing.T) {
 	go writeApprovalResponseWhenReady(t, workspace, "sess-ask", "allow_always")
 
 	withRuntimeEnv(t, workspace, "test-agent", "sess-ask", func() {
-		withWorkingDir(t, workspace, func() {
-			if err := runtimeInvokeCmd.RunE(runtimeInvokeCmd, []string{"slack", "send_message", "--channel", "C123", "--text", "hello"}); err != nil {
-				t.Fatal(err)
-			}
-		})
+		withWorkingDir(t, workspace)
+		if err := runtimeInvokeCmd.RunE(runtimeInvokeCmd, []string{"slack", "send_message", "--channel", "C123", "--text", "hello"}); err != nil {
+			t.Fatal(err)
+		}
 	})
 
 	manifest, err := runtime.LoadPermissionManifestInWorkspace(workspace, "sess-ask")
@@ -130,6 +141,7 @@ func TestRuntimeInvokeSlackSmoke_AskAllowAlwaysWritesOverride(t *testing.T) {
 }
 
 func TestRuntimeInvokeSlackSmoke_OffPermissionBlocksBeforeHTTP(t *testing.T) {
+	useTestMasterKey(t)
 	serverHit := false
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		serverHit = true
@@ -149,12 +161,11 @@ func TestRuntimeInvokeSlackSmoke_OffPermissionBlocksBeforeHTTP(t *testing.T) {
 	}
 
 	withRuntimeEnv(t, workspace, "test-agent", "sess-off", func() {
-		withWorkingDir(t, workspace, func() {
-			err := runtimeInvokeCmd.RunE(runtimeInvokeCmd, []string{"slack", "send_message", "--channel", "C123", "--text", "hello"})
-			if err == nil || !strings.Contains(err.Error(), "does not have permission") {
-				t.Fatalf("expected permission denied error, got %v", err)
-			}
-		})
+		withWorkingDir(t, workspace)
+		err := runtimeInvokeCmd.RunE(runtimeInvokeCmd, []string{"slack", "send_message", "--channel", "C123", "--text", "hello"})
+		if err == nil || !strings.Contains(err.Error(), "does not have permission") {
+			t.Fatalf("expected permission denied error, got %v", err)
+		}
 	})
 
 	if serverHit {
@@ -341,20 +352,6 @@ func restoreEnv(key, value string, had bool) {
 	_ = os.Unsetenv(key)
 }
 
-func withWorkingDir(t *testing.T, dir string, fn func()) {
-	t.Helper()
-	old, err := os.Getwd()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Chdir(dir); err != nil {
-		t.Fatal(err)
-	}
-	defer func() {
-		_ = os.Chdir(old)
-	}()
-	fn()
-}
 
 func writeApprovalResponseWhenReady(t *testing.T, workspace, sessionID, decision string) {
 	t.Helper()

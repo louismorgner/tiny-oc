@@ -35,9 +35,17 @@ type OAuth2ClientConfig struct {
 	ClientSecret string `json:"client_secret"`
 }
 
+// MasterKeyFunc is the function used to obtain the master encryption key.
+// It defaults to the OS keychain implementation but can be overridden in tests.
+var MasterKeyFunc = keychainMasterKey
+
 // GetOrCreateMasterKey retrieves the master encryption key from the OS keychain,
 // or creates a new one if none exists.
 func GetOrCreateMasterKey() ([]byte, error) {
+	return MasterKeyFunc()
+}
+
+func keychainMasterKey() ([]byte, error) {
 	key, err := getMasterKeyFromKeychain()
 	if err == nil {
 		return key, nil

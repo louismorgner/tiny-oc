@@ -41,6 +41,40 @@ func (u TokenUsage) FormatTotal() string {
 	return fmt.Sprintf("%d tokens", t)
 }
 
+// FormatBreakdown returns a human-readable breakdown of input and output tokens.
+// Returns empty string if no tokens were used.
+func (u TokenUsage) FormatBreakdown() string {
+	if u.InputTokens == 0 && u.OutputTokens == 0 {
+		return ""
+	}
+	return fmt.Sprintf("%s input / %s output", formatCount(u.InputTokens), formatCount(u.OutputTokens))
+}
+
+func formatCount(n int64) string {
+	if n >= 1_000_000 {
+		return fmt.Sprintf("%.1fM", float64(n)/1_000_000)
+	}
+	if n >= 1_000 {
+		return fmt.Sprintf("%sk", formatWithCommas(n/1_000))
+	}
+	return formatWithCommas(n)
+}
+
+func formatWithCommas(n int64) string {
+	s := fmt.Sprintf("%d", n)
+	if len(s) <= 3 {
+		return s
+	}
+	var result []byte
+	for i, c := range s {
+		if i > 0 && (len(s)-i)%3 == 0 {
+			result = append(result, ',')
+		}
+		result = append(result, byte(c))
+	}
+	return string(result)
+}
+
 // ForSession reads local session data and sums up token usage for the runtime.
 func ForSession(sess *session.Session) TokenUsage {
 	if sess == nil {

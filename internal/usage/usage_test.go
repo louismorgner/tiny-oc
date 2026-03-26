@@ -41,6 +41,50 @@ func TestParseJSONL(t *testing.T) {
 	}
 }
 
+func TestFormatBreakdown(t *testing.T) {
+	tests := []struct {
+		name  string
+		usage TokenUsage
+		want  string
+	}{
+		{"zero", TokenUsage{}, ""},
+		{"small", TokenUsage{InputTokens: 500, OutputTokens: 123}, "500 input / 123 output"},
+		{"thousands", TokenUsage{InputTokens: 12345, OutputTokens: 3456}, "12k input / 3k output"},
+		{"millions", TokenUsage{InputTokens: 1_500_000, OutputTokens: 250_000}, "1.5M input / 250k output"},
+		{"input only", TokenUsage{InputTokens: 100}, "100 input / 0 output"},
+		{"output only", TokenUsage{OutputTokens: 200}, "0 input / 200 output"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := tt.usage.FormatBreakdown()
+			if got != tt.want {
+				t.Errorf("FormatBreakdown() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestFormatWithCommas(t *testing.T) {
+	tests := []struct {
+		n    int64
+		want string
+	}{
+		{0, "0"},
+		{999, "999"},
+		{1000, "1,000"},
+		{12345, "12,345"},
+		{1234567, "1,234,567"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.want, func(t *testing.T) {
+			got := formatWithCommas(tt.n)
+			if got != tt.want {
+				t.Errorf("formatWithCommas(%d) = %q, want %q", tt.n, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestFormatTotal(t *testing.T) {
 	tests := []struct {
 		usage TokenUsage

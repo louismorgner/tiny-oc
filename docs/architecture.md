@@ -76,7 +76,7 @@ toc agent spawn pr-reviewer
 │   ├── agent_*.go             # toc agent {create,list,spawn,show,inspect,remove,skills,add}
 │   ├── skill_*.go             # toc skill {create,list,add,remove}
 │   ├── registry_*.go          # toc registry {search,install}
-│   ├── integrate*.go          # toc integrate {add,test,remove,list}
+│   ├── integrate*.go          # toc integrate {add,test,remove,list} (test is integrate_test_cmd.go to avoid Go test runner)
 │   ├── runtime.go             # toc runtime (parent command, agent-facing)
 │   ├── runtime_list.go        # toc runtime list
 │   ├── runtime_spawn.go       # toc runtime spawn
@@ -136,6 +136,8 @@ The largest package. It owns:
 - **Permission enforcement** — validates filesystem and sub-agent permissions at tool execution time
 - **Events** — append-only `events.jsonl` log in toc's normalized format, shared across runtimes
 - **State** — persistent session state for native runtime (`state.json`) with message history, token usage, and turn checkpoints
+
+The native runtime's tool set is intentionally limited to local tools. Integrations remain outside the native tool loop until they are promoted into the runtime as first-class tools with the same session contract and observability semantics.
 
 Environment variables `TOC_WORKSPACE`, `TOC_AGENT`, and `TOC_SESSION_ID` are injected at launch time and used by `toc runtime` commands to resolve context from within a running session.
 

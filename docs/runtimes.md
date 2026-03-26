@@ -100,7 +100,7 @@ Native runtime models are served through OpenRouter. Supported profiles:
 |---|---|
 | `openai/gpt-4o-mini` | GPT-4o Mini (default) |
 | `openai/gpt-4o` | GPT-4o |
-| `anthropic/claude-3.7-sonnet` | Claude 3.7 Sonnet |
+| `anthropic/claude-sonnet-4` | Claude Sonnet 4 |
 
 To use a model outside this set, opt in explicitly:
 

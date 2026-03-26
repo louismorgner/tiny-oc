@@ -44,7 +44,7 @@ type OAuth2TokenResponse struct {
 
 // SlackOAuthCallbackURL is the hosted HTTPS endpoint that receives Slack OAuth
 // callbacks and displays the authorization code for the user to copy.
-const SlackOAuthCallbackURL = "https://toc.opencompany.cloud/slack/callback"
+const SlackOAuthCallbackURL = "https://square-paper-84df.dev-f64.workers.dev/slack/callback"
 
 // SlackOAuth2Config returns a pre-configured OAuth2Config for Slack.
 // When userScopes is non-empty, the flow requests user tokens (xoxp) via user_scope.

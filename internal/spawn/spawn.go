@@ -1,8 +1,10 @@
 package spawn
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -103,8 +105,14 @@ func SpawnSession(cfg *agent.AgentConfig) (*SpawnResult, error) {
 	}
 	fmt.Println()
 
-	_ = launchClaude(workDir, cfg.Model, sessionID, cfg.Name, false)
-	_ = session.UpdateStatus(sessionID, session.StatusCompleted)
+	result := launchClaude(workDir, cfg.Model, sessionID, cfg.Name, false)
+	sessionStatus := session.StatusCompleted
+	if result.ExitCode != 0 && !result.Signal {
+		sessionStatus = session.StatusCompletedError
+	}
+	_ = session.UpdateStatus(sessionID, sessionStatus)
+
+	printSessionDiagnostics(result, cfg.Model)
 
 	// Post-session sync: copy matching files back to agent template
 	var syncedFiles int
@@ -155,8 +163,14 @@ func ResumeSession(s *session.Session) (*SpawnResult, error) {
 	fmt.Println()
 
 	_ = session.UpdateStatus(s.ID, session.StatusActive)
-	_ = launchClaude(s.WorkspacePath, cfg.Model, s.ID, s.Agent, true)
-	_ = session.UpdateStatus(s.ID, session.StatusCompleted)
+	result := launchClaude(s.WorkspacePath, cfg.Model, s.ID, s.Agent, true)
+	sessionStatus := session.StatusCompleted
+	if result.ExitCode != 0 && !result.Signal {
+		sessionStatus = session.StatusCompletedError
+	}
+	_ = session.UpdateStatus(s.ID, sessionStatus)
+
+	printSessionDiagnostics(result, cfg.Model)
 
 	var syncedFiles int
 	if len(cfg.Context) > 0 {
@@ -440,6 +454,62 @@ func runPostSessionSync(workDir, agentDir string, patterns []string) int {
 	return len(synced)
 }
 
+// printSessionDiagnostics shows error context after a session ends abnormally.
+func printSessionDiagnostics(result *launchResult, model string) {
+	if result.ExitCode == 0 || result.Signal {
+		return // clean exit or user interrupt — nothing to diagnose
+	}
+
+	fmt.Println()
+	ui.Error("Session exited with code %d", result.ExitCode)
+
+	// Extract actionable hints from stderr
+	stderr := result.LastStderr
+	if stderr == "" {
+		ui.Warn("No stderr captured — the process may have crashed without output")
+		return
+	}
+
+	// Show the last meaningful lines of stderr
+	lines := strings.Split(stderr, "\n")
+	// Take last 20 non-empty lines max
+	var meaningful []string
+	for i := len(lines) - 1; i >= 0 && len(meaningful) < 20; i-- {
+		line := strings.TrimSpace(lines[i])
+		if line != "" {
+			meaningful = append([]string{line}, meaningful...)
+		}
+	}
+
+	if len(meaningful) > 0 {
+		fmt.Printf("\n  %s\n", ui.Dim("Last stderr output:"))
+		for _, line := range meaningful {
+			fmt.Printf("  %s %s\n", ui.Dim("|"), line)
+		}
+	}
+
+	// Provide contextual hints based on known error patterns
+	if strings.Contains(stderr, "OpenRouter") {
+		fmt.Println()
+		ui.Info("Hint: OpenRouter API error. Check:")
+		fmt.Printf("    %s Model %s is valid and your API key has access\n", ui.Dim("-"), ui.Bold(model))
+		fmt.Printf("    %s OpenRouter status at https://status.openrouter.ai\n", ui.Dim("-"))
+		fmt.Printf("    %s Your OPENROUTER_API_KEY is set and has credits\n", ui.Dim("-"))
+	}
+	if strings.Contains(stderr, "ANTHROPIC_API_KEY") || strings.Contains(stderr, "authentication") || strings.Contains(stderr, "401") {
+		fmt.Println()
+		ui.Info("Hint: Authentication error. Verify your API key is set and valid.")
+	}
+	if strings.Contains(stderr, "rate limit") || strings.Contains(stderr, "429") {
+		fmt.Println()
+		ui.Info("Hint: Rate limited. Wait a moment and retry, or use a different model.")
+	}
+	if strings.Contains(stderr, "context length") || strings.Contains(stderr, "too many tokens") {
+		fmt.Println()
+		ui.Info("Hint: Context length exceeded. Try starting a fresh session.")
+	}
+}
+
 func printResumeCommand(agentName, sessionID string) {
 	fmt.Println()
 	fmt.Printf("  %s\n", ui.Dim("───────────────────────────────────────"))
@@ -449,7 +519,14 @@ func printResumeCommand(agentName, sessionID string) {
 	fmt.Println()
 }
 
-func launchClaude(dir, model, sessionID, agentName string, resume bool) error {
+// launchResult contains diagnostic info from a completed claude session.
+type launchResult struct {
+	ExitCode   int
+	LastStderr string // last lines of stderr for diagnostics
+	Signal     bool   // true if killed by signal (ctrl-c, etc.)
+}
+
+func launchClaude(dir, model, sessionID, agentName string, resume bool) *launchResult {
 	args := []string{"--dangerously-skip-permissions"}
 	if model != "" {
 		args = append(args, "--model", model)
@@ -462,24 +539,59 @@ func launchClaude(dir, model, sessionID, agentName string, resume bool) error {
 
 	workspace, _ := filepath.Abs(".")
 
+	// Capture stderr to a ring buffer while still displaying it in real-time.
+	// This gives us the last N bytes for post-session diagnostics.
+	stderrBuf := &ringBuffer{maxSize: 4096}
+	stderrWriter := io.MultiWriter(os.Stderr, stderrBuf)
+
 	cmd := exec.Command("claude", args...)
 	cmd.Dir = dir
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
+	cmd.Stderr = stderrWriter
 	cmd.Env = append(os.Environ(),
 		"TOC_WORKSPACE="+workspace,
 		"TOC_AGENT="+agentName,
 		"TOC_SESSION_ID="+sessionID,
 	)
 
+	result := &launchResult{}
+
 	if err := cmd.Run(); err != nil {
-		if _, ok := err.(*exec.ExitError); ok {
-			return nil // normal exit (ctrl-c, quit, etc.)
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			result.ExitCode = exitErr.ExitCode()
+			result.LastStderr = stderrBuf.String()
+			// Check if killed by signal (ctrl-c, SIGTERM, etc.)
+			if exitErr.ExitCode() == -1 || exitErr.ExitCode() == 130 || exitErr.ExitCode() == 143 {
+				result.Signal = true
+			}
+			return result
 		}
-		return fmt.Errorf("failed to launch claude: %w", err)
+		// Failed to even launch the command
+		result.ExitCode = -1
+		result.LastStderr = fmt.Sprintf("failed to launch claude: %v", err)
+		return result
 	}
-	return nil
+	return result
+}
+
+// ringBuffer is a fixed-size circular buffer that keeps the last maxSize bytes written.
+type ringBuffer struct {
+	buf     bytes.Buffer
+	maxSize int
+}
+
+func (r *ringBuffer) Write(p []byte) (int, error) {
+	r.buf.Write(p)
+	// Trim from the front if we exceed maxSize
+	if r.buf.Len() > r.maxSize {
+		r.buf.Next(r.buf.Len() - r.maxSize)
+	}
+	return len(p), nil
+}
+
+func (r *ringBuffer) String() string {
+	return strings.TrimSpace(r.buf.String())
 }
 
 // resolveSkills resolves all skill references and copies them into the session's

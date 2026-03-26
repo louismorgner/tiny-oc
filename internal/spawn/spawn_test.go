@@ -155,6 +155,54 @@ func TestBuildDetachedScript_SessionID(t *testing.T) {
 	}
 }
 
+func TestRingBuffer_KeepsLastBytes(t *testing.T) {
+	rb := &ringBuffer{maxSize: 10}
+	rb.Write([]byte("hello world, this is a long string"))
+	got := rb.String()
+	if len(got) > 10 {
+		t.Errorf("ringBuffer exceeded maxSize: got %d bytes", len(got))
+	}
+}
+
+func TestRingBuffer_ShortWrite(t *testing.T) {
+	rb := &ringBuffer{maxSize: 100}
+	rb.Write([]byte("short"))
+	if rb.String() != "short" {
+		t.Errorf("expected 'short', got '%s'", rb.String())
+	}
+}
+
+func TestRingBuffer_MultipleWrites(t *testing.T) {
+	rb := &ringBuffer{maxSize: 20}
+	rb.Write([]byte("first "))
+	rb.Write([]byte("second "))
+	rb.Write([]byte("third"))
+	got := rb.String()
+	if len(got) > 20 {
+		t.Errorf("ringBuffer exceeded maxSize after multiple writes: got %d bytes", len(got))
+	}
+}
+
+func TestLaunchResult_SignalDetection(t *testing.T) {
+	tests := []struct {
+		name   string
+		result launchResult
+		signal bool
+	}{
+		{"clean exit", launchResult{ExitCode: 0}, false},
+		{"error exit", launchResult{ExitCode: 1}, false},
+		{"ctrl-c (130)", launchResult{ExitCode: 130, Signal: true}, true},
+		{"sigterm (143)", launchResult{ExitCode: 143, Signal: true}, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.result.Signal != tt.signal {
+				t.Errorf("expected signal=%v, got %v", tt.signal, tt.result.Signal)
+			}
+		})
+	}
+}
+
 func TestBuildDetachedScript_AtomicRename(t *testing.T) {
 	dir := t.TempDir()
 	promptPath := filepath.Join(dir, "toc-prompt.txt")

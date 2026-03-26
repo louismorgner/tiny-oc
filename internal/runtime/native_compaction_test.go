@@ -31,8 +31,29 @@ func TestCompactMessages_PreservesSystemAndRecentTail(t *testing.T) {
 	if !isCompactionSummary(compacted[1]) {
 		t.Fatalf("expected compaction summary, got %#v", compacted[1])
 	}
+	if compacted[1].Role != "user" {
+		t.Fatalf("compaction summary should use user role for provider compatibility, got %q", compacted[1].Role)
+	}
 	if compacted[2].Content != "second request" || compacted[3].Content != "second answer" {
 		t.Fatalf("unexpected preserved tail: %#v", compacted[2:])
+	}
+}
+
+func TestIsCompactionSummary_BackwardsCompatible(t *testing.T) {
+	// New format uses "user" role.
+	newFmt := Message{Role: "user", Content: "[toc-summary]\nsome context"}
+	if !isCompactionSummary(newFmt) {
+		t.Fatal("should recognize user-role compaction summary")
+	}
+	// Old format used "system" role — must still be recognized for resumed sessions.
+	oldFmt := Message{Role: "system", Content: "[toc-summary]\nsome context"}
+	if !isCompactionSummary(oldFmt) {
+		t.Fatal("should recognize legacy system-role compaction summary")
+	}
+	// Regular messages should not match.
+	regular := Message{Role: "user", Content: "hello world"}
+	if isCompactionSummary(regular) {
+		t.Fatal("regular user message should not be a compaction summary")
 	}
 }
 

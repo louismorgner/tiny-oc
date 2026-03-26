@@ -92,6 +92,25 @@ func openRouterAPIError(statusCode int, serverMsg string, exhaustedRetries bool)
 	}
 }
 
+// extractOpenRouterErrorMessage tries to pull a useful error message from an
+// OpenRouter error response body. Falls back to the truncated raw body so that
+// debugging info is never silently swallowed.
+func extractOpenRouterErrorMessage(body []byte) string {
+	var parsed chatResponse
+	if json.Unmarshal(body, &parsed) == nil && parsed.Error != nil && parsed.Error.Message != "" {
+		return parsed.Error.Message
+	}
+	// Fallback: return truncated raw body for debugging.
+	raw := strings.TrimSpace(string(body))
+	if len(raw) > 512 {
+		raw = raw[:512] + "..."
+	}
+	if raw != "" {
+		return raw
+	}
+	return "(empty response body)"
+}
+
 const defaultOpenRouterBaseURL = "https://openrouter.ai/api/v1"
 
 type openRouterClient struct {
@@ -264,11 +283,7 @@ func (c *openRouterClient) Chat(ctx context.Context, req chatRequest) (*chatResp
 		}
 
 		if resp.StatusCode >= 400 {
-			var serverMsg string
-			var parsed chatResponse
-			if json.Unmarshal(data, &parsed) == nil && parsed.Error != nil {
-				serverMsg = parsed.Error.Message
-			}
+			serverMsg := extractOpenRouterErrorMessage(data)
 			if isRetryableStatusCode(resp.StatusCode) {
 				lastErr = openRouterAPIError(resp.StatusCode, serverMsg, false)
 				continue
@@ -345,11 +360,7 @@ func (c *openRouterClient) ChatStream(ctx context.Context, req chatRequest, onTe
 			if readErr != nil {
 				return nil, readErr
 			}
-			var serverMsg string
-			var parsed chatResponse
-			if json.Unmarshal(data, &parsed) == nil && parsed.Error != nil {
-				serverMsg = parsed.Error.Message
-			}
+			serverMsg := extractOpenRouterErrorMessage(data)
 			if isRetryableStatusCode(resp.StatusCode) {
 				lastErr = openRouterAPIError(resp.StatusCode, serverMsg, false)
 				continue

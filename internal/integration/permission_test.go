@@ -274,6 +274,49 @@ func TestDeterminePermissionTarget_SlackListChannelsDefaultIsConversations(t *te
 	}
 }
 
+func TestEvaluatePermission_TieKeepsFirstGrant(t *testing.T) {
+	def := &Definition{
+		Name: "slack",
+		Actions: map[string]Action{
+			"send_message": {},
+		},
+	}
+	grants := agent.IntegrationPermissions{
+		{Mode: agent.PermAsk, Capability: "send_message:id/C123"},
+		{Mode: agent.PermOn, Capability: "send_message:id/C123"},
+	}
+
+	decision := EvaluatePermission(def, grants, "send_message", PermissionTarget{
+		Raw:      "C123",
+		ID:       "C123",
+		Kind:     "channel",
+		Exact:    "id/C123",
+		Resolved: true,
+	})
+	if decision.Level != agent.PermAsk {
+		t.Fatalf("expected first matching grant to win tie, got %#v", decision)
+	}
+}
+
+func TestValidatePermissionsAgainstDefinition_MalformedCapability(t *testing.T) {
+	def := &Definition{
+		Name: "slack",
+		Capabilities: map[string]Capability{
+			"post": {Actions: []string{"send_message"}},
+		},
+		Actions: map[string]Action{
+			"send_message": {},
+		},
+	}
+
+	err := ValidatePermissionsAgainstDefinition(agent.IntegrationPermissions{
+		{Mode: agent.PermOn, Capability: "post"},
+	}, def)
+	if err == nil {
+		t.Fatal("expected malformed capability to fail validation")
+	}
+}
+
 func TestFilterResponse(t *testing.T) {
 	raw := map[string]interface{}{
 		"ok":      true,

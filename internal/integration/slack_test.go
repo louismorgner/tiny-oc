@@ -90,6 +90,18 @@ func TestSlackChannelResolver_ResolveTarget(t *testing.T) {
 	}
 }
 
+func TestSlackChannelResolver_RawChannelIDKeepsWeakerKindWithoutMetadata(t *testing.T) {
+	resolver := NewSlackChannelResolver("test-token")
+
+	target, err := resolver.ResolveTarget("C001")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if target.Kind != "channel" {
+		t.Fatalf("expected unresolved raw C id to keep generic channel kind, got %#v", target)
+	}
+}
+
 func TestSlackChannelResolver_NotFound(t *testing.T) {
 	resolver := NewSlackChannelResolver("test-token")
 	resolver.ready = true // Mark as populated (empty cache)

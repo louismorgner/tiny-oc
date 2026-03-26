@@ -54,6 +54,8 @@ func WaitForPendingApproval(workspace, sessionID, approvalID string, timeout tim
 	responsePath := filepath.Join(workspace, ".toc", "sessions", sessionID, "pending_approvals", approvalID+".response.json")
 	deadline := time.Now().Add(timeout)
 
+	// TODO: switch this to fsnotify when approval volume grows; polling is fine
+	// for v1 but wastes wakeups when many agents wait concurrently.
 	for time.Now().Before(deadline) {
 		data, err := os.ReadFile(responsePath)
 		if err == nil {

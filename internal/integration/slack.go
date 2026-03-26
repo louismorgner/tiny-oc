@@ -68,12 +68,6 @@ func (r *SlackChannelResolver) ResolveConversation(channel string) (*slackConver
 	if channel == "" {
 		return nil, fmt.Errorf("channel cannot be empty")
 	}
-	if isSlackConversationID(channel) {
-		return &slackConversation{
-			ID:   channel,
-			Kind: inferSlackConversationKind(channel),
-		}, nil
-	}
 
 	name := strings.TrimPrefix(channel, "#")
 
@@ -85,6 +79,15 @@ func (r *SlackChannelResolver) ResolveConversation(channel string) (*slackConver
 	}
 	if conversation, ok := r.byName[name]; ok {
 		return conversation, nil
+	}
+	if isSlackConversationID(channel) {
+		// Raw C-prefixed IDs do not encode public vs private, so when we have no
+		// cached metadata we preserve only the weaker "channel" classification.
+		// That allows channels/* and id/... grants, but not public/* or private/*.
+		return &slackConversation{
+			ID:   channel,
+			Kind: inferSlackConversationKind(channel),
+		}, nil
 	}
 
 	if !r.ready {
@@ -190,6 +193,7 @@ func slackConversationKind(isPrivate, isIM, isMPIM bool) string {
 func inferSlackConversationKind(id string) string {
 	switch {
 	case strings.HasPrefix(id, "C"):
+		// C IDs identify channels but do not reliably distinguish public from private.
 		return "channel"
 	case strings.HasPrefix(id, "D"):
 		return "dm"

@@ -234,6 +234,8 @@ For Slack, `<target>` should be one of:
   Posting into an existing DM and opening a DM with a user are different operations in Slack and should not be collapsed into one permission.
 - IDs should always remain available as the escape hatch
   `id/C123...`, `id/D123...`, and `id/G123...` are less friendly than names, but they are the only immutable selectors Slack guarantees.
+- Raw `C...` IDs should not be treated as implicitly public
+  If a human wants exact-ID matching, they should grant `id/C123...`. Broad classes like `public/*` and `private/*` should be reserved for cases where toc has actual conversation metadata.
 
 #### Recommended examples
 

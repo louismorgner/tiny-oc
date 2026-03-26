@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -75,15 +76,14 @@ Examples:
 			return fmt.Errorf("invalid permissions in manifest: %w", err)
 		}
 
-		// Step 4: Load credentials
-		cred, err := integration.LoadCredentialFromWorkspace(ctx.Workspace, integrationName)
-		if err != nil {
-			return fmt.Errorf("failed to load credentials for '%s': %w", integrationName, err)
-		}
-
 		// Slack: set up conversation resolver for permission checks and invocation.
+		var cred *integration.Credential
 		var resolver *integration.SlackChannelResolver
 		if integrationName == "slack" {
+			cred, err = integration.LoadCredentialFromWorkspace(ctx.Workspace, integrationName)
+			if err != nil {
+				return fmt.Errorf("failed to load credentials for '%s': %w", integrationName, err)
+			}
 			resolver = integration.NewSlackChannelResolver(cred.AccessToken)
 		}
 
@@ -118,7 +118,15 @@ Examples:
 			}
 		}
 
-		// Step 6: Check rate limit
+		// Step 6: Load credentials for non-Slack integrations after permission checks pass.
+		if cred == nil {
+			cred, err = integration.LoadCredentialFromWorkspace(ctx.Workspace, integrationName)
+			if err != nil {
+				return fmt.Errorf("failed to load credentials for '%s': %w", integrationName, err)
+			}
+		}
+
+		// Step 7: Check rate limit
 		actionDef, err := def.GetAction(actionName)
 		if err != nil {
 			return err
@@ -127,7 +135,7 @@ Examples:
 			return fmt.Errorf("rate limit exceeded for %s.%s — try again later", integrationName, actionName)
 		}
 
-		// Step 7: Make the call
+		// Step 8: Make the call
 		invokeReq := &integration.InvokeRequest{
 			SessionID:   ctx.SessionID,
 			Integration: integrationName,
@@ -148,7 +156,7 @@ Examples:
 			return fmt.Errorf("invocation failed: %w", err)
 		}
 
-		// Step 8: Log to audit
+		// Step 9: Log to audit
 		_ = audit.LogFromWorkspace(ctx.Workspace, "runtime.invoke", map[string]interface{}{
 			"agent":       ctx.Agent,
 			"session_id":  ctx.SessionID,
@@ -158,7 +166,7 @@ Examples:
 			"status_code": resp.StatusCode,
 		})
 
-		// Step 9: Output response as JSON
+		// Step 10: Output response as JSON
 		output, _ := json.MarshalIndent(resp, "", "  ")
 		fmt.Println(string(output))
 		return nil
@@ -243,19 +251,66 @@ func requestInvocationApproval(ctx *runtime.Context, integrationName, actionName
 }
 
 func appendSessionPermissionOverride(ctx *runtime.Context, integrationName, subject string, target integration.PermissionTarget) error {
-	manifest, err := runtime.LoadPermissionManifestInWorkspace(ctx.Workspace, ctx.SessionID)
-	if err != nil {
-		return err
-	}
-	override := agent.IntegrationPermissionGrant{
-		Mode:       agent.PermOn,
-		Capability: subject + ":" + target.ExactPermissionScope(),
-	}
-	manifest.Integrations[integrationName] = append(manifest.Integrations[integrationName], override)
 	path := filepath.Join(ctx.Workspace, ".toc", "sessions", ctx.SessionID, "permissions.json")
-	data, err := json.MarshalIndent(manifest, "", "  ")
+	return withLockedFile(path, func() error {
+		manifest, err := runtime.LoadPermissionManifestInWorkspace(ctx.Workspace, ctx.SessionID)
+		if err != nil {
+			return err
+		}
+		override := agent.IntegrationPermissionGrant{
+			Mode:       agent.PermOn,
+			Capability: subject + ":" + target.ExactPermissionScope(),
+		}
+		if hasIntegrationGrant(manifest.Integrations[integrationName], override) {
+			return nil
+		}
+		manifest.Integrations[integrationName] = append(manifest.Integrations[integrationName], override)
+		return atomicWriteJSON(path, manifest)
+	})
+}
+
+func hasIntegrationGrant(grants agent.IntegrationPermissions, candidate agent.IntegrationPermissionGrant) bool {
+	for _, grant := range grants {
+		if grant.Mode == candidate.Mode && grant.Capability == candidate.Capability {
+			return true
+		}
+	}
+	return false
+}
+
+func withLockedFile(path string, fn func() error) error {
+	lockPath := path + ".lock"
+	f, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0600)
+	if err != nil {
+		return fmt.Errorf("failed to open lock file: %w", err)
+	}
+	defer f.Close()
+
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX); err != nil {
+		return fmt.Errorf("failed to acquire file lock: %w", err)
+	}
+	defer syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
+
+	return fn()
+}
+
+func atomicWriteJSON(path string, v interface{}) error {
+	data, err := json.MarshalIndent(v, "", "  ")
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, append(data, '\n'), 0600)
+	tmp, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+".tmp-*")
+	if err != nil {
+		return err
+	}
+	tmpPath := tmp.Name()
+	defer os.Remove(tmpPath)
+	if _, err := tmp.Write(append(data, '\n')); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmpPath, path)
 }

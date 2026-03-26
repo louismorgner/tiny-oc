@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -158,6 +159,48 @@ func TestRuntimeInvokeSlackSmoke_OffPermissionBlocksBeforeHTTP(t *testing.T) {
 
 	if serverHit {
 		t.Fatal("expected permission denial before any HTTP request")
+	}
+}
+
+func TestAppendSessionPermissionOverride_Concurrent(t *testing.T) {
+	workspace := t.TempDir()
+	writePermissionManifestForTest(t, workspace, "sess-lock", "test-agent", agent.IntegrationPermissions{
+		{Mode: agent.PermAsk, Capability: "post:channels/*"},
+	})
+	ctx := &runtime.Context{
+		Workspace: workspace,
+		Agent:     "test-agent",
+		SessionID: "sess-lock",
+	}
+
+	var wg sync.WaitGroup
+	for _, id := range []string{"C111", "C222"} {
+		id := id
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := appendSessionPermissionOverride(ctx, "slack", "post", integration.PermissionTarget{
+				ID:    id,
+				Exact: "id/" + id,
+			}); err != nil {
+				t.Errorf("appendSessionPermissionOverride(%s): %v", id, err)
+			}
+		}()
+	}
+	wg.Wait()
+
+	manifest, err := runtime.LoadPermissionManifestInWorkspace(workspace, "sess-lock")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]bool{}
+	for _, grant := range manifest.Integrations["slack"] {
+		got[grant.Capability] = true
+	}
+	for _, capability := range []string{"post:id/C111", "post:id/C222"} {
+		if !got[capability] {
+			t.Fatalf("expected concurrent override %s to persist, got %#v", capability, manifest.Integrations["slack"])
+		}
 	}
 }
 

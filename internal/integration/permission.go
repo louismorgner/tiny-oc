@@ -32,6 +32,34 @@ type PermissionDecision struct {
 	MatchedScope string
 }
 
+// Specificity scores intentionally create this precedence order:
+// exact ID > raw provider ID > named Slack channel > class wildcard > conversation wildcard > "*".
+// Action matches also rank exact action above capability expansion above broad wildcards.
+// When two grants produce the same score, the first grant in the manifest wins.
+const (
+	actionScoreWildcard         = 1
+	actionScoreCapability       = 40
+	actionScoreExactAction      = 50
+	actionScoreResourceBase     = 10
+	actionScoreResourceSpecific = 20
+	actionScoreVerbSpecific     = 10
+
+	scopeScoreWildcard             = 1
+	scopeScoreConversationWildcard = 20
+	scopeScoreResourceWildcard     = 40
+	scopeScoreLegacyName           = 95
+	scopeScoreNamedChannel         = 100
+	scopeScoreRawProviderID        = 110
+	scopeScoreExactID              = 120
+
+	scopeScoreLegacyDM        = 60
+	scopeScoreClassWildcard   = 65
+	scopeScoreSpecificClass   = 70
+	scopeScoreFallbackExact   = 50
+	scopeScoreFallbackRaw     = 50
+	scopeScoreFallbackLiteral = 80
+)
+
 func (t PermissionTarget) Display() string {
 	switch {
 	case t.Raw != "":
@@ -230,21 +258,21 @@ func permissionSubject(perm *Permission) string {
 func actionSpecificity(def *Definition, perm *Permission, actionName string) int {
 	if perm.Resource == "" {
 		if perm.Action == "*" {
-			return 1
+			return actionScoreWildcard
 		}
 		if _, ok := def.Actions[perm.Action]; ok && perm.Action == actionName {
-			return 50
+			return actionScoreExactAction
 		}
 		if capability, ok := def.Capabilities[perm.Action]; ok {
 			for _, action := range capability.Actions {
 				if action == actionName {
-					return 40
+					return actionScoreCapability
 				}
 			}
 			return -1
 		}
 		if perm.Action == actionName {
-			return 50
+			return actionScoreExactAction
 		}
 		return -1
 	}
@@ -254,12 +282,12 @@ func actionSpecificity(def *Definition, perm *Permission, actionName string) int
 		return -1
 	}
 
-	score := 10
+	score := actionScoreResourceBase
 	if perm.Resource != "*" {
-		score += 20
+		score += actionScoreResourceSpecific
 	}
 	if perm.Action != "*" {
-		score += 10
+		score += actionScoreVerbSpecific
 	}
 	return score
 }
@@ -303,11 +331,11 @@ func scopeSpecificity(def *Definition, perm *Permission, target PermissionTarget
 func genericScopeSpecificity(scope string, target PermissionTarget) int {
 	switch {
 	case scope == "*":
-		return 1
+		return scopeScoreWildcard
 	case scope == target.Exact && target.Exact != "":
-		return 50
+		return scopeScoreFallbackExact
 	case scope == target.Raw:
-		return 50
+		return scopeScoreFallbackRaw
 	default:
 		return -1
 	}
@@ -317,41 +345,41 @@ func slackScopeSpecificity(scope string, target PermissionTarget) int {
 	scope = strings.TrimSpace(scope)
 	switch {
 	case scope == "*":
-		return 1
+		return scopeScoreWildcard
 	case strings.HasPrefix(scope, "id/"):
 		if target.ID != "" && scope == "id/"+target.ID {
-			return 120
+			return scopeScoreExactID
 		}
 		return -1
 	case isSlackClassScope(scope):
 		return slackClassScopeSpecificity(scope, target.Kind)
 	case strings.HasPrefix(scope, "#"):
 		if target.Name != "" && scope == "#"+target.Name {
-			return 100
+			return scopeScoreNamedChannel
 		}
 		return -1
 	case isSlackConversationID(scope):
 		if target.ID != "" && scope == target.ID {
-			return 110
+			return scopeScoreRawProviderID
 		}
 		if target.Raw == scope {
-			return 110
+			return scopeScoreRawProviderID
 		}
 		return -1
 	case scope == "dm":
 		if target.Kind == "dm" {
-			return 60
+			return scopeScoreLegacyDM
 		}
 		return -1
 	case scope == "channels":
 		if target.Kind == "public" || target.Kind == "private" {
-			return 40
+			return scopeScoreResourceWildcard
 		}
 		return -1
 	case target.Name != "" && scope == target.Name:
-		return 95
+		return scopeScoreLegacyName
 	case scope == target.Raw:
-		return 80
+		return scopeScoreFallbackLiteral
 	default:
 		return -1
 	}
@@ -361,27 +389,27 @@ func slackClassScopeSpecificity(scope, kind string) int {
 	switch scope {
 	case "public/*":
 		if kind == "public" {
-			return 70
+			return scopeScoreSpecificClass
 		}
 	case "private/*":
 		if kind == "private" {
-			return 70
+			return scopeScoreSpecificClass
 		}
 	case "channels/*":
 		if kind == "public" || kind == "private" || kind == "channel" {
-			return 65
+			return scopeScoreClassWildcard
 		}
 	case "dm/*":
 		if kind == "dm" {
-			return 65
+			return scopeScoreClassWildcard
 		}
 	case "mpim/*":
 		if kind == "mpim" {
-			return 65
+			return scopeScoreClassWildcard
 		}
 	case "conversations/*":
 		if kind != "" {
-			return 20
+			return scopeScoreConversationWildcard
 		}
 	}
 	return -1
@@ -420,6 +448,14 @@ func validatePermissionSubject(perm *Permission, def *Definition) error {
 
 func validatePermissionScopes(perm *Permission, def *Definition) error {
 	if def.Name != "slack" {
+		for _, scope := range perm.Scopes {
+			if strings.TrimSpace(scope) == "" {
+				return fmt.Errorf("invalid empty scope in integration '%s'", def.Name)
+			}
+			if strings.ContainsAny(scope, "\n\r\t") {
+				return fmt.Errorf("invalid scope '%s' in integration '%s'", scope, def.Name)
+			}
+		}
 		return nil
 	}
 	for _, scope := range perm.Scopes {

@@ -61,8 +61,24 @@ func AuditLogPath() string {
 	return filepath.Join(tocDir, "audit.log")
 }
 
+// WorkspaceRoot returns the effective workspace root directory.
+// If TOC_WORKSPACE is set (indicating we're running inside a session),
+// it returns that path. Otherwise it returns "." (current directory).
+func WorkspaceRoot() string {
+	if ws := os.Getenv("TOC_WORKSPACE"); ws != "" {
+		return ws
+	}
+	return "."
+}
+
 func Exists() bool {
 	_, err := os.Stat(ConfigPath())
+	return err == nil
+}
+
+// ExistsIn checks whether a workspace is initialized at the given root.
+func ExistsIn(root string) bool {
+	_, err := os.Stat(filepath.Join(root, tocDir, configFile))
 	return err == nil
 }
 
@@ -87,10 +103,28 @@ func Save(cfg *WorkspaceConfig) error {
 }
 
 func EnsureInitialized() (*WorkspaceConfig, error) {
-	if !Exists() {
-		return nil, fmt.Errorf("this directory is not a toc workspace — run 'toc init' first")
+	if Exists() {
+		return Load()
 	}
-	return Load()
+	// If CWD is not a workspace but TOC_WORKSPACE is set (session context),
+	// check and load from there instead.
+	if ws := os.Getenv("TOC_WORKSPACE"); ws != "" && ExistsIn(ws) {
+		return LoadFrom(ws)
+	}
+	return nil, fmt.Errorf("this directory is not a toc workspace — run 'toc init' first")
+}
+
+// LoadFrom reads the workspace config from a specific root directory.
+func LoadFrom(root string) (*WorkspaceConfig, error) {
+	data, err := os.ReadFile(filepath.Join(root, tocDir, configFile))
+	if err != nil {
+		return nil, fmt.Errorf("failed to read config: %w", err)
+	}
+	var cfg WorkspaceConfig
+	if err := yaml.Unmarshal(data, &cfg); err != nil {
+		return nil, fmt.Errorf("failed to parse config: %w", err)
+	}
+	return &cfg, nil
 }
 
 func Init(name string) error {
@@ -135,8 +169,36 @@ func SaveSecrets(s *Secrets) error {
 }
 
 // OpenRouterKey returns the stored OpenRouter API key, or empty string if not set.
+// It reads from .toc/secrets.yaml relative to the current working directory.
 func OpenRouterKey() string {
 	s, err := LoadSecrets()
+	if err != nil {
+		return ""
+	}
+	return s.OpenRouterKey
+}
+
+// LoadSecretsFrom reads the secrets file from a specific workspace root directory.
+// Returns an empty Secrets if the file does not exist.
+func LoadSecretsFrom(workspaceRoot string) (*Secrets, error) {
+	data, err := os.ReadFile(filepath.Join(workspaceRoot, tocDir, secretsFile))
+	if err != nil {
+		if os.IsNotExist(err) {
+			return &Secrets{}, nil
+		}
+		return nil, fmt.Errorf("failed to read secrets: %w", err)
+	}
+	var s Secrets
+	if err := yaml.Unmarshal(data, &s); err != nil {
+		return nil, fmt.Errorf("failed to parse secrets: %w", err)
+	}
+	return &s, nil
+}
+
+// OpenRouterKeyFrom returns the stored OpenRouter API key from a specific workspace root,
+// or empty string if not set. This is used by the runtime when CWD differs from workspace.
+func OpenRouterKeyFrom(workspaceRoot string) string {
+	s, err := LoadSecretsFrom(workspaceRoot)
 	if err != nil {
 		return ""
 	}

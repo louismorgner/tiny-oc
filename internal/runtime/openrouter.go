@@ -207,11 +207,12 @@ type streamToolCallDelta struct {
 	} `json:"function"`
 }
 
-func newOpenRouterClientFromEnv() (*openRouterClient, error) {
+func newOpenRouterClientFromEnv(workspaceRoot string) (*openRouterClient, error) {
 	apiKey := strings.TrimSpace(os.Getenv("OPENROUTER_API_KEY"))
 	if apiKey == "" {
-		// Fall back to stored key in workspace secrets
-		apiKey = config.OpenRouterKey()
+		// Fall back to stored key in workspace secrets.
+		// Use the workspace root explicitly — CWD is a session temp dir.
+		apiKey = config.OpenRouterKeyFrom(workspaceRoot)
 	}
 	if apiKey == "" {
 		return nil, fmt.Errorf("OpenRouter API key not found.\n\n" +

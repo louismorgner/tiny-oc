@@ -63,7 +63,7 @@ func RunNativeSession(opts NativeRunOptions, stdin io.Reader, stdout io.Writer) 
 	}
 	profile := runtimeinfo.ResolveNativeProfile(state.Model)
 
-	client, err := newOpenRouterClientFromEnv()
+	client, err := newOpenRouterClientFromEnv(opts.Workspace)
 	if err != nil {
 		return err
 	}

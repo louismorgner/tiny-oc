@@ -42,7 +42,7 @@ var runtimeStopCmd = &cobra.Command{
 
 		status := s.ResolvedStatus()
 		switch status {
-		case "active", session.StatusZombie:
+		case session.StatusActive, session.StatusZombie:
 			// OK to stop
 		case session.StatusCancelled:
 			ui.Warn("Session %s is already cancelled", s.ID[:8])
@@ -90,6 +90,9 @@ var runtimeStopCmd = &cobra.Command{
 		}
 
 		state, err := runtime.LoadState(s)
+		if err != nil && !os.IsNotExist(err) {
+			ui.Warn("Failed to load runtime state: %s", err)
+		}
 		if err != nil && os.IsNotExist(err) {
 			state = &runtime.State{
 				Runtime:    s.RuntimeName(),

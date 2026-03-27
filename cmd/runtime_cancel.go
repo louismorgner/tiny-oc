@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"syscall"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -42,7 +41,7 @@ var runtimeCancelCmd = &cobra.Command{
 
 		status := s.ResolvedStatus()
 		switch status {
-		case "active":
+		case session.StatusActive:
 			// OK to cancel
 		default:
 			return fmt.Errorf("cannot cancel session in '%s' state (only active sessions can be cancelled)", status)
@@ -53,22 +52,9 @@ var runtimeCancelCmd = &cobra.Command{
 			return fmt.Errorf("cannot read PID for session '%s': %w (session may predate PID tracking)", sessionID, err)
 		}
 
-		// Send SIGTERM to the process group (negative PID kills the group).
-		// This ensures both the wrapper script and runtime process are terminated.
-		killed := false
-		if err := syscall.Kill(-pid, syscall.SIGTERM); err != nil {
-			// If group kill fails, try killing just the process
-			if err := syscall.Kill(pid, syscall.SIGTERM); err != nil {
-				if err == syscall.ESRCH {
-					// Process already exited — mark as cancelled anyway
-				} else {
-					return fmt.Errorf("failed to kill process %d: %w", pid, err)
-				}
-			} else {
-				killed = true
-			}
-		} else {
-			killed = true
+		result, err := session.TerminateProcess(pid)
+		if err != nil {
+			return err
 		}
 
 		// Write cancellation marker so ResolvedStatus returns "cancelled".
@@ -86,6 +72,9 @@ var runtimeCancelCmd = &cobra.Command{
 			persistErrors = append(persistErrors, fmt.Errorf("update session status: %w", err))
 		}
 		state, err := runtime.LoadState(s)
+		if err != nil && !os.IsNotExist(err) {
+			ui.Warn("Failed to load runtime state: %s", err)
+		}
 		if err != nil && os.IsNotExist(err) {
 			state = &runtime.State{
 				Runtime:    s.RuntimeName(),
@@ -119,7 +108,8 @@ var runtimeCancelCmd = &cobra.Command{
 			"session_id":     sessionID,
 			"agent":          s.Agent,
 			"pid":            pid,
-			"killed":         killed,
+			"already_dead":   result.AlreadyDead,
+			"escalated":      result.Escalated,
 		})
 
 		ui.Success("Cancelled sub-agent %s (session %s)", ui.Bold(s.Agent), ui.Dim(sessionID[:8]))

@@ -37,7 +37,7 @@ var stopCmd = &cobra.Command{
 
 		status := s.ResolvedStatus()
 		switch status {
-		case "active", session.StatusZombie:
+		case session.StatusActive, session.StatusZombie:
 			// OK to stop
 		case session.StatusCancelled:
 			ui.Warn("Session %s is already cancelled", s.ID[:8])
@@ -119,7 +119,7 @@ func completeActiveSessionIDs(cmd *cobra.Command, args []string, toComplete stri
 	var completions []string
 	for _, s := range sf.Sessions {
 		status := s.ResolvedStatus()
-		if status == "active" || status == session.StatusZombie {
+		if status == session.StatusActive || status == session.StatusZombie {
 			completions = append(completions, fmt.Sprintf("%s\t%s (%s)", s.ID, s.Agent, status))
 		}
 	}

@@ -85,6 +85,12 @@ func RunNativeSession(opts NativeRunOptions, stdin io.Reader, stdout io.Writer) 
 		toolSpecs = nativeToolSet(sessionCfg.RuntimeConfig.EnabledTools)
 	}
 
+	// Inject deferred tool catalog into the system prompt so the model
+	// knows which tools are available via ToolSearch.
+	if deferredSummary := DeferredToolSummary(toolSpecs); deferredSummary != "" {
+		injectDeferredToolCatalog(state, deferredSummary)
+	}
+
 	if strings.TrimSpace(opts.Prompt) != "" {
 		err := runNativePrompt(client, state, toolSpecs, profile, opts.Prompt, toolCtx, stdout, opts.Mode == "detached")
 		if err != nil {
@@ -419,6 +425,20 @@ func skillXMLEscape(s string) string {
 	s = strings.ReplaceAll(s, "<", "&lt;")
 	s = strings.ReplaceAll(s, ">", "&gt;")
 	return s
+}
+
+// injectDeferredToolCatalog appends the deferred tool list to the system
+// prompt if not already present. This is done once at session start so the
+// model knows which tools can be fetched via ToolSearch.
+func injectDeferredToolCatalog(state *State, catalog string) {
+	if len(state.Messages) == 0 || state.Messages[0].Role != "system" {
+		return
+	}
+	// Avoid duplicate injection on resume.
+	if strings.Contains(state.Messages[0].Content, "<deferred_tools>") {
+		return
+	}
+	state.Messages[0].Content = state.Messages[0].Content + "\n\n" + catalog
 }
 
 func runNativePrompt(client *openRouterClient, state *State, toolSpecs []NativeToolSpec, profile runtimeinfo.NativeModelProfile, prompt string, toolCtx nativeToolContext, stdout io.Writer, detached bool) error {

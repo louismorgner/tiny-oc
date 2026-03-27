@@ -113,6 +113,103 @@ func TestBudgetFail_EmergencyCompaction(t *testing.T) {
 	}
 }
 
+func TestStubOldToolResults_ProactiveStubbing(t *testing.T) {
+	largeRead := strings.Repeat("package main\n", 200) // ~2600 bytes
+	messages := []Message{
+		{Role: "system", Content: "system prompt"},
+		{Role: "user", Content: "request"},
+		{Role: "assistant", Content: "response", ToolCalls: []ToolCall{{ID: "1", Function: ToolCallFunction{Name: "Read"}}}},
+		{Role: "tool", Name: "Read", Content: largeRead},
+		{Role: "tool", Name: "Bash", Content: strings.Repeat("output line\n", 200)},
+		{Role: "tool", Name: "Grep", Content: strings.Repeat("match:1:foo\n", 200)},
+		// Recent messages that should be preserved
+		{Role: "user", Content: "recent"},
+		{Role: "assistant", Content: "reply"},
+	}
+
+	stubbed := stubOldToolResults(messages, 2)
+	if stubbed != 3 {
+		t.Fatalf("stubbed = %d, want 3", stubbed)
+	}
+
+	// Check stubs have the right format
+	if !strings.Contains(messages[3].Content, "Read result") {
+		t.Errorf("Read stub = %q, should mention 'Read result'", messages[3].Content)
+	}
+	if !strings.Contains(messages[4].Content, "Bash output") {
+		t.Errorf("Bash stub = %q, should mention 'Bash output'", messages[4].Content)
+	}
+	if !strings.Contains(messages[5].Content, "Grep result") {
+		t.Errorf("Grep stub = %q, should mention 'Grep result'", messages[5].Content)
+	}
+
+	// Stubs should be small
+	for _, idx := range []int{3, 4, 5} {
+		if len(messages[idx].Content) > 200 {
+			t.Errorf("stub at %d too large: %d bytes", idx, len(messages[idx].Content))
+		}
+	}
+}
+
+func TestStubOldToolResults_ProtectsEditWriteSubAgent(t *testing.T) {
+	messages := []Message{
+		{Role: "system", Content: "prompt"},
+		{Role: "tool", Name: "Edit", Content: strings.Repeat("e", 1000)},
+		{Role: "tool", Name: "Write", Content: strings.Repeat("w", 1000)},
+		{Role: "tool", Name: "SubAgent", Content: strings.Repeat("s", 1000)},
+		{Role: "tool", Name: "ToolSearch", Content: strings.Repeat("t", 1000)},
+		{Role: "user", Content: "recent"},
+		{Role: "assistant", Content: "reply"},
+	}
+
+	stubbed := stubOldToolResults(messages, 2)
+	if stubbed != 0 {
+		t.Fatalf("stubbed = %d, want 0 (all protected)", stubbed)
+	}
+}
+
+func TestStubOldToolResults_ProtectsErrors(t *testing.T) {
+	messages := []Message{
+		{Role: "system", Content: "prompt"},
+		{Role: "tool", Name: "Bash", Content: "error: compilation failed\n" + strings.Repeat("x", 1000)},
+		{Role: "user", Content: "recent"},
+		{Role: "assistant", Content: "reply"},
+	}
+
+	stubbed := stubOldToolResults(messages, 2)
+	if stubbed != 0 {
+		t.Fatalf("stubbed = %d, want 0 (error protected)", stubbed)
+	}
+}
+
+func TestStubOldToolResults_SkipsSmallResults(t *testing.T) {
+	messages := []Message{
+		{Role: "system", Content: "prompt"},
+		{Role: "tool", Name: "Read", Content: "tiny"},
+		{Role: "user", Content: "recent"},
+		{Role: "assistant", Content: "reply"},
+	}
+
+	stubbed := stubOldToolResults(messages, 2)
+	if stubbed != 0 {
+		t.Fatalf("stubbed = %d, want 0 (content too small)", stubbed)
+	}
+}
+
+func TestStubOldToolResults_SkipsAlreadyStubbed(t *testing.T) {
+	messages := []Message{
+		{Role: "system", Content: "prompt"},
+		{Role: "tool", Name: "Read", Content: "[Read result — 142 lines, 5000 bytes. Re-run tool if content needed.]"},
+		{Role: "user", Content: "recent"},
+		{Role: "assistant", Content: "reply"},
+	}
+
+	stubbed := stubOldToolResults(messages, 2)
+	if stubbed != 0 {
+		t.Fatalf("stubbed = %d, want 0 (already stubbed)", stubbed)
+	}
+}
+
 func TestSummarizeToolCall_ExtractsKeyParam(t *testing.T) {
 	tests := []struct {
 		name string

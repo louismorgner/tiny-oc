@@ -23,13 +23,22 @@ const (
 // pruneProtectedTools lists tool names whose outputs should survive pruning
 // because they contain high-signal results (errors, diffs, coordination).
 var pruneProtectedTools = map[string]bool{
-	"Edit":     true, // diffs and patch-like output
-	"Write":    true, // confirmations are already small
-	"SubAgent": true, // coordination metadata
+	"Edit":       true, // diffs and patch-like output
+	"Write":      true, // confirmations are already small
+	"SubAgent":   true, // coordination metadata
+	"ToolSearch": true, // schema fetches are small and important for the turn
 }
+
+// proactiveStubAge is the number of recent messages to keep tool results
+// intact. Tool results older than this are proactively stubbed with a short
+// summary, regardless of budget pressure. This matches Claude Code's approach
+// of not waiting until the context is full to start managing tool results.
+const proactiveStubAge = 16
 
 // maybeManageContext is the entry point for context management. It resolves
 // configuration overrides and delegates to the token-budget-aware pipeline.
+// It always runs proactive stubbing first (cheap, high-impact), then
+// delegates to the budget-aware pipeline for heavier compaction if needed.
 func maybeManageContext(state *State, sess *session.Session, cfg *SessionConfig, profile runtimeinfo.NativeModelProfile, client *openRouterClient) (bool, error) {
 	if state == nil {
 		return false, nil
@@ -46,7 +55,18 @@ func maybeManageContext(state *State, sess *session.Session, cfg *SessionConfig,
 		}
 	}
 
-	return manageContextWithBudget(state, sess, keepRecent, maxSummaryChars, profile, client)
+	// Phase 1: Proactive stubbing — replace old tool results with short
+	// summaries regardless of budget pressure. This is the single highest
+	// impact optimization: large Read/Grep/Bash results that are 4+ turns
+	// old are almost never re-referenced but consume thousands of tokens.
+	stubbed := stubOldToolResults(state.Messages, proactiveStubAge)
+	if stubbed > 0 {
+		emitContextEvent(sess, fmt.Sprintf("Proactively stubbed %d old tool results.", stubbed))
+	}
+
+	// Phase 2: Budget-aware pipeline for heavier management.
+	budgetChanged, err := manageContextWithBudget(state, sess, keepRecent, maxSummaryChars, profile, client)
+	return stubbed > 0 || budgetChanged, err
 }
 
 // manageContextWithBudget implements the token-budget-aware context pipeline:
@@ -117,6 +137,85 @@ func manageContextWithBudget(state *State, sess *session.Session, keepRecent, ma
 	}
 
 	return false, nil
+}
+
+// stubOldToolResults proactively replaces tool results older than keepRecent
+// messages with a compact summary stub. Unlike pruneStaleToolOutputs (which
+// runs under budget pressure), this runs every turn to keep context lean.
+//
+// The stub format includes the tool name and a size hint so the model knows
+// it can re-run the tool if it needs the full content:
+//
+//	[Read result for config.go — 142 lines. Re-run tool if content needed.]
+//
+// Protected tools (Edit, Write, SubAgent, ToolSearch) and error results are
+// preserved. Results already under 256 bytes are left alone.
+func stubOldToolResults(messages []Message, keepRecent int) int {
+	if len(messages) <= keepRecent {
+		return 0
+	}
+
+	cutoff := len(messages) - keepRecent
+	stubbed := 0
+	for i := 0; i < cutoff; i++ {
+		msg := &messages[i]
+		if msg.Role != "tool" || msg.Content == "" {
+			continue
+		}
+
+		// Skip protected tools
+		if pruneProtectedTools[msg.Name] {
+			continue
+		}
+
+		// Protect error results
+		if looksLikeError(msg.Content) {
+			continue
+		}
+
+		// Already small enough — skip
+		if len(msg.Content) <= 256 {
+			continue
+		}
+
+		// Already stubbed — skip
+		if strings.HasPrefix(msg.Content, "[") && strings.HasSuffix(strings.TrimSpace(msg.Content), "needed.]") {
+			continue
+		}
+
+		// Build a compact stub with metadata
+		stub := buildToolResultStub(msg.Name, msg.Content)
+		msg.Content = stub
+		stubbed++
+	}
+	return stubbed
+}
+
+// buildToolResultStub creates a short summary for a tool result that gives
+// the model enough context to know what was there and how to re-fetch it.
+func buildToolResultStub(toolName, content string) string {
+	lines := strings.Count(content, "\n") + 1
+	bytes := len(content)
+
+	switch toolName {
+	case "Read":
+		// Extract file path hint from first line if it looks like a path
+		firstLine := content
+		if idx := strings.IndexByte(firstLine, '\n'); idx >= 0 {
+			firstLine = firstLine[:idx]
+		}
+		return fmt.Sprintf("[Read result — %d lines, %d bytes. Re-run tool if content needed.]", lines, bytes)
+	case "Bash":
+		return fmt.Sprintf("[Bash output — %d lines, %d bytes. Re-run command if output needed.]", lines, bytes)
+	case "Grep":
+		return fmt.Sprintf("[Grep result — %d matching lines. Re-run search if matches needed.]", lines)
+	case "Glob":
+		return fmt.Sprintf("[Glob result — %d entries. Re-run glob if file list needed.]", lines)
+	case "Skill":
+		return fmt.Sprintf("[Skill content loaded — %d bytes. Re-run Skill tool if instructions needed.]", bytes)
+	default:
+		return fmt.Sprintf("[%s result — %d lines, %d bytes. Re-run tool if content needed.]", toolName, lines, bytes)
+	}
 }
 
 // pruneStaleToolOutputs replaces old, low-value tool outputs with short stubs.

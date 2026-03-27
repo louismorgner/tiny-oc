@@ -1,6 +1,10 @@
 package runtime
 
-import "fmt"
+import (
+	"encoding/json"
+	"fmt"
+	"strings"
+)
 
 type nativeToolHandler func(nativeToolContext, ToolCall) toolExecution
 
@@ -9,26 +13,27 @@ type NativeToolSpec struct {
 	Description string
 	Parameters  map[string]interface{}
 	Handler     nativeToolHandler
+	// Deferred indicates this tool's full schema is not sent with every
+	// request. Instead, only its name and a one-line summary are listed
+	// in the system prompt. The model fetches the full schema on demand
+	// via the ToolSearch meta-tool. This saves significant tokens per
+	// request for tools that are used infrequently.
+	Deferred bool
+	// Summary is a one-line description used in the deferred tool list.
+	// Only needed when Deferred is true.
+	Summary string
 }
 
 func nativeToolRegistry() []NativeToolSpec {
 	return []NativeToolSpec{
 		{
 			Name: "Read",
-			Description: `Read a file from the session workspace and return its contents.
+			Description: `Read a file from the session workspace. Use instead of cat/head/tail via Bash. MUST Read before Edit.
 
-Use this tool instead of running cat, head, or tail via Bash. Use Read whenever you need to inspect file contents before making changes. You MUST Read a file before using Edit on it.
+- file_path (required): Relative or absolute path within the workspace.
+- start_line / end_line (optional): 1-based line range for partial reads.
 
-Parameters:
-- file_path (required): Path to the file. Can be relative (resolved against the session workspace root) or absolute (must be within the workspace). Paths that escape the workspace are rejected.
-- start_line / end_line (optional): 1-based line range to read a subset of the file. Omit both to read the entire file. Useful for large files when you know which section you need.
-
-Output: The raw file contents (or the requested line range). Output is truncated at 64KB if the file is larger. The tool returns an error if the file does not exist or the path escapes the workspace.
-
-Anti-patterns:
-- Do NOT use Bash with cat/head/tail/sed to read files — use this tool instead.
-- Do NOT read entire large files when you only need a specific section — use start_line/end_line.
-- Do NOT attempt to read directories — use Glob to list files or Bash with ls.`,
+Output truncated at 64KB. Use Glob for directories, start_line/end_line for large files.`,
 			Parameters: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
@@ -42,20 +47,12 @@ Anti-patterns:
 		},
 		{
 			Name: "Write",
-			Description: `Write a complete file to the session workspace, creating it if it does not exist or overwriting it entirely if it does.
+			Description: `Create or overwrite a file in the session workspace. For targeted edits, prefer Edit instead.
 
-Use Write to create new files or to completely replace file contents. For small, targeted changes to existing files, prefer Edit instead — it only sends the diff and avoids accidentally dropping content. Parent directories are created automatically if they do not exist. If the file already exists, its permission mode is preserved; new files are created with mode 0644.
+- file_path (required): Path within the workspace. Parent dirs created automatically.
+- content (required): Full file content (replaces entire file).
 
-Parameters:
-- file_path (required): Path to the file. Can be relative or absolute, but must resolve within the session workspace.
-- content (required): The full file content to write. This replaces the entire file.
-
-Output: A confirmation message with the byte count written and the file path.
-
-Anti-patterns:
-- Do NOT use Write to make small edits to existing files — use Edit instead, which is safer and more efficient.
-- Do NOT use Bash with echo/cat heredocs to write files — use this tool instead.
-- Do NOT write files containing secrets (.env, credentials) without explicit user confirmation.`,
+Preserves existing file permissions. Do not write secrets without user confirmation.`,
 			Parameters: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
@@ -68,24 +65,14 @@ Anti-patterns:
 		},
 		{
 			Name: "Edit",
-			Description: `Perform exact string replacement in a file within the session workspace.
+			Description: `Exact string replacement in a file. You MUST Read the file first.
 
-Use Edit for targeted modifications to existing files. It finds old_string in the file and replaces it with new_string. This is safer than Write for modifications because it only changes what you specify, leaving the rest of the file untouched.
+- file_path (required): Path within the workspace.
+- old_string (required): Exact text to find (including whitespace/indentation).
+- new_string (required): Replacement text. Empty to delete.
+- replace_all (optional, default false): If false and multiple matches exist, the edit fails. Set true to replace all.
 
-Precondition: You MUST Read the file before editing it, so you know the exact text to match. Guessing at old_string without reading the file first is the most common cause of edit failures.
-
-Parameters:
-- file_path (required): Path to the file to edit, relative or absolute within the workspace.
-- old_string (required): The exact text to find. Must not be empty. Must match the file contents exactly, including whitespace and indentation.
-- new_string (required): The replacement text. Can be empty to delete old_string.
-- replace_all (optional, default false): If false and old_string matches more than once, the edit FAILS with an error showing the match count. Set to true to replace all occurrences — useful for renaming variables or updating repeated patterns.
-
-Output: A confirmation message on success. On failure, an error explaining why (not found, multiple matches without replace_all, etc.).
-
-Anti-patterns:
-- Do NOT edit a file you have not Read first — you will guess wrong about the content.
-- Do NOT use Bash with sed or awk for file edits — use this tool instead.
-- If old_string matches multiple times and you only want to change one, include more surrounding context to make the match unique rather than using replace_all.`,
+Fails if old_string not found or matches multiple times without replace_all.`,
 			Parameters: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
@@ -99,7 +86,9 @@ Anti-patterns:
 			Handler: nativeEdit,
 		},
 		{
-			Name: "Glob",
+			Name:     "Glob",
+			Deferred: true,
+			Summary:  "Find files by name pattern using glob matching",
 			Description: `Find files by name pattern within the session workspace using glob matching.
 
 Use Glob to discover files when you know the naming pattern but not the exact location. It walks the directory tree and returns paths matching the pattern. Use Glob instead of running find or ls via Bash.
@@ -127,7 +116,9 @@ Anti-patterns:
 			Handler: nativeGlob,
 		},
 		{
-			Name: "Grep",
+			Name:     "Grep",
+			Deferred: true,
+			Summary:  "Search file contents using ripgrep regex patterns",
 			Description: `Search file contents within the session workspace using ripgrep (rg).
 
 Use Grep to find patterns in file contents. It supports full regular expression syntax. Use Grep instead of running grep or rg via Bash — it is pre-configured to search the workspace correctly, skipping .git and .toc-native directories, and including hidden files.
@@ -154,29 +145,13 @@ Anti-patterns:
 		},
 		{
 			Name: "Bash",
-			Description: `Execute a shell command in the session workspace.
+			Description: `Execute a shell command via "sh -lc" in the session workspace. Use for builds, tests, git, installs.
 
-Use Bash for tasks that the other tools cannot handle: running builds, tests, git operations, installing dependencies, or any general-purpose command. The command runs via "sh -lc" (login shell), so user profile tools like nvm, rbenv, and custom PATH entries are available.
+- command (required): Shell command to execute.
+- timeout_ms (optional): Timeout in ms (default 30000). Increase for long builds/tests.
 
-The working directory is set to the session workspace root. Commands cannot escape the workspace sandbox.
-
-Parameters:
-- command (required): The shell command to execute. Use absolute paths or paths relative to the workspace root. Always quote file paths containing spaces.
-- timeout_ms (optional): Timeout in milliseconds. Defaults to 30 seconds (30000ms). Set higher for long-running builds or tests.
-
-Output: Combined stdout and stderr from the command. If the command fails, the output includes the exit code. If it times out, the output says "command timed out" along with any partial output. Output is truncated at 64KB.
-
-When to use other tools instead:
-- To read files: use Read (not cat/head/tail)
-- To write files: use Write (not echo/cat heredoc)
-- To edit files: use Edit (not sed/awk)
-- To find files by name: use Glob (not find/ls)
-- To search file contents: use Grep (not grep/rg)
-
-Anti-patterns:
-- Do NOT run interactive commands (vim, less, git rebase -i) — they will hang and timeout.
-- Do NOT run long-running servers without increasing timeout_ms — the default 30s will kill them.
-- Do NOT use Bash for file operations when a dedicated tool exists — the dedicated tools are safer and produce structured output.`,
+Output: Combined stdout+stderr, truncated at 64KB. Includes exit code on failure.
+Prefer Read/Write/Edit/Glob/Grep over Bash for file operations. Do not run interactive commands.`,
 			Parameters: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
@@ -188,7 +163,9 @@ Anti-patterns:
 			Handler: nativeBash,
 		},
 		{
-			Name: "Skill",
+			Name:     "Skill",
+			Deferred: true,
+			Summary:  "Load full instructions for a named session skill",
 			Description: `Load the full instructions for a named skill provisioned in this session.
 
 Available skills are listed in the system prompt under <available_skills>. When a task matches a skill's description, call this tool with the skill's name to load its complete instructions, then follow them.
@@ -211,7 +188,9 @@ Anti-patterns:
 			Handler: nativeSkill,
 		},
 		{
-			Name: "SubAgent",
+			Name:     "SubAgent",
+			Deferred: true,
+			Summary:  "Manage sub-agent sessions for parallel task execution",
 			Description: `Manage sub-agent sessions for multi-agent orchestration. Sub-agents run in the background as separate sessions with their own workspace, allowing parallel task execution.
 
 Use SubAgent when a task is self-contained, has a clear deliverable, and can run independently. Do NOT use SubAgent when you need tight back-and-forth iteration — do the work yourself instead.
@@ -246,6 +225,108 @@ Anti-patterns:
 	}
 }
 
+// toolSearchSpec returns the ToolSearch meta-tool that lets the model
+// fetch full schemas for deferred tools on demand. This is always
+// included in the active tool set (never deferred itself).
+func toolSearchSpec(allSpecs []NativeToolSpec) NativeToolSpec {
+	return NativeToolSpec{
+		Name: "ToolSearch",
+		Description: `Fetch full schema definitions for deferred tools so they can be called.
+
+Deferred tools appear by name in the system prompt's deferred tool list. Until fetched, only the name and one-line summary are known — the tool cannot be invoked. Call ToolSearch with a comma-separated list of tool names to retrieve their full definitions.
+
+Parameters:
+- tools (required): Comma-separated tool names to fetch (e.g., "Glob,Grep").
+
+Output: Full tool definitions (name, description, parameters) as JSON for each matched tool. Once fetched, the tool can be called normally.`,
+		Parameters: map[string]interface{}{
+			"type": "object",
+			"properties": map[string]interface{}{
+				"tools": map[string]interface{}{"type": "string", "description": "Comma-separated tool names to fetch schemas for"},
+			},
+			"required": []string{"tools"},
+		},
+		Handler: makeToolSearchHandler(allSpecs),
+	}
+}
+
+// makeToolSearchHandler creates a ToolSearch handler that has access to
+// the full tool registry for schema lookups.
+func makeToolSearchHandler(allSpecs []NativeToolSpec) nativeToolHandler {
+	return func(ctx nativeToolContext, call ToolCall) toolExecution {
+		var args struct {
+			Tools string `json:"tools"`
+		}
+		if err := decodeToolArgs(call.Function.Arguments, &args); err != nil {
+			return toolFailure("ToolSearch", "", "", err)
+		}
+		if strings.TrimSpace(args.Tools) == "" {
+			return toolFailure("ToolSearch", "", "", fmt.Errorf("tools parameter is required"))
+		}
+
+		requested := strings.Split(args.Tools, ",")
+		var results []map[string]interface{}
+		for _, name := range requested {
+			name = strings.TrimSpace(name)
+			if name == "" {
+				continue
+			}
+			for _, spec := range allSpecs {
+				if spec.Name == name {
+					results = append(results, map[string]interface{}{
+						"name":        spec.Name,
+						"description": spec.Description,
+						"parameters":  spec.Parameters,
+					})
+					break
+				}
+			}
+		}
+
+		if len(results) == 0 {
+			return toolFailure("ToolSearch", "", args.Tools, fmt.Errorf("no matching tools found for: %s", args.Tools))
+		}
+
+		data, err := json.MarshalIndent(results, "", "  ")
+		if err != nil {
+			return toolFailure("ToolSearch", "", "", err)
+		}
+		return toolSuccess("ToolSearch", "", string(data), Step{
+			Type:    "tool",
+			Tool:    "ToolSearch",
+			Content: args.Tools,
+			Success: boolPtr(true),
+		})
+	}
+}
+
+// DeferredToolSummary returns a formatted list of deferred tools for
+// injection into the system prompt, so the model knows what's available.
+func DeferredToolSummary(specs []NativeToolSpec) string {
+	var deferred []NativeToolSpec
+	for _, spec := range specs {
+		if spec.Deferred {
+			deferred = append(deferred, spec)
+		}
+	}
+	if len(deferred) == 0 {
+		return ""
+	}
+
+	var b strings.Builder
+	b.WriteString("The following tools are available but their full schemas are deferred. Use the ToolSearch tool to fetch their full definitions before calling them.\n\n")
+	b.WriteString("<deferred_tools>\n")
+	for _, spec := range deferred {
+		summary := spec.Summary
+		if summary == "" {
+			summary = spec.Name
+		}
+		fmt.Fprintf(&b, "  <tool name=%q>%s</tool>\n", spec.Name, summary)
+	}
+	b.WriteString("</deferred_tools>")
+	return b.String()
+}
+
 func NativeToolNames() []string {
 	registry := nativeToolRegistry()
 	names := make([]string, 0, len(registry))
@@ -257,6 +338,9 @@ func NativeToolNames() []string {
 
 func nativeToolSet(enabled []string) []NativeToolSpec {
 	registry := nativeToolRegistry()
+	// Append the ToolSearch meta-tool so the model can fetch deferred schemas.
+	registry = append(registry, toolSearchSpec(registry))
+
 	if len(enabled) == 0 {
 		return registry
 	}
@@ -265,8 +349,10 @@ func nativeToolSet(enabled []string) []NativeToolSpec {
 	for _, name := range enabled {
 		allowed[name] = true
 	}
+	// ToolSearch is always allowed when deferred tools are in play.
+	allowed["ToolSearch"] = true
 
-	result := make([]NativeToolSpec, 0, len(enabled))
+	result := make([]NativeToolSpec, 0, len(enabled)+1)
 	for _, spec := range registry {
 		if allowed[spec.Name] {
 			result = append(result, spec)
@@ -275,9 +361,17 @@ func nativeToolSet(enabled []string) []NativeToolSpec {
 	return result
 }
 
+// nativeToolDefinitions returns API tool definitions, omitting full schemas
+// for deferred tools. Deferred tools are listed in the system prompt instead
+// and their schemas are fetched on demand via ToolSearch.
 func nativeToolDefinitions(specs []NativeToolSpec) []toolDefinition {
 	defs := make([]toolDefinition, 0, len(specs))
 	for _, spec := range specs {
+		if spec.Deferred {
+			// Don't send full schema for deferred tools — the model
+			// uses ToolSearch to fetch them when needed.
+			continue
+		}
 		defs = append(defs, toolDefinition{
 			Type: "function",
 			Function: toolDescriptor{

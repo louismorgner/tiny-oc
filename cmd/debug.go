@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	goRuntime "runtime"
 	"sort"
 	"strings"
@@ -135,28 +136,31 @@ type debugSessionInfo struct {
 }
 
 type debugStateInfo struct {
-	RuntimeStatus    string                         `json:"runtime_status,omitempty"`
-	Model            string                         `json:"model,omitempty"`
-	LastError        string                         `json:"last_error,omitempty"`
-	PendingTurn      *iruntime.TurnCheckpoint       `json:"pending_turn,omitempty"`
-	PendingTurnLabel string                         `json:"pending_turn_label,omitempty"`
-	RecoveryCount    int                            `json:"recovery_count,omitempty"`
-	ResumeCount      int                            `json:"resume_count,omitempty"`
-	CompactionCount  int                            `json:"compaction_count,omitempty"`
-	CrashInfo        *iruntime.CrashInfo            `json:"crash_info,omitempty"`
-	ContextDiag      *iruntime.ContextDiagnostics   `json:"context_diagnostics,omitempty"`
-	WorkingSet       *iruntime.WorkingSet           `json:"working_set,omitempty"`
-	Continuation     *iruntime.ContinuationArtifact `json:"continuation,omitempty"`
+	RuntimeStatus        string                         `json:"runtime_status,omitempty"`
+	Model                string                         `json:"model,omitempty"`
+	LastError            string                         `json:"last_error,omitempty"`
+	PendingQuestion      *iruntime.PendingQuestion      `json:"pending_question,omitempty"`
+	PendingQuestionError string                         `json:"pending_question_error,omitempty"`
+	AnswerPending        bool                           `json:"answer_pending,omitempty"`
+	PendingTurn          *iruntime.TurnCheckpoint       `json:"pending_turn,omitempty"`
+	PendingTurnLabel     string                         `json:"pending_turn_label,omitempty"`
+	RecoveryCount        int                            `json:"recovery_count,omitempty"`
+	ResumeCount          int                            `json:"resume_count,omitempty"`
+	CompactionCount      int                            `json:"compaction_count,omitempty"`
+	CrashInfo            *iruntime.CrashInfo            `json:"crash_info,omitempty"`
+	ContextDiag          *iruntime.ContextDiagnostics   `json:"context_diagnostics,omitempty"`
+	WorkingSet           *iruntime.WorkingSet           `json:"working_set,omitempty"`
+	Continuation         *iruntime.ContinuationArtifact `json:"continuation,omitempty"`
 }
 
 type debugTimelineInfo struct {
-	TotalEvents      int                    `json:"total_events"`
-	EventTypes       map[string]int         `json:"event_types,omitempty"`
-	LastToolCall     string                 `json:"last_tool_call,omitempty"`
-	LastErrorEvent   *iruntime.Event        `json:"last_error_event,omitempty"`
-	RecentEvents     []iruntime.Event       `json:"recent_events,omitempty"`
-	RecentToolTimings []debugToolTiming     `json:"recent_tool_timings,omitempty"`
-	LastAssistantMsg string                 `json:"last_assistant_msg,omitempty"`
+	TotalEvents       int               `json:"total_events"`
+	EventTypes        map[string]int    `json:"event_types,omitempty"`
+	LastToolCall      string            `json:"last_tool_call,omitempty"`
+	LastErrorEvent    *iruntime.Event   `json:"last_error_event,omitempty"`
+	RecentEvents      []iruntime.Event  `json:"recent_events,omitempty"`
+	RecentToolTimings []debugToolTiming `json:"recent_tool_timings,omitempty"`
+	LastAssistantMsg  string            `json:"last_assistant_msg,omitempty"`
 }
 
 type debugProcessInfo struct {
@@ -168,11 +172,11 @@ type debugProcessInfo struct {
 }
 
 type debugUsageInfo struct {
-	InputTokens  int64    `json:"input_tokens,omitempty"`
-	OutputTokens int64    `json:"output_tokens,omitempty"`
-	CacheRead    int64    `json:"cache_read,omitempty"`
-	CacheCreate  int64    `json:"cache_create,omitempty"`
-	TotalTokens  int64    `json:"total_tokens,omitempty"`
+	InputTokens     int64    `json:"input_tokens,omitempty"`
+	OutputTokens    int64    `json:"output_tokens,omitempty"`
+	CacheRead       int64    `json:"cache_read,omitempty"`
+	CacheCreate     int64    `json:"cache_create,omitempty"`
+	TotalTokens     int64    `json:"total_tokens,omitempty"`
 	CostUSD         *float64 `json:"cost_usd,omitempty"`
 	TokenTrajectory string   `json:"token_trajectory,omitempty"`
 
@@ -411,6 +415,13 @@ func buildDebugReport(s *session.Session, eventLimit int, full bool) (*debugRepo
 				report.State.ContextDiag = &diag
 			}
 		}
+	}
+	if pendingQuestion, err := iruntime.InspectPendingQuestion(s); err == nil && pendingQuestion != nil {
+		report.State.PendingQuestion = pendingQuestion.Question
+		report.State.PendingQuestionError = pendingQuestion.Error
+		report.State.AnswerPending = pendingQuestion.AnswerPending
+	} else if err != nil {
+		return nil, err
 	}
 
 	report.Timeline = debugTimelineDetails(state, events, eventLimit, full)
@@ -660,6 +671,7 @@ func buildDiagnosis(report *debugReport, state *iruntime.State, events []iruntim
 	highTokens := report.Usage.InputTokens > 200000
 	lastTool := report.Timeline.LastToolCall
 	hasError := report.State.LastError != ""
+	hasPendingQuestion := report.State.PendingQuestion != nil || report.State.PendingQuestionError != ""
 
 	// Case 1: Process dead but status says active — the core zombie detection
 	if processDead && (status == "active" || status == "running") {
@@ -745,7 +757,31 @@ func buildDiagnosis(report *debugReport, state *iruntime.State, events []iruntim
 		return d
 	}
 
-	// Case 5: Active and actually alive
+	// Case 5: Waiting on operator input
+	if hasPendingQuestion {
+		if report.State.PendingQuestionError != "" {
+			d.Verdict = "PENDING QUESTION METADATA ERROR — session blocked"
+		} else {
+			d.Verdict = "WAITING FOR ANSWER — operator input required"
+		}
+		d.Confidence = "high"
+		if report.State.PendingQuestionError != "" {
+			evidence = append(evidence, "pending question metadata is invalid")
+			evidence = append(evidence, "error: "+report.State.PendingQuestionError)
+			d.Suggestions = append(d.Suggestions, "Inspect session metadata with: toc debug "+report.Session.ID)
+		} else if report.State.AnswerPending {
+			evidence = append(evidence, "an answer has been submitted and is waiting to be consumed")
+			d.Suggestions = append(d.Suggestions, "Track session state with: toc debug "+report.Session.ID)
+		} else {
+			evidence = append(evidence, "session posted a pending Question tool request")
+			evidence = append(evidence, "question: "+report.State.PendingQuestion.Question)
+			d.Suggestions = append(d.Suggestions, "Answer with: toc answer "+report.Session.ID[:8]+" --text \"...\"")
+		}
+		d.Evidence = evidence
+		return d
+	}
+
+	// Case 6: Active and actually alive
 	if processAlive && status == "active" {
 		d.Verdict = "RUNNING — session appears healthy"
 		d.Confidence = "high"
@@ -756,7 +792,7 @@ func buildDiagnosis(report *debugReport, state *iruntime.State, events []iruntim
 		return d
 	}
 
-	// Case 6: Completed successfully
+	// Case 7: Completed successfully
 	if status == "completed" || status == session.StatusCompletedOK {
 		d.Verdict = "COMPLETED — session finished normally"
 		d.Confidence = "high"
@@ -785,10 +821,19 @@ func readDebugArtifact(paths ...string) *debugArtifact {
 }
 
 func debugMetadataArtifacts(s *session.Session) []debugBundleArtifact {
+	metadataDir := s.MetadataDirPath()
+	questionPath := ""
+	answerPath := ""
+	if metadataDir != "" {
+		questionPath = filepath.Join(metadataDir, "question.json")
+		answerPath = filepath.Join(metadataDir, "answer.json")
+	}
 	artifacts := []debugBundleArtifact{
 		{Name: "state.json", Path: iruntime.StatePath(s)},
 		{Name: "events.jsonl", Path: iruntime.EventLogPath(s)},
 		{Name: "stderr.log", Path: iruntime.StderrLogPath(s)},
+		{Name: "question.json", Path: questionPath},
+		{Name: "answer.json", Path: answerPath},
 		{Name: "toc-output.txt", Path: s.WorkspacePath + "/toc-output.txt"},
 		{Name: "toc-output.txt.tmp", Path: s.WorkspacePath + "/toc-output.txt.tmp"},
 	}
@@ -908,6 +953,23 @@ func printDebugReport(report *debugReport, full bool) {
 	}
 	if report.State.LastError != "" {
 		fmt.Printf("    last_error: %s\n", report.State.LastError)
+	}
+	if report.State.PendingQuestionError != "" {
+		fmt.Printf("    pending_question_error: %s\n", report.State.PendingQuestionError)
+	}
+	if report.State.PendingQuestion != nil {
+		fmt.Printf("    pending_question: %s\n", report.State.PendingQuestion.Question)
+		if !report.State.PendingQuestion.Timestamp.IsZero() {
+			fmt.Printf("    pending_since: %s\n", report.State.PendingQuestion.Timestamp.Format(time.RFC3339))
+		}
+	}
+	if report.State.AnswerPending {
+		fmt.Printf("    answer_pending: true\n")
+	}
+	if report.State.PendingQuestion != nil && !report.State.AnswerPending {
+		fmt.Printf("    answer_with: toc answer %s --text \"...\"\n", report.Session.ID)
+	} else if report.State.PendingQuestionError != "" || report.State.AnswerPending {
+		fmt.Printf("    inspect_with: toc debug %s\n", report.Session.ID)
 	}
 	if report.State.PendingTurnLabel != "" && report.State.PendingTurn != nil {
 		fmt.Printf("    pending_turn: %s\n", report.State.PendingTurnLabel)

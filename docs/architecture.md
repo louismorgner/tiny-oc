@@ -77,6 +77,7 @@ toc agent spawn pr-reviewer
 │   ├── skill_*.go             # toc skill {create,list,add,remove}
 │   ├── registry_*.go          # toc registry {search,install}
 │   ├── integrate*.go          # toc integrate {add,test,remove,list} (test is integrate_test_cmd.go to avoid Go test runner)
+│   ├── question.go            # toc question / toc answer
 │   ├── runtime.go             # toc runtime (parent command, agent-facing)
 │   ├── runtime_list.go        # toc runtime list
 │   ├── runtime_spawn.go       # toc runtime spawn

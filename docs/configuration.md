@@ -193,6 +193,8 @@ During a session, agents use `toc runtime` commands to manage sub-agents:
 
 Sub-agents run in a detached runtime process, capturing output to `toc-output.txt` in the session workspace. Parent-child relationships are tracked in `sessions.yaml`. With the current `claude-code` runtime, this uses detached `claude -p` / `claude --continue` invocations.
 
+If a detached session calls the native `Question` tool, inspect it with `toc question [session-id]` and respond with `toc answer <session-id> --text "..."`. `toc runtime status` and `toc debug` surface pending questions for sub-agents.
+
 ## Snapshot sync patterns
 
 The `context` field is the current config name for snapshot sync paths. It defines which files sync between the parent agent snapshot and spawned sessions. In practice, this is how agents accumulate knowledge across sessions without making the full snapshot bidirectional.

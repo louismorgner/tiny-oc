@@ -96,6 +96,8 @@ When you run `toc agent spawn`, it:
 | `toc integrate test <name>` | Test an integration connection |
 | `toc integrate remove <name>` | Remove an integration |
 | `toc audit` | View the audit log |
+| `toc question [session-id]` | Inspect pending detached session questions |
+| `toc answer <session-id> --text "..."` | Submit an answer for a pending detached question |
 | `toc config set <key> <value>` | Set workspace config or secrets |
 | `toc completion <shell>` | Generate shell completion script |
 

@@ -203,12 +203,7 @@ func resolveDebugSession(args []string, last bool) (*session.Session, error) {
 	if len(args) == 0 {
 		return nil, fmt.Errorf("session ID required unless --last or --failed is set")
 	}
-	s, err := session.FindByID(args[0])
-	if err != nil {
-		// Fall back to prefix matching for short-form IDs (e.g. "a46c28d5")
-		return session.FindByIDPrefix(args[0])
-	}
-	return s, nil
+	return session.FindByIDOrPrefix(args[0])
 }
 
 func mostRecentDebugSession() (*session.Session, error) {

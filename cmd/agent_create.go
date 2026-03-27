@@ -248,7 +248,7 @@ var agentCreateCmd = &cobra.Command{
 		}
 
 		cfg := agent.AgentConfig{
-			Runtime:     runtimeinfo.DefaultRuntime,
+			Runtime:     runtimeName,
 			Name:        name,
 			Description: desc,
 			Model:       model,
@@ -271,7 +271,7 @@ var agentCreateCmd = &cobra.Command{
 		auditLog("agent.create", map[string]interface{}{
 			"agent":   name,
 			"model":   model,
-			"runtime": runtimeinfo.DefaultRuntime,
+			"runtime": runtimeName,
 		})
 
 		fmt.Println()

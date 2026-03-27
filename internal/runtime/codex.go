@@ -261,9 +261,8 @@ func buildCodexInteractiveArgs(workDir, model string, resume bool, tocSessionID 
 	if err != nil {
 		return nil, err
 	}
-	args := []string{"resume"}
-	args = append(args, codexModelArgs(model)...)
-	args = append(args, "--dangerously-bypass-approvals-and-sandbox", conversationID)
+	args := codexModelArgs(model)
+	args = append(args, "--dangerously-bypass-approvals-and-sandbox", "resume", conversationID)
 	return args, nil
 }
 
@@ -274,13 +273,12 @@ func buildCodexExecArgs(workDir, model, prompt string, resume bool, tocSessionID
 		if err != nil {
 			return nil, err
 		}
-		args = append(args, "resume")
 		args = append(args, codexModelArgs(model)...)
 		args = append(args, "--dangerously-bypass-approvals-and-sandbox")
 		if outputPath != "" {
 			args = append(args, "-o", outputPath)
 		}
-		args = append(args, conversationID, prompt)
+		args = append(args, "resume", conversationID, prompt)
 		return args, nil
 	}
 
@@ -317,7 +315,7 @@ func BuildCodexDetachedScript(helperExecutable string, opts DetachedOptions, pro
 		command += " --skip-git-repo-check"
 		command += fmt.Sprintf(" - < %q", promptPath)
 	} else {
-		command = fmt.Sprintf("codex exec resume --dangerously-bypass-approvals-and-sandbox -m %q -o %q %q - < %q",
+		command = fmt.Sprintf("codex exec --dangerously-bypass-approvals-and-sandbox -m %q -o %q resume %q - < %q",
 			opts.Model, outputTmpPath, resumeConversationID, promptPath)
 	}
 
@@ -878,7 +876,7 @@ func parseCodexRolloutLine(line []byte, pending map[string]codexRolloutFunctionC
 
 func codexRolloutCallOutputToStep(call codexRolloutFunctionCall, output string) Step {
 	switch call.Name {
-	case "shell_command", "exec_command":
+	case "shell", "shell_command", "exec_command":
 		exitCode, durationMS, body := parseCodexCommandOutput(output)
 		step := Step{
 			Type:       "tool",
@@ -904,6 +902,23 @@ func codexRolloutCallOutputToStep(call codexRolloutFunctionCall, output string) 
 }
 
 func parseCodexCommandOutput(output string) (int, int64, string) {
+	// Try structured text format first (Exit code: / Wall time: / Output:)
+	if strings.Contains(output, "Exit code:") {
+		return parseCodexCommandOutputStructured(output)
+	}
+	// Older Codex CLI versions emit a JSON-string output for "shell" calls
+	var jsonOutput struct {
+		Output   string `json:"output"`
+		ExitCode int    `json:"exit_code"`
+	}
+	if err := json.Unmarshal([]byte(output), &jsonOutput); err == nil {
+		return jsonOutput.ExitCode, 0, strings.TrimSpace(jsonOutput.Output)
+	}
+	// Fall back to treating the whole string as output
+	return 0, 0, strings.TrimSpace(output)
+}
+
+func parseCodexCommandOutputStructured(output string) (int, int64, string) {
 	lines := strings.Split(output, "\n")
 	exitCode := 0
 	var durationMS int64

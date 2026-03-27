@@ -46,7 +46,7 @@ The interactive prompt asks for:
 
 1. **Name** — lowercase alphanumeric with hyphens (e.g. `pr-reviewer`)
 2. **Description** — shown in `toc agent list` and shell completions
-3. **Model** — depends on the selected runtime; today `claude-code` supports `sonnet`, `opus`, and `haiku`
+3. **Model** — depends on the selected runtime; today `claude-code` supports `default`, `sonnet`, `opus`, and `haiku`
 4. **Context patterns** — optional snapshot-sync patterns for files that should flow back into the parent agent snapshot (see [snapshot sync](configuration.md#snapshot-sync-patterns))
 5. **Instructions** — the agent's system prompt, written to `agent.md`
 

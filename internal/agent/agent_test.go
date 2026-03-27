@@ -169,6 +169,18 @@ func TestValidate_NativeCustomModelAllowedWithOverride(t *testing.T) {
 	}
 }
 
+func TestValidate_ClaudeCodeDefaultModelAllowed(t *testing.T) {
+	cfg := &AgentConfig{
+		Name:    "test",
+		Runtime: "claude-code",
+		Model:   "default",
+	}
+	problems := cfg.Validate()
+	if len(problems) != 0 {
+		t.Fatalf("expected default model to be valid for claude-code, got %v", problems)
+	}
+}
+
 func TestSubAgentPermission(t *testing.T) {
 	cfg := &AgentConfig{
 		Perms: &Permissions{

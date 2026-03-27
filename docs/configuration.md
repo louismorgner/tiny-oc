@@ -45,7 +45,7 @@ permissions:
 | `runtime` | string | yes | — | Agent runtime implementation. Current runtimes are `claude-code` and `toc-native` |
 | `name` | string | yes | — | Lowercase alphanumeric with hyphens (e.g. `pr-reviewer`). Must match `^[a-z0-9][a-z0-9-]*$` |
 | `description` | string | no | — | Shown in `toc agent list` and shell tab completion |
-| `model` | string | yes | — | Declarative model preference for the selected runtime. For `claude-code`: `sonnet`, `opus`, or `haiku`. For `toc-native`, use an OpenRouter model ID such as `openai/gpt-4o-mini` |
+| `model` | string | yes | — | Declarative model preference for the selected runtime. For `claude-code`: `default`, `sonnet`, `opus`, or `haiku`. For `toc-native`, use an OpenRouter model ID such as `openai/gpt-4o-mini` |
 | `allow_custom_native_model` | bool | no | `false` | For `toc-native`, allow a model outside the supported beta profile set. Use only as an explicit override for experimental models |
 | `context` | list | no | — | Glob patterns for snapshot sync between the parent snapshot and spawned sessions (see below) |
 | `skills` | list | no | — | Skill names (local) or Git URLs (remote) |

@@ -62,6 +62,7 @@ These hooks are shell scripts and JSON config generated in the session's `.claud
 
 | Model | Description |
 |---|---|
+| `default` | Claude Code default for the current account tier |
 | `sonnet` | Claude Sonnet |
 | `opus` | Claude Opus |
 | `haiku` | Claude Haiku |

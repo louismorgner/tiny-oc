@@ -107,10 +107,13 @@ To use a model outside this set, opt in explicitly:
 ```yaml
 runtime: toc-native
 model: some/other-model
+small_model: some/other-small-model
 allow_custom_native_model: true
 ```
 
 Custom models must support tool calling to work with the native runtime.
+
+`toc-native` also supports an optional `small_model` field. When set, the runtime uses that model for lightweight compaction summarization work and falls back to `model` for the main tool loop.
 
 ### Configuration
 
@@ -134,6 +137,8 @@ The native runtime actively manages context to maintain model quality over long 
 4. **Fail-safe**: If context remains over budget after emergency compaction, the runtime returns an error rather than sending an over-budget request.
 
 The continuation artifact replaces the old freeform summary with structured fields that help the model resume effectively after compaction.
+
+If `small_model` is configured, the continuation artifact is synthesized with that model instead of the primary `model`, which reduces cost and latency for compaction turns.
 
 **Working set tracking**: The runtime tracks files read, edited, and written, along with recent shell commands. This metadata feeds into compaction and diagnostics.
 

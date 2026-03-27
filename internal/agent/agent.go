@@ -42,6 +42,7 @@ type AgentConfig struct {
 	Name                   string       `yaml:"name"`
 	Description            string       `yaml:"description,omitempty"`
 	Model                  string       `yaml:"model"`
+	SmallModel             string       `yaml:"small_model,omitempty"`
 	AllowCustomNativeModel bool         `yaml:"allow_custom_native_model,omitempty"`
 	MaxIterations          int          `yaml:"max_iterations,omitempty"`
 	Context                []string     `yaml:"context,omitempty"`
@@ -148,6 +149,10 @@ func (cfg *AgentConfig) Validate() []string {
 			problems = append(problems, "missing model")
 		} else if err := runtimeinfo.ValidateModelSelection(cfg.Runtime, cfg.Model, cfg.AllowCustomNativeModel); err != nil {
 			problems = append(problems, err.Error())
+		} else if strings.TrimSpace(cfg.SmallModel) != "" {
+			if err := runtimeinfo.ValidateModelSelection(cfg.Runtime, cfg.SmallModel, cfg.AllowCustomNativeModel); err != nil {
+				problems = append(problems, fmt.Sprintf("invalid small_model: %v", err))
+			}
 		}
 	}
 	if cfg.Runtime == "" && cfg.Model == "" {

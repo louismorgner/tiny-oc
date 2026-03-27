@@ -46,14 +46,14 @@ func maybeManageContext(state *State, sess *session.Session, cfg *SessionConfig,
 		}
 	}
 
-	return manageContextWithBudget(state, sess, keepRecent, maxSummaryChars, profile, client)
+	return manageContextWithBudget(state, sess, cfg, keepRecent, maxSummaryChars, profile, client)
 }
 
 // manageContextWithBudget implements the token-budget-aware context pipeline:
-//   1. Estimate current input tokens
-//   2. Consult the budgeter for a decision
-//   3. Prune → compact → fail based on the decision
-func manageContextWithBudget(state *State, sess *session.Session, keepRecent, maxSummaryChars int, profile runtimeinfo.NativeModelProfile, client *openRouterClient) (bool, error) {
+//  1. Estimate current input tokens
+//  2. Consult the budgeter for a decision
+//  3. Prune → compact → fail based on the decision
+func manageContextWithBudget(state *State, sess *session.Session, cfg *SessionConfig, keepRecent, maxSummaryChars int, profile runtimeinfo.NativeModelProfile, client *openRouterClient) (bool, error) {
 	budgeter := NewContextBudgeter(profile)
 	currentTokens := estimateMessagesTokens(state.Messages)
 	decision := budgeter.Evaluate(currentTokens)
@@ -84,7 +84,7 @@ func manageContextWithBudget(state *State, sess *session.Session, keepRecent, ma
 		}
 
 		// Full compaction needed
-		compacted, compactedCount, _ := compactMessagesStructured(state, keepRecent, maxSummaryChars, client)
+		compacted, compactedCount, _ := compactMessagesStructuredWithModel(state, cfg, keepRecent, maxSummaryChars, client)
 		if compactedCount == 0 {
 			return pruned > 0, nil
 		}
@@ -100,7 +100,7 @@ func manageContextWithBudget(state *State, sess *session.Session, keepRecent, ma
 	case BudgetFail:
 		// Emergency: try aggressive pruning + compaction before giving up
 		pruneStaleToolOutputs(state.Messages, keepRecent)
-		compacted, compactedCount, _ := compactMessagesStructured(state, keepRecent, maxSummaryChars, client)
+		compacted, compactedCount, _ := compactMessagesStructuredWithModel(state, cfg, keepRecent, maxSummaryChars, client)
 		if compactedCount > 0 {
 			state.Messages = compacted
 			state.CompactionCount++
@@ -188,6 +188,10 @@ func looksLikeError(content string) bool {
 // continuation artifact. When a client is available, uses the LLM to generate
 // the continuation; falls back to heuristic extraction otherwise.
 func compactMessagesStructured(state *State, keepRecent, maxSummaryChars int, client *openRouterClient) ([]Message, int, string) {
+	return compactMessagesStructuredWithModel(state, nil, keepRecent, maxSummaryChars, client)
+}
+
+func compactMessagesStructuredWithModel(state *State, cfg *SessionConfig, keepRecent, maxSummaryChars int, client *openRouterClient) ([]Message, int, string) {
 	messages := state.Messages
 	if len(messages) == 0 {
 		return messages, 0, ""
@@ -216,8 +220,9 @@ func compactMessagesStructured(state *State, keepRecent, maxSummaryChars int, cl
 
 	// Try LLM-generated continuation first; fall back to heuristic extraction.
 	var continuation ContinuationArtifact
-	if client != nil && state.Model != "" {
-		llmCont, err := generateContinuationViaLLM(client, state.Model, head, state.Continuation)
+	compactionModel := resolveCompactionModel(state, cfg)
+	if client != nil && compactionModel != "" {
+		llmCont, err := generateContinuationViaLLM(client, compactionModel, head, state.Continuation)
 		if err == nil && llmCont != nil {
 			continuation = *llmCont
 		} else {
@@ -242,6 +247,21 @@ func compactMessagesStructured(state *State, keepRecent, maxSummaryChars int, cl
 	})
 	compacted = append(compacted, tail...)
 	return compacted, compactedCount, continuationText
+}
+
+func resolveCompactionModel(state *State, cfg *SessionConfig) string {
+	if cfg != nil {
+		if smallModel := strings.TrimSpace(cfg.SmallModel); smallModel != "" {
+			return smallModel
+		}
+		if model := strings.TrimSpace(cfg.Model); model != "" {
+			return model
+		}
+	}
+	if state == nil {
+		return ""
+	}
+	return strings.TrimSpace(state.Model)
 }
 
 // buildContinuationFromMessages extracts structured context from compacted

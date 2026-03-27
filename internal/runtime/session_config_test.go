@@ -14,6 +14,7 @@ func TestResolveSessionConfig(t *testing.T) {
 		Name:                   "native-agent",
 		Runtime:                runtimeinfo.NativeRuntime,
 		Model:                  "openai/gpt-4o-mini",
+		SmallModel:             "openai/gpt-4o-mini",
 		AllowCustomNativeModel: true,
 		Context:                []string{"context/*.md"},
 		Skills:                 []string{"code-review"},
@@ -42,6 +43,9 @@ func TestResolveSessionConfig(t *testing.T) {
 	}
 	if !cfg.AllowCustomNativeModel {
 		t.Fatalf("expected AllowCustomNativeModel to propagate, got %#v", cfg)
+	}
+	if cfg.SmallModel != "openai/gpt-4o-mini" {
+		t.Fatalf("expected SmallModel to propagate, got %#v", cfg)
 	}
 	if cfg.RuntimeConfig.CompactionTriggerChars != 0 {
 		t.Fatalf("CompactionTriggerChars should no longer be set by default (token budgets are primary), got %d", cfg.RuntimeConfig.CompactionTriggerChars)
@@ -73,13 +77,16 @@ func TestSaveAndLoadSessionConfig(t *testing.T) {
 	if loaded.Model != cfg.Model || loaded.LLM.Provider != "openrouter" {
 		t.Fatalf("loaded session config = %#v", loaded)
 	}
+	if loaded.SmallModel != cfg.SmallModel {
+		t.Fatalf("loaded SmallModel = %q, want %q", loaded.SmallModel, cfg.SmallModel)
+	}
 }
 
 func TestResolveSessionConfig_MaxIterations_Default(t *testing.T) {
 	cfg := ResolveSessionConfig(&agent.AgentConfig{
-		Name:    "test-agent",
-		Runtime: runtimeinfo.NativeRuntime,
-		Model:   "openai/gpt-4o-mini",
+		Name:                   "test-agent",
+		Runtime:                runtimeinfo.NativeRuntime,
+		Model:                  "openai/gpt-4o-mini",
 		AllowCustomNativeModel: true,
 	})
 	if cfg.RuntimeConfig.MaxIterations != defaultMaxIterations {
@@ -89,10 +96,10 @@ func TestResolveSessionConfig_MaxIterations_Default(t *testing.T) {
 
 func TestResolveSessionConfig_MaxIterations_AgentYAML(t *testing.T) {
 	cfg := ResolveSessionConfig(&agent.AgentConfig{
-		Name:          "test-agent",
-		Runtime:       runtimeinfo.NativeRuntime,
-		Model:         "openai/gpt-4o-mini",
-		MaxIterations: 50,
+		Name:                   "test-agent",
+		Runtime:                runtimeinfo.NativeRuntime,
+		Model:                  "openai/gpt-4o-mini",
+		MaxIterations:          50,
 		AllowCustomNativeModel: true,
 	})
 	if cfg.RuntimeConfig.MaxIterations != 50 {
@@ -103,10 +110,10 @@ func TestResolveSessionConfig_MaxIterations_AgentYAML(t *testing.T) {
 func TestResolveSessionConfig_MaxIterations_EnvVar(t *testing.T) {
 	t.Setenv("TOC_MAX_ITERATIONS", "100")
 	cfg := ResolveSessionConfig(&agent.AgentConfig{
-		Name:          "test-agent",
-		Runtime:       runtimeinfo.NativeRuntime,
-		Model:         "openai/gpt-4o-mini",
-		MaxIterations: 50,
+		Name:                   "test-agent",
+		Runtime:                runtimeinfo.NativeRuntime,
+		Model:                  "openai/gpt-4o-mini",
+		MaxIterations:          50,
 		AllowCustomNativeModel: true,
 	})
 	if cfg.RuntimeConfig.MaxIterations != 100 {
@@ -117,10 +124,10 @@ func TestResolveSessionConfig_MaxIterations_EnvVar(t *testing.T) {
 func TestResolveSessionConfig_MaxIterations_CLIOverride(t *testing.T) {
 	t.Setenv("TOC_MAX_ITERATIONS", "100")
 	cfg := ResolveSessionConfig(&agent.AgentConfig{
-		Name:          "test-agent",
-		Runtime:       runtimeinfo.NativeRuntime,
-		Model:         "openai/gpt-4o-mini",
-		MaxIterations: 50,
+		Name:                   "test-agent",
+		Runtime:                runtimeinfo.NativeRuntime,
+		Model:                  "openai/gpt-4o-mini",
+		MaxIterations:          50,
 		AllowCustomNativeModel: true,
 	}, ResolveOptions{MaxIterationsOverride: 200})
 	if cfg.RuntimeConfig.MaxIterations != 200 {
@@ -131,10 +138,10 @@ func TestResolveSessionConfig_MaxIterations_CLIOverride(t *testing.T) {
 func TestResolveSessionConfig_MaxIterations_InvalidEnvIgnored(t *testing.T) {
 	t.Setenv("TOC_MAX_ITERATIONS", "notanumber")
 	cfg := ResolveSessionConfig(&agent.AgentConfig{
-		Name:          "test-agent",
-		Runtime:       runtimeinfo.NativeRuntime,
-		Model:         "openai/gpt-4o-mini",
-		MaxIterations: 50,
+		Name:                   "test-agent",
+		Runtime:                runtimeinfo.NativeRuntime,
+		Model:                  "openai/gpt-4o-mini",
+		MaxIterations:          50,
 		AllowCustomNativeModel: true,
 	})
 	if cfg.RuntimeConfig.MaxIterations != 50 {
@@ -146,5 +153,21 @@ func TestLoadSessionConfigInWorkspace_Missing(t *testing.T) {
 	_, err := LoadSessionConfigInWorkspace(t.TempDir(), "missing")
 	if !os.IsNotExist(err) {
 		t.Fatalf("expected os.IsNotExist, got %v", err)
+	}
+}
+
+func TestValidateSessionConfig_SmallModel(t *testing.T) {
+	cfg := &SessionConfig{
+		Runtime:    runtimeinfo.NativeRuntime,
+		Model:      "openai/gpt-4o-mini",
+		SmallModel: "meta-llama/unknown",
+	}
+	if err := ValidateSessionConfig(cfg); err == nil {
+		t.Fatal("expected unsupported custom small_model to fail validation")
+	}
+
+	cfg.AllowCustomNativeModel = true
+	if err := ValidateSessionConfig(cfg); err != nil {
+		t.Fatalf("expected override to allow custom small_model, got %v", err)
 	}
 }

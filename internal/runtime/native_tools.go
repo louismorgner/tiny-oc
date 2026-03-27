@@ -28,6 +28,7 @@ type nativeToolContext struct {
 	Manifest   *integration.PermissionManifest
 	Config     *SessionConfig
 	SpawnFunc  SubAgentSpawnFunc
+	Trace      *traceWriter
 }
 
 type toolExecution struct {

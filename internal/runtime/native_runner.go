@@ -31,6 +31,7 @@ type NativeRunOptions struct {
 	Model     string
 	Prompt    string
 	Resume    bool
+	Trace     bool
 	SpawnFunc SubAgentSpawnFunc
 }
 
@@ -79,6 +80,14 @@ func RunNativeSession(opts NativeRunOptions, stdin io.Reader, stdout io.Writer) 
 		Manifest:   manifest,
 		Config:     sessionCfg,
 		SpawnFunc:  opts.SpawnFunc,
+	}
+	if opts.Trace || os.Getenv("TOC_TRACE") != "" {
+		tw, err := newTraceWriter(MetadataDir(opts.Workspace, opts.SessionID))
+		if err != nil {
+			return fmt.Errorf("failed to open trace file: %w", err)
+		}
+		defer tw.Close()
+		toolCtx.Trace = tw
 	}
 	toolSpecs := nativeToolSet(nil)
 	if sessionCfg != nil {
@@ -578,6 +587,7 @@ func runNativeLoop(client *openRouterClient, state *State, toolSpecs []NativeToo
 		if err != nil {
 			return err
 		}
+		toolCtx.Trace.WriteTurn(i, req, resp)
 		accumulateUsage(state, resp)
 
 		msg := resp.Choices[0].Message

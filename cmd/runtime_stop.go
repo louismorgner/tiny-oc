@@ -15,12 +15,13 @@ import (
 )
 
 func init() {
-	runtimeCmd.AddCommand(runtimeCancelCmd)
+	runtimeCmd.AddCommand(runtimeStopCmd)
 }
 
-var runtimeCancelCmd = &cobra.Command{
-	Use:   "cancel <session-id>",
-	Short: "Cancel a running sub-agent session",
+var runtimeStopCmd = &cobra.Command{
+	Use:   "stop <session-id>",
+	Short: "Stop a running sub-agent session",
+	Long:  "Stop a sub-agent session by sending SIGTERM, escalating to SIGKILL if needed. Unlike 'cancel', this handles zombie sessions and ensures the process is dead.",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx, err := runtime.FromEnv()
@@ -30,7 +31,7 @@ var runtimeCancelCmd = &cobra.Command{
 
 		sessionID := args[0]
 
-		s, err := session.FindByIDInWorkspace(ctx.Workspace, sessionID)
+		s, err := session.FindByIDPrefixInWorkspace(ctx.Workspace, sessionID)
 		if err != nil {
 			return err
 		}
@@ -41,15 +42,32 @@ var runtimeCancelCmd = &cobra.Command{
 
 		status := s.ResolvedStatus()
 		switch status {
-		case session.StatusActive:
-			// OK to cancel
+		case session.StatusActive, session.StatusZombie:
+			// OK to stop
+		case session.StatusCancelled:
+			ui.Warn("Session %s is already cancelled", s.ID[:8])
+			return nil
+		case session.StatusCompletedOK, session.StatusCompletedError, "completed":
+			ui.Warn("Session %s has already completed", s.ID[:8])
+			return nil
 		default:
-			return fmt.Errorf("cannot cancel session in '%s' state (only active sessions can be cancelled)", status)
+			return fmt.Errorf("session is in '%s' state", status)
 		}
 
 		pid, err := s.ReadPID()
 		if err != nil {
-			return fmt.Errorf("cannot read PID for session '%s': %w (session may predate PID tracking)", sessionID, err)
+			// No PID — just clean up status.
+			if err := session.UpdateStatusInWorkspace(ctx.Workspace, s.ID, session.StatusCancelled); err != nil {
+				return fmt.Errorf("failed to update session status: %w", err)
+			}
+			_ = audit.LogFromWorkspace(ctx.Workspace, "runtime.stop", map[string]interface{}{
+				"parent_session": ctx.SessionID,
+				"session_id":     s.ID,
+				"agent":          s.Agent,
+				"reason":         "no_pid_file",
+			})
+			ui.Success("Marked sub-agent %s as stopped (no PID file)", ui.Bold(s.Agent))
+			return nil
 		}
 
 		result, err := session.TerminateProcess(pid)
@@ -57,20 +75,20 @@ var runtimeCancelCmd = &cobra.Command{
 			return err
 		}
 
-		// Write cancellation marker so ResolvedStatus returns "cancelled".
-		// Only write if the session hasn't already completed (race: process may
-		// have finished between our status check and the kill signal).
+		// Persist state updates.
 		var persistErrors []error
+
 		outputPath := filepath.Join(s.WorkspacePath, "toc-output.txt")
 		if _, err := os.Stat(outputPath); os.IsNotExist(err) {
 			markerPath := filepath.Join(s.WorkspacePath, "toc-cancelled.txt")
-			if err := os.WriteFile(markerPath, []byte(fmt.Sprintf("cancelled by parent session %s\n", ctx.SessionID)), 0644); err != nil {
+			if err := os.WriteFile(markerPath, []byte(fmt.Sprintf("stopped by parent session %s\n", ctx.SessionID)), 0644); err != nil {
 				persistErrors = append(persistErrors, fmt.Errorf("write cancellation marker: %w", err))
 			}
 		}
 		if err := session.UpdateStatusInWorkspace(ctx.Workspace, s.ID, session.StatusCancelled); err != nil {
 			persistErrors = append(persistErrors, fmt.Errorf("update session status: %w", err))
 		}
+
 		state, err := runtime.LoadState(s)
 		if err != nil && !os.IsNotExist(err) {
 			ui.Warn("Failed to load runtime state: %s", err)
@@ -88,33 +106,42 @@ var runtimeCancelCmd = &cobra.Command{
 		}
 		if err == nil && state != nil {
 			state.Status = session.StatusCancelled
-			state.LastError = fmt.Sprintf("session cancelled by parent session %s", ctx.SessionID)
+			state.LastError = fmt.Sprintf("session stopped by parent session %s", ctx.SessionID)
 			if err := runtime.SaveState(s, state); err != nil {
 				persistErrors = append(persistErrors, fmt.Errorf("save state: %w", err))
 			}
 		}
+
 		if err := runtime.AppendEvent(s, runtime.Event{
 			Timestamp: time.Now().UTC(),
 			Step: runtime.Step{
 				Type:    "error",
-				Content: fmt.Sprintf("session cancelled by parent session %s", ctx.SessionID),
+				Content: fmt.Sprintf("session stopped by parent session %s", ctx.SessionID),
 			},
 		}); err != nil {
 			persistErrors = append(persistErrors, fmt.Errorf("append event: %w", err))
 		}
 
-		_ = audit.LogFromWorkspace(ctx.Workspace, "runtime.cancel", map[string]interface{}{
+		_ = audit.LogFromWorkspace(ctx.Workspace, "runtime.stop", map[string]interface{}{
 			"parent_session": ctx.SessionID,
-			"session_id":     sessionID,
+			"session_id":     s.ID,
 			"agent":          s.Agent,
 			"pid":            pid,
 			"already_dead":   result.AlreadyDead,
 			"escalated":      result.Escalated,
 		})
 
-		ui.Success("Cancelled sub-agent %s (session %s)", ui.Bold(s.Agent), ui.Dim(sessionID[:8]))
+		switch {
+		case result.AlreadyDead:
+			ui.Success("Cleaned up sub-agent %s (%s) — process was already dead", ui.Bold(s.Agent), ui.Dim(s.ID[:8]))
+		case result.Escalated:
+			ui.Success("Force-killed sub-agent %s (%s)", ui.Bold(s.Agent), ui.Dim(s.ID[:8]))
+		default:
+			ui.Success("Stopped sub-agent %s (%s)", ui.Bold(s.Agent), ui.Dim(s.ID[:8]))
+		}
+
 		if len(persistErrors) > 0 {
-			return fmt.Errorf("session cancelled but state persistence had errors: %w", errors.Join(persistErrors...))
+			return fmt.Errorf("session stopped but state persistence had errors: %w", errors.Join(persistErrors...))
 		}
 		return nil
 	},

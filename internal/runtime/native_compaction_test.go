@@ -172,7 +172,9 @@ func TestBudgetFail_EmergencyCompaction(t *testing.T) {
 	}
 
 	// Tiny context window to force BudgetFail immediately.
-	// Budget = 2048 - 512 - 256 = 1280 tokens. Fail threshold = 98% = 1254 tokens ≈ 5016 bytes.
+	// Budget = 2048 - 512 - 256 = 1280 tokens. Fail threshold = 98% = 1254 tokens.
+	// With cl100k_base, repeated chars ≈ 8 bytes/token, so 3 × 8000 bytes ≈ 3000 tokens
+	// + overhead, well above 1254.
 	profile := runtimeinfo.NativeModelProfile{
 		ContextWindow:   2048,
 		MaxOutputTokens: 512,
@@ -184,9 +186,9 @@ func TestBudgetFail_EmergencyCompaction(t *testing.T) {
 		SessionID: sess.ID,
 		Messages: []Message{
 			{Role: "system", Content: "system prompt"},
-			{Role: "user", Content: strings.Repeat("a", 3000)},
-			{Role: "assistant", Content: strings.Repeat("b", 3000)},
-			{Role: "tool", Name: "Edit", Content: strings.Repeat("c", 3000)}, // prune-protected
+			{Role: "user", Content: strings.Repeat("a", 8000)},
+			{Role: "assistant", Content: strings.Repeat("b", 8000)},
+			{Role: "tool", Name: "Edit", Content: strings.Repeat("c", 8000)}, // prune-protected
 			{Role: "user", Content: "keep"},
 			{Role: "assistant", Content: "recent"},
 		},
@@ -565,9 +567,10 @@ func TestManageContextWithBudget_PrunesBeforeCompaction(t *testing.T) {
 	}
 
 	// Create a state with large tool outputs that should trigger pruning
-	// at 75% of budget. GPT-4o budget = 128000 - 16384 - 4096 = 107520 tokens
-	// 75% = 80640 tokens ≈ 322560 bytes
-	largeContent := strings.Repeat("x", 80*1024) // ~80KB = ~20K tokens each
+	// at 75% of budget. Budget = 128000 - 16384 - 4096 = 107520 tokens
+	// 75% = 80640 tokens. With cl100k_base, repeated "x" ≈ 8 bytes/token,
+	// so 200KB ≈ 25600 tokens × 4 messages ≈ 102400 tokens > 80640.
+	largeContent := strings.Repeat("x", 200*1024) // ~200KB ≈ 25600 tokens each
 	state := &State{
 		Runtime:   runtimeinfo.NativeRuntime,
 		SessionID: sess.ID,
@@ -612,14 +615,17 @@ func TestManageContextWithBudget_CompactsWhenNeeded(t *testing.T) {
 		MetadataDir: t.TempDir(),
 	}
 
-	// Use a small context window to force compaction.
-	// Budget = 4096 - 1024 - 512 = 2560 tokens
-	// Compact threshold = 90% of 2560 = 2304 tokens ≈ 9216 bytes
-	// We need messages totaling > 9216 bytes to trigger compaction.
-	// After pruning, the tool output will shrink but total should still exceed threshold.
+	// Use a context window where the messages exceed the compact threshold
+	// (90% of input budget) but the compacted result fits within the budget.
+	// Budget = 32768 - 2048 - 512 = 30208 tokens
+	// Compact threshold = 90% of 30208 = 27187 tokens
+	// With cl100k_base, repeated single chars ≈ 8 bytes/token,
+	// so 4 × 60000 bytes ≈ 4 × 7500 = 30000 tokens + overhead > 27187.
+	// After compaction, old messages collapse to a small continuation artifact,
+	// system prompt is tiny, and only 2 recent messages remain — fits easily.
 	profile := runtimeinfo.NativeModelProfile{
-		ContextWindow:   4096,
-		MaxOutputTokens: 1024,
+		ContextWindow:   32768,
+		MaxOutputTokens: 2048,
 		ReservedBuffer:  512,
 	}
 
@@ -627,10 +633,11 @@ func TestManageContextWithBudget_CompactsWhenNeeded(t *testing.T) {
 		Runtime:   runtimeinfo.NativeRuntime,
 		SessionID: sess.ID,
 		Messages: []Message{
-			{Role: "system", Content: strings.Repeat("s", 4000)},
-			{Role: "user", Content: strings.Repeat("a", 4000)},
-			{Role: "assistant", Content: strings.Repeat("b", 4000)},
-			{Role: "tool", Name: "Edit", Content: strings.Repeat("c", 4000)}, // Edit is prune-protected
+			{Role: "system", Content: "system prompt"},
+			{Role: "user", Content: strings.Repeat("a", 60000)},
+			{Role: "assistant", Content: strings.Repeat("b", 60000)},
+			{Role: "tool", Name: "Edit", Content: strings.Repeat("c", 60000)}, // Edit is prune-protected
+			{Role: "user", Content: strings.Repeat("d", 60000)},
 			{Role: "user", Content: "keep"},
 			{Role: "assistant", Content: "recent"},
 		},

@@ -6,14 +6,16 @@ import (
 )
 
 func TestEstimateTokens(t *testing.T) {
+	// Pinned values from cl100k_base tokenizer.
 	tests := []struct {
 		input string
 		want  int
 	}{
 		{"", 0},
-		{"hi", 1},              // 2 bytes / 4 = 0.5, rounds up to 1
-		{"hello world", 3},     // 11 bytes / 4 = 2.75, rounds up to 3
-		{strings.Repeat("a", 100), 25}, // 100 / 4 = 25
+		{"hi", 1},
+		{"hello world", 2},
+		{strings.Repeat("a", 100), 13},
+		{`func main() { fmt.Println("hello") }`, 10},
 	}
 	for _, tt := range tests {
 		got := estimateTokens(tt.input)
@@ -25,13 +27,13 @@ func TestEstimateTokens(t *testing.T) {
 
 func TestEstimateMessagesTokens(t *testing.T) {
 	msgs := []Message{
-		{Role: "system", Content: strings.Repeat("x", 400)}, // 100 tokens + 4 overhead
-		{Role: "user", Content: "hello"},                     // ~1 token + 4
+		{Role: "system", Content: strings.Repeat("x", 400)}, // 50 tokens + 4 overhead
+		{Role: "user", Content: "hello"},                     // 1 token + 4 overhead
 	}
 	got := estimateMessagesTokens(msgs)
-	// 100 + 4 + 2 + 4 = 110 (approximately)
-	if got < 100 || got > 120 {
-		t.Errorf("estimateMessagesTokens = %d, expected ~110", got)
+	// 50 + 4 + 1 + 4 = 59
+	if got < 55 || got > 65 {
+		t.Errorf("estimateMessagesTokens = %d, expected ~59", got)
 	}
 }
 

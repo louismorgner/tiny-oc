@@ -193,6 +193,60 @@ func TestNativeBashRejectsEmptyCommand(t *testing.T) {
 	}
 }
 
+func TestNativeTodoWriteUpdatesState(t *testing.T) {
+	dir := t.TempDir()
+	state := &State{}
+
+	result := nativeTodoWrite(nativeToolContext{
+		SessionDir: dir,
+		Agent:      "tester",
+		State:      state,
+	}, toolCall(t, "TodoWrite", map[string]interface{}{
+		"todos": []map[string]interface{}{
+			{"content": "Implement TodoWrite", "status": "in_progress", "priority": "high"},
+			{"content": "Add tests", "status": "pending", "priority": "medium"},
+		},
+	}))
+
+	if result.Step.Success == nil || !*result.Step.Success {
+		t.Fatalf("expected TodoWrite success, got %#v", result)
+	}
+	if len(state.Todos) != 2 {
+		t.Fatalf("len(state.Todos) = %d, want 2", len(state.Todos))
+	}
+	if state.Todos[0].Content != "Implement TodoWrite" || state.Todos[1].Status != "pending" {
+		t.Fatalf("unexpected todos in state: %#v", state.Todos)
+	}
+	if !strings.Contains(result.Message, "Updated 2 todos") {
+		t.Fatalf("unexpected summary message: %q", result.Message)
+	}
+}
+
+func TestNativeTodoWriteRejectsInvalidStatus(t *testing.T) {
+	dir := t.TempDir()
+	state := &State{}
+
+	result := nativeTodoWrite(nativeToolContext{
+		SessionDir: dir,
+		Agent:      "tester",
+		State:      state,
+	}, toolCall(t, "TodoWrite", map[string]interface{}{
+		"todos": []map[string]interface{}{
+			{"content": "Bad todo", "status": "doing", "priority": "high"},
+		},
+	}))
+
+	if result.Step.Success == nil || *result.Step.Success {
+		t.Fatalf("expected TodoWrite failure, got %#v", result)
+	}
+	if !strings.Contains(result.Message, `invalid status "doing"`) {
+		t.Fatalf("unexpected error message: %q", result.Message)
+	}
+	if len(state.Todos) != 0 {
+		t.Fatalf("state should be unchanged on failure, got %#v", state.Todos)
+	}
+}
+
 func toolCall(t *testing.T, name string, args map[string]interface{}) ToolCall {
 	t.Helper()
 	data, err := json.Marshal(args)

@@ -254,6 +254,22 @@ func TestBuildDetachedScript_AtomicRename(t *testing.T) {
 	}
 }
 
+func TestRestrictNativeSubAgentTools(t *testing.T) {
+	cfg := &runtime.SessionConfig{
+		Runtime: runtimeinfo.NativeRuntime,
+		RuntimeConfig: runtime.SessionRuntimeOptions{
+			EnabledTools: []string{"Read", "TodoWrite", "Bash", "SubAgent"},
+		},
+	}
+
+	restrictNativeSubAgentTools(cfg)
+
+	got := strings.Join(cfg.RuntimeConfig.EnabledTools, ",")
+	if got != "Read,Bash" {
+		t.Fatalf("EnabledTools = %q, want %q", got, "Read,Bash")
+	}
+}
+
 func TestLoadOrResolveSessionConfig_PrefersPersistedConfig(t *testing.T) {
 	workspace := t.TempDir()
 	sessionID := "sess-persisted"

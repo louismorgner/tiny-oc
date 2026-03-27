@@ -79,6 +79,7 @@ The native beta supports local tools only:
 - Glob and grep
 - Shell execution
 - Skill reads
+- Todo tracking with `TodoWrite`
 - Sub-agent management
 
 External integrations (`toc runtime invoke`) are not yet part of the native tool loop.
@@ -91,6 +92,27 @@ External integrations (`toc runtime invoke`) are not yet part of the native tool
 4. **State**: persists full message history, token usage, and turn checkpoints to `.toc/sessions/<id>/state.json` for resume
 5. **Events**: writes directly to `.toc/sessions/<id>/events.jsonl` in toc's normalized format
 6. **Skills**: placed in `.toc-native/skills/`
+
+### TodoWrite
+
+The native runtime includes a `TodoWrite` tool for session-scoped task tracking.
+
+- `TodoWrite` replaces the full todo list on each call. It is not incremental.
+- Todos are persisted in `.toc/sessions/<id>/state.json` alongside the rest of the native session state.
+- The current todo list is injected back into model context on each turn, so it stays available even as the conversation grows.
+- `TodoWrite` is intended for the primary agent. Spawned native sub-agents do not receive the tool.
+
+The todo item schema is:
+
+```json
+{
+  "content": "Brief description of the task",
+  "status": "pending | in_progress | completed | cancelled",
+  "priority": "high | medium | low"
+}
+```
+
+For multi-step work, the model is expected to keep the list short, keep at most one item `in_progress` when possible, and rewrite the full list whenever the plan changes.
 
 ### Models
 

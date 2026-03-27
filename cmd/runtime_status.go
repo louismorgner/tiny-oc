@@ -43,24 +43,25 @@ var runtimeStatusCmd = &cobra.Command{
 }
 
 type statusJSON struct {
-	ID           string `json:"id"`
-	Name         string `json:"name,omitempty"`
-	Agent        string `json:"agent"`
-	Status       string `json:"status"`
-	Prompt       string `json:"prompt,omitempty"`
-	ExitCode     *int   `json:"exit_code,omitempty"`
-	Model        string `json:"model,omitempty"`
-	Runtime      string `json:"runtime,omitempty"`
-	RuntimeState string `json:"runtime_state,omitempty"`
-	ResumeCount  int    `json:"resume_count,omitempty"`
-	Recoveries   int    `json:"recovery_count,omitempty"`
-	Compactions  int    `json:"compactions,omitempty"`
-	LastError    string `json:"last_error,omitempty"`
-	LastRecovery string `json:"last_recovery,omitempty"`
-	TokenTotal        int64  `json:"token_total,omitempty"`
-	InputTokens       int64  `json:"input_tokens,omitempty"`
-	OutputTokens      int64  `json:"output_tokens,omitempty"`
-	LastRequestInput  int64  `json:"last_request_input,omitempty"`
+	ID               string             `json:"id"`
+	Name             string             `json:"name,omitempty"`
+	Agent            string             `json:"agent"`
+	Status           string             `json:"status"`
+	Prompt           string             `json:"prompt,omitempty"`
+	ExitCode         *int               `json:"exit_code,omitempty"`
+	Model            string             `json:"model,omitempty"`
+	Runtime          string             `json:"runtime,omitempty"`
+	RuntimeState     string             `json:"runtime_state,omitempty"`
+	ResumeCount      int                `json:"resume_count,omitempty"`
+	Recoveries       int                `json:"recovery_count,omitempty"`
+	Compactions      int                `json:"compactions,omitempty"`
+	LastError        string             `json:"last_error,omitempty"`
+	LastRecovery     string             `json:"last_recovery,omitempty"`
+	Todos            []runtime.TodoItem `json:"todos,omitempty"`
+	TokenTotal       int64              `json:"token_total,omitempty"`
+	InputTokens      int64              `json:"input_tokens,omitempty"`
+	OutputTokens     int64              `json:"output_tokens,omitempty"`
+	LastRequestInput int64              `json:"last_request_input,omitempty"`
 }
 
 func statusJSONForSession(s *session.Session) statusJSON {
@@ -83,6 +84,7 @@ func statusJSONForSession(s *session.Session) statusJSON {
 		sj.Compactions = summary.CompactionCount
 		sj.LastError = summary.LastError
 		sj.LastRecovery = summary.LastRecovery
+		sj.Todos = append([]runtime.TodoItem(nil), summary.Todos...)
 		sj.TokenTotal = summary.Tokens.Total()
 		sj.InputTokens = summary.Tokens.InputTokens
 		sj.OutputTokens = summary.Tokens.OutputTokens
@@ -196,6 +198,12 @@ func showSubAgentStatus(ctx *runtime.Context, sessionID string) error {
 		}
 		if summary.LastRecovery != "" {
 			fmt.Printf("  %s %s\n", ui.Bold("Last recovery:"), ui.Dim(summary.LastRecovery))
+		}
+		if todoLines := formatTodoLines(summary.Todos); len(todoLines) > 0 {
+			fmt.Printf("  %s\n", ui.Bold("Todos:"))
+			for _, line := range todoLines {
+				fmt.Printf("    %s %s\n", ui.Dim("•"), ui.Dim(line))
+			}
 		}
 	}
 	if s.Prompt != "" {

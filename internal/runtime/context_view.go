@@ -11,15 +11,15 @@ import (
 // the old freeform bullet-point summary. It captures actionable state so
 // the model can resume effectively after context is compacted.
 type ContinuationArtifact struct {
-	Goal          string   `json:"goal"`
-	Constraints   []string `json:"constraints,omitempty"`
-	Decisions     []string `json:"decisions,omitempty"`
-	Discoveries   []string `json:"discoveries,omitempty"`
-	WorkingFiles  []string `json:"working_files,omitempty"`
-	CompletedWork []string `json:"completed_work,omitempty"`
-	RemainingWork []string `json:"remaining_work,omitempty"`
-	OpenLoops     []string `json:"open_loops,omitempty"`
-	NextSteps     []string `json:"next_steps,omitempty"`
+	Goal          string    `json:"goal"`
+	Constraints   []string  `json:"constraints,omitempty"`
+	Decisions     []string  `json:"decisions,omitempty"`
+	Discoveries   []string  `json:"discoveries,omitempty"`
+	WorkingFiles  []string  `json:"working_files,omitempty"`
+	CompletedWork []string  `json:"completed_work,omitempty"`
+	RemainingWork []string  `json:"remaining_work,omitempty"`
+	OpenLoops     []string  `json:"open_loops,omitempty"`
+	NextSteps     []string  `json:"next_steps,omitempty"`
 	GeneratedAt   time.Time `json:"generated_at,omitempty"`
 }
 
@@ -103,23 +103,37 @@ func (ws *WorkingSet) Summary() string {
 	return strings.Join(parts, "\n")
 }
 
+func todoSummary(todos []TodoItem) string {
+	if len(todos) == 0 {
+		return ""
+	}
+
+	var b strings.Builder
+	b.WriteString("[toc-todos]\n")
+	b.WriteString("Current session todo list. TodoWrite replaces this list on each call.\n")
+	for _, todo := range todos {
+		b.WriteString(fmt.Sprintf("- %s [%s] %s\n", todo.Status, todo.Priority, todo.Content))
+	}
+	return strings.TrimSpace(b.String())
+}
+
 // ContextDiagnostics captures per-request context usage information for
 // debugging and observability.
 type ContextDiagnostics struct {
-	EstimatedInputTokens int                `json:"estimated_input_tokens"`
-	InputBudget          int                `json:"input_budget"`
-	BudgetDecision       BudgetDecision     `json:"budget_decision"`
+	EstimatedInputTokens int                  `json:"estimated_input_tokens"`
+	InputBudget          int                  `json:"input_budget"`
+	BudgetDecision       BudgetDecision       `json:"budget_decision"`
 	TopContributors      []ContextContributor `json:"top_contributors,omitempty"`
-	MessageCount         int                `json:"message_count"`
-	PrunedCount          int                `json:"pruned_count,omitempty"`
-	CompactionReason     string             `json:"compaction_reason,omitempty"`
-	ContinuationAge      string             `json:"continuation_age,omitempty"`
+	MessageCount         int                  `json:"message_count"`
+	PrunedCount          int                  `json:"pruned_count,omitempty"`
+	CompactionReason     string               `json:"compaction_reason,omitempty"`
+	ContinuationAge      string               `json:"continuation_age,omitempty"`
 }
 
 // ContextContributor identifies a message or category consuming context.
 type ContextContributor struct {
-	Label          string `json:"label"`
-	EstimatedTokens int   `json:"estimated_tokens"`
+	Label           string `json:"label"`
+	EstimatedTokens int    `json:"estimated_tokens"`
 }
 
 // BuildContextDiagnostics computes diagnostics for the current message state.
@@ -191,6 +205,12 @@ func BuildContextView(state *State) []Message {
 		// awareness of which files it has touched without consuming
 		// much budget.
 		if i == 0 && (msg.Role == "system" || isContinuationArtifact(msg) || isCompactionSummary(msg)) {
+			if todos := todoSummary(state.Todos); todos != "" {
+				view = append(view, Message{
+					Role:    "user",
+					Content: todos,
+				})
+			}
 			if wsSummary := state.WorkingSet.Summary(); wsSummary != "" {
 				view = append(view, Message{
 					Role:    "user",

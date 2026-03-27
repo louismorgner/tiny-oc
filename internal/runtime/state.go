@@ -32,6 +32,12 @@ type ToolCallFunction struct {
 	Arguments string `json:"arguments,omitempty"`
 }
 
+type TodoItem struct {
+	Content  string `json:"content"`
+	Status   string `json:"status"`
+	Priority string `json:"priority"`
+}
+
 func (m *Message) UnmarshalJSON(data []byte) error {
 	var raw struct {
 		Role       string          `json:"role"`
@@ -59,18 +65,18 @@ func (m *Message) UnmarshalJSON(data []byte) error {
 
 // State is the persisted runtime session state used for resume.
 type State struct {
-	Version           int                `json:"version"`
-	Runtime           string             `json:"runtime"`
-	SessionID         string             `json:"session_id"`
-	Agent             string             `json:"agent"`
-	Model             string             `json:"model,omitempty"`
-	Workspace         string             `json:"workspace,omitempty"`
-	SessionDir        string             `json:"session_dir,omitempty"`
-	Mode              string             `json:"mode,omitempty"`
-	Status            string             `json:"status,omitempty"`
-	Prompt            string             `json:"prompt,omitempty"`
-	ResumeCount       int                `json:"resume_count,omitempty"`
-	RecoveryCount     int                `json:"recovery_count,omitempty"`
+	Version           int                   `json:"version"`
+	Runtime           string                `json:"runtime"`
+	SessionID         string                `json:"session_id"`
+	Agent             string                `json:"agent"`
+	Model             string                `json:"model,omitempty"`
+	Workspace         string                `json:"workspace,omitempty"`
+	SessionDir        string                `json:"session_dir,omitempty"`
+	Mode              string                `json:"mode,omitempty"`
+	Status            string                `json:"status,omitempty"`
+	Prompt            string                `json:"prompt,omitempty"`
+	ResumeCount       int                   `json:"resume_count,omitempty"`
+	RecoveryCount     int                   `json:"recovery_count,omitempty"`
 	CompactionCount   int                   `json:"compaction_count,omitempty"`
 	CompactedMessages int                   `json:"compacted_messages,omitempty"`
 	LastError         string                `json:"last_error,omitempty"`
@@ -81,12 +87,13 @@ type State struct {
 	LastRequestUsage  LastRequestUsage      `json:"last_request_usage,omitempty"`
 	Messages          []Message             `json:"messages,omitempty"`
 	Transcript        []Message             `json:"transcript,omitempty"`
+	Todos             []TodoItem            `json:"todos,omitempty"`
 	Continuation      *ContinuationArtifact `json:"continuation,omitempty"`
 	WorkingSet        *WorkingSet           `json:"working_set,omitempty"`
 	PendingTurn       *TurnCheckpoint       `json:"pending_turn,omitempty"`
 	CrashInfo         *CrashInfo            `json:"crash_info,omitempty"`
-	CreatedAt         time.Time          `json:"created_at"`
-	UpdatedAt         time.Time          `json:"updated_at"`
+	CreatedAt         time.Time             `json:"created_at"`
+	UpdatedAt         time.Time             `json:"updated_at"`
 }
 
 type CrashInfo struct {

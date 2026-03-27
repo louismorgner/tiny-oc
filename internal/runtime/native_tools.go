@@ -25,6 +25,7 @@ type nativeToolContext struct {
 	Workspace  string
 	Agent      string
 	SessionID  string
+	State      *State
 	Manifest   *integration.PermissionManifest
 	Config     *SessionConfig
 	SpawnFunc  SubAgentSpawnFunc
@@ -368,6 +369,104 @@ func nativeSkill(ctx nativeToolContext, call ToolCall) toolExecution {
 		Skill:   name,
 		Success: boolPtr(true),
 	})
+}
+
+func nativeTodoWrite(ctx nativeToolContext, call ToolCall) toolExecution {
+	if ctx.State == nil {
+		return toolFailure("TodoWrite", "", "", fmt.Errorf("todo state is not available"))
+	}
+
+	var args struct {
+		Todos []TodoItem `json:"todos"`
+	}
+	if err := decodeToolArgs(call.Function.Arguments, &args); err != nil {
+		return toolFailure("TodoWrite", "", "", err)
+	}
+
+	normalized := make([]TodoItem, 0, len(args.Todos))
+	for i, todo := range args.Todos {
+		content := strings.TrimSpace(todo.Content)
+		if content == "" {
+			return toolFailure("TodoWrite", "", "", fmt.Errorf("todo %d content must not be empty", i+1))
+		}
+		status := strings.TrimSpace(todo.Status)
+		if !isValidTodoStatus(status) {
+			return toolFailure("TodoWrite", "", "", fmt.Errorf("todo %d has invalid status %q", i+1, todo.Status))
+		}
+		priority := strings.TrimSpace(todo.Priority)
+		if !isValidTodoPriority(priority) {
+			return toolFailure("TodoWrite", "", "", fmt.Errorf("todo %d has invalid priority %q", i+1, todo.Priority))
+		}
+		normalized = append(normalized, TodoItem{
+			Content:  content,
+			Status:   status,
+			Priority: priority,
+		})
+	}
+
+	if len(normalized) == 0 {
+		ctx.State.Todos = nil
+	} else {
+		ctx.State.Todos = normalized
+	}
+
+	message := summarizeTodos(normalized)
+	return toolSuccess("TodoWrite", "", message, Step{
+		Type:    "tool",
+		Tool:    "TodoWrite",
+		Content: message,
+		Success: boolPtr(true),
+	})
+}
+
+func isValidTodoStatus(status string) bool {
+	switch status {
+	case "pending", "in_progress", "completed", "cancelled":
+		return true
+	default:
+		return false
+	}
+}
+
+func isValidTodoPriority(priority string) bool {
+	switch priority {
+	case "high", "medium", "low":
+		return true
+	default:
+		return false
+	}
+}
+
+func summarizeTodos(todos []TodoItem) string {
+	if len(todos) == 0 {
+		return "Cleared todo list."
+	}
+
+	counts := map[string]int{
+		"pending":     0,
+		"in_progress": 0,
+		"completed":   0,
+		"cancelled":   0,
+	}
+	for _, todo := range todos {
+		counts[todo.Status]++
+	}
+
+	parts := []string{}
+	if counts["in_progress"] > 0 {
+		parts = append(parts, fmt.Sprintf("%d in progress", counts["in_progress"]))
+	}
+	if counts["pending"] > 0 {
+		parts = append(parts, fmt.Sprintf("%d pending", counts["pending"]))
+	}
+	if counts["completed"] > 0 {
+		parts = append(parts, fmt.Sprintf("%d completed", counts["completed"]))
+	}
+	if counts["cancelled"] > 0 {
+		parts = append(parts, fmt.Sprintf("%d cancelled", counts["cancelled"]))
+	}
+
+	return fmt.Sprintf("Updated %d todos: %s.", len(todos), strings.Join(parts, ", "))
 }
 
 func toolSuccess(toolName, path, message string, step Step) toolExecution {

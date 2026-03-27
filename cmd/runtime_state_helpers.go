@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"fmt"
 	"os"
 
 	"github.com/tiny-oc/toc/internal/runtime"
@@ -17,8 +18,9 @@ type runtimeStateSummary struct {
 	LastError          string
 	LastRecovery       string
 	CrashInfo          *runtime.CrashInfo
+	Todos              []runtime.TodoItem
 	Tokens             usage.TokenUsage
-	LastRequestContext  int64 // input tokens from last API call (context pressure indicator)
+	LastRequestContext int64 // input tokens from last API call (context pressure indicator)
 }
 
 func loadRuntimeStateSummary(s *session.Session) (*runtimeStateSummary, error) {
@@ -43,6 +45,7 @@ func loadRuntimeStateSummary(s *session.Session) (*runtimeStateSummary, error) {
 		LastError:       state.LastError,
 		LastRecovery:    state.LastRecovery,
 		CrashInfo:       state.CrashInfo,
+		Todos:           append([]runtime.TodoItem(nil), state.Todos...),
 		Tokens: usage.TokenUsage{
 			InputTokens:  state.Usage.InputTokens,
 			OutputTokens: state.Usage.OutputTokens,
@@ -51,4 +54,15 @@ func loadRuntimeStateSummary(s *session.Session) (*runtimeStateSummary, error) {
 		},
 		LastRequestContext: state.LastRequestUsage.InputTokens,
 	}, nil
+}
+
+func formatTodoLines(todos []runtime.TodoItem) []string {
+	if len(todos) == 0 {
+		return nil
+	}
+	lines := make([]string, 0, len(todos))
+	for _, todo := range todos {
+		lines = append(lines, fmt.Sprintf("[%s/%s] %s", todo.Status, todo.Priority, todo.Content))
+	}
+	return lines
 }

@@ -286,6 +286,11 @@ func describeTurnCheckpoint(turn *TurnCheckpoint) string {
 
 func ensureSystemPrompt(state *State) error {
 	if len(state.Messages) > 0 && state.Messages[0].Role == "system" {
+		// Ensure the system prompt has cache_control set — it's the most
+		// stable content across turns and benefits most from caching.
+		if state.Messages[0].CacheControl == nil {
+			state.Messages[0].CacheControl = &cacheControl{Type: "ephemeral"}
+		}
 		return nil
 	}
 	promptPath := filepath.Join(state.SessionDir, ".toc-native", "system-prompt.md")
@@ -300,7 +305,11 @@ func ensureSystemPrompt(state *State) error {
 	if content == "" {
 		return nil
 	}
-	state.Messages = append([]Message{{Role: "system", Content: content}}, state.Messages...)
+	state.Messages = append([]Message{{
+		Role:         "system",
+		Content:      content,
+		CacheControl: &cacheControl{Type: "ephemeral"},
+	}}, state.Messages...)
 	return nil
 }
 
@@ -409,6 +418,14 @@ func runNativeLoop(client *openRouterClient, state *State, toolSpecs []NativeToo
 		if profile.SupportsTools {
 			tools = nativeToolDefinitions(toolSpecs)
 		}
+
+		// Place a second cache breakpoint on the last tool result before
+		// the API call. Combined with the system prompt breakpoint, this
+		// creates two cache anchors: one at the top (stable system prompt)
+		// and one near the bottom (all accumulated context). On subsequent
+		// turns, the prefix up to this point can be served from cache.
+		applyCacheBreakpoint(state.Messages)
+
 		state.PendingTurn = &TurnCheckpoint{
 			Phase:     "awaiting_model",
 			Prompt:    latestUserPrompt(state.Messages),
@@ -710,6 +727,26 @@ func (e *textStreamEmitter) emitSegment(segment string) error {
 			Content: segment,
 		},
 	})
+}
+
+// applyCacheBreakpoint sets cache_control on the second-to-last message
+// (the last message before the current turn's tool results or user prompt).
+// This creates a cache boundary so that on the next API call, everything
+// up to this point can potentially be served from the provider's cache.
+//
+// We clear any previous non-system cache breakpoints first to avoid
+// accumulating stale breakpoints that would fragment the cache.
+func applyCacheBreakpoint(messages []Message) {
+	if len(messages) < 2 {
+		return
+	}
+	// Clear old breakpoints (except system prompt at [0]).
+	for i := 1; i < len(messages); i++ {
+		messages[i].CacheControl = nil
+	}
+	// Set breakpoint on the last message before the upcoming API call.
+	// This is typically a tool result or the last assistant message.
+	messages[len(messages)-1].CacheControl = &cacheControl{Type: "ephemeral"}
 }
 
 func latestUserPrompt(messages []Message) string {

@@ -9,15 +9,16 @@ import (
 )
 
 type runtimeStateSummary struct {
-	Model           string
-	Status          string
-	ResumeCount     int
-	RecoveryCount   int
-	CompactionCount int
-	LastError       string
-	LastRecovery    string
-	CrashInfo       *runtime.CrashInfo
-	Tokens          usage.TokenUsage
+	Model              string
+	Status             string
+	ResumeCount        int
+	RecoveryCount      int
+	CompactionCount    int
+	LastError          string
+	LastRecovery       string
+	CrashInfo          *runtime.CrashInfo
+	Tokens             usage.TokenUsage
+	LastRequestContext  int64 // input tokens from last API call (context pressure indicator)
 }
 
 func loadRuntimeStateSummary(s *session.Session) (*runtimeStateSummary, error) {
@@ -48,5 +49,6 @@ func loadRuntimeStateSummary(s *session.Session) (*runtimeStateSummary, error) {
 			CacheRead:    state.Usage.CacheRead,
 			CacheCreate:  state.Usage.CacheCreate,
 		},
+		LastRequestContext: state.LastRequestUsage.InputTokens,
 	}, nil
 }

@@ -57,9 +57,10 @@ type statusJSON struct {
 	Compactions  int    `json:"compactions,omitempty"`
 	LastError    string `json:"last_error,omitempty"`
 	LastRecovery string `json:"last_recovery,omitempty"`
-	TokenTotal   int64  `json:"token_total,omitempty"`
-	InputTokens  int64  `json:"input_tokens,omitempty"`
-	OutputTokens int64  `json:"output_tokens,omitempty"`
+	TokenTotal        int64  `json:"token_total,omitempty"`
+	InputTokens       int64  `json:"input_tokens,omitempty"`
+	OutputTokens      int64  `json:"output_tokens,omitempty"`
+	LastRequestInput  int64  `json:"last_request_input,omitempty"`
 }
 
 func statusJSONForSession(s *session.Session) statusJSON {
@@ -85,6 +86,7 @@ func statusJSONForSession(s *session.Session) statusJSON {
 		sj.TokenTotal = summary.Tokens.Total()
 		sj.InputTokens = summary.Tokens.InputTokens
 		sj.OutputTokens = summary.Tokens.OutputTokens
+		sj.LastRequestInput = summary.LastRequestContext
 	}
 	return sj
 }
@@ -185,6 +187,9 @@ func showSubAgentStatus(ctx *runtime.Context, sessionID string) error {
 			fmt.Printf("  %s %s\n", ui.Bold("Tokens:"), ui.Dim(breakdown))
 		} else if total := summary.Tokens.FormatTotal(); total != "" {
 			fmt.Printf("  %s %s\n", ui.Bold("Tokens:"), ui.Dim(total))
+		}
+		if summary.LastRequestContext > 0 {
+			fmt.Printf("  %s %s\n", ui.Bold("Last request context:"), ui.Dim(fmt.Sprintf("%d input tokens", summary.LastRequestContext)))
 		}
 		if summary.LastError != "" {
 			fmt.Printf("  %s %s\n", ui.Bold("Last error:"), ui.Dim(summary.LastError))

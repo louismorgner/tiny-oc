@@ -39,6 +39,20 @@ var nativeModelProfiles = []NativeModelProfile{
 		SupportsTools:     true,
 		SupportsStreaming: true,
 	},
+	{
+		ID:                "openai/gpt-5.4",
+		Label:             "GPT-5.4",
+		Description:       "latest OpenAI flagship model with 1M+ context",
+		SupportsTools:     true,
+		SupportsStreaming: true,
+	},
+	{
+		ID:                "openai/gpt-5.3-codex",
+		Label:             "GPT-5.3 Codex",
+		Description:       "OpenAI code-specialized model with 400k context",
+		SupportsTools:     true,
+		SupportsStreaming: true,
+	},
 }
 
 func NativeProfiles() []NativeModelProfile {

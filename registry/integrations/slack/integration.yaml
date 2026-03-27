@@ -16,12 +16,42 @@ auth:
     - reactions:write
     - search:read
   setup_instructions: |
+    === WHY USER TOKENS ===
+    This integration uses Slack USER tokens (xoxp), not bot tokens (xoxb).
+    Messages are posted as you (your name, your avatar, no APP badge).
+    You get access to search — bots cannot use search.messages.
+
+    === CREATE YOUR SLACK APP ===
     1. Go to https://api.slack.com/apps and sign in
-    2. Click "Create New App" → "From scratch" (or select an existing app)
-    3. Go to "OAuth & Permissions" in the sidebar
-    4. Under "Redirect URLs", add: https://toc-auth-callback.dev-f64.workers.dev/slack/callback
-    5. Note your Client ID and Client Secret from "Basic Information"
-    6. Run `toc integrate add slack` and paste them when prompted
+    2. Click "Create New App" → choose "From scratch"
+    3. Enter any app name (e.g. "toc") and select your workspace
+    4. Click "Create App"
+
+    === ADD THE REDIRECT URL ===
+    5. In the left sidebar, click "OAuth & Permissions"
+    6. Scroll to "Redirect URLs" and click "Add New Redirect URL"
+    7. Paste exactly: https://toc-auth-callback.dev-f64.workers.dev/slack/callback
+    8. Click "Add" then "Save URLs"
+
+    === ADD USER TOKEN SCOPES ===
+    9. On the same page, scroll down to "User Token Scopes" (NOT "Bot Token Scopes")
+    10. Click "Add an OAuth Scope" and add each of these:
+        - channels:read       → list public channels
+        - groups:read         → list private channels
+        - im:read             → list direct messages
+        - mpim:read           → list group DMs
+        - channels:history    → read public channel messages
+        - groups:history      → read private channel messages
+        - im:history          → read DM messages
+        - mpim:history        → read group DM messages
+        - chat:write          → send messages as you
+        - reactions:write     → add emoji reactions
+        - search:read         → search messages across your workspace
+
+    === GET YOUR CREDENTIALS ===
+    11. In the left sidebar, click "Basic Information"
+    12. Scroll to "App Credentials" — copy the Client ID and Client Secret
+    13. Come back here and paste them when prompted
 
 capabilities:
   post:

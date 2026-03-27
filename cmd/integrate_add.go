@@ -246,49 +246,64 @@ func runOAuth2Flow(name string, def *integration.Definition, manual bool, flagCl
 }
 
 // showSetupWizard displays the integration's setup instructions as a numbered
-// wizard with pauses between steps so the user can complete each one.
+// wizard with pauses between sections so the user can complete each one.
 func showSetupWizard(def *integration.Definition) {
 	ui.Header("Setup wizard")
 
-	lines := strings.Split(strings.TrimSpace(def.Auth.SetupInstructions), "\n")
-
-	// Show required scopes up front
-	scopes := def.Auth.UserScopes
-	if len(scopes) == 0 {
-		scopes = def.Auth.RequiredScopes
-	}
-	if len(scopes) > 0 {
-		ui.Info("Required scopes: %s", ui.Bold(strings.Join(scopes, ", ")))
-		fmt.Println()
+	// Parse instructions into sections delimited by === HEADING === lines.
+	// Each section is displayed together, with a pause between sections.
+	type section struct {
+		heading string
+		lines   []string
 	}
 
-	// Filter out blank lines so the "last step" check is accurate.
-	var steps []string
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-		if line != "" {
-			steps = append(steps, line)
+	raw := strings.Split(strings.TrimSpace(def.Auth.SetupInstructions), "\n")
+	var sections []section
+	cur := section{}
+
+	for _, line := range raw {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "===") && strings.HasSuffix(trimmed, "===") {
+			// Start a new section; flush the previous one if it has content.
+			if len(cur.lines) > 0 || cur.heading != "" {
+				sections = append(sections, cur)
+			}
+			heading := strings.Trim(trimmed, "= ")
+			cur = section{heading: heading}
+		} else if trimmed != "" {
+			cur.lines = append(cur.lines, trimmed)
 		}
 	}
+	if len(cur.lines) > 0 || cur.heading != "" {
+		sections = append(sections, cur)
+	}
 
-	for i, line := range steps {
-		// Highlight the redirect URL step
-		if strings.Contains(line, "Redirect URL") || strings.Contains(line, "redirect_uri") || strings.Contains(line, integration.SlackOAuthCallbackURL) {
-			fmt.Println("  " + ui.Yellow(line))
+	for i, sec := range sections {
+		if sec.heading != "" {
 			fmt.Println()
-			ui.Warn("OAuth will fail if the redirect URL is not added exactly as shown above.")
-			fmt.Println()
-		} else {
-			fmt.Println("  " + line)
-			fmt.Println()
+			ui.Header(sec.heading)
 		}
 
-		// Pause between steps (except the last one, which is usually "run toc integrate add")
-		if i < len(steps)-1 {
+		for _, line := range sec.lines {
+			// Highlight the redirect URL line
+			if strings.Contains(line, integration.SlackOAuthCallbackURL) {
+				fmt.Println("  " + ui.Yellow(line))
+				ui.Warn("OAuth will fail if the redirect URL is not added exactly as shown.")
+			} else if strings.HasPrefix(line, "-") || strings.HasPrefix(line, "  -") {
+				// Scope detail lines — use dimmer formatting for annotations
+				fmt.Println("      " + line)
+			} else {
+				fmt.Println("  " + line)
+			}
+		}
+
+		// Pause between sections (except the last one, which tells them to come back)
+		if i < len(sections)-1 {
+			fmt.Println()
 			ui.WaitForEnter("Press Enter when ready for the next step...")
-			fmt.Println()
 		}
 	}
+	fmt.Println()
 }
 
 // runHostedOAuth2Flow opens the browser and starts a localhost callback server.

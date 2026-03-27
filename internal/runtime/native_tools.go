@@ -421,7 +421,11 @@ func nativeTodoWrite(ctx nativeToolContext, call ToolCall) toolExecution {
 	})
 }
 
-func nativeQuestion(_ nativeToolContext, call ToolCall) toolExecution {
+// questionPollTimeout is the maximum time nativeQuestion will wait for an answer
+// in non-interactive sessions. Overridable in tests.
+var questionPollTimeout = 5 * time.Minute
+
+func nativeQuestion(ctx nativeToolContext, call ToolCall) toolExecution {
 	var args struct {
 		Question string `json:"question"`
 	}
@@ -432,19 +436,81 @@ func nativeQuestion(_ nativeToolContext, call ToolCall) toolExecution {
 		return toolFailure("Question", "", "", fmt.Errorf("question is required"))
 	}
 
-	if !ui.IsTTY(os.Stdin) {
-		return toolFailure("Question", "", "", fmt.Errorf("clarification not available in non-interactive mode"))
+	if ui.IsTTY(os.Stdin) {
+		fmt.Fprintf(os.Stdout, "\n%s\n> ", args.Question)
+		reader := bufio.NewReader(os.Stdin)
+		answer, err := reader.ReadString('\n')
+		if err != nil {
+			return toolFailure("Question", "", "", fmt.Errorf("failed to read answer: %w", err))
+		}
+		answer = strings.TrimRight(answer, "\r\n")
+		return toolSuccess("Question", "", answer, Step{
+			Type:    "tool",
+			Tool:    "Question",
+			Content: args.Question,
+			Success: boolPtr(true),
+		})
 	}
 
-	fmt.Fprintf(os.Stdout, "\n%s\n> ", args.Question)
-	reader := bufio.NewReader(os.Stdin)
-	answer, err := reader.ReadString('\n')
+	// Non-interactive session: write the question to a well-known file and poll
+	// for an answer file so a parent session or operator can respond.
+	if ctx.Workspace == "" || ctx.SessionID == "" {
+		return toolFailure("Question", "", "", fmt.Errorf("clarification not available: session context is missing"))
+	}
+
+	metaDir := MetadataDir(ctx.Workspace, ctx.SessionID)
+	questionPath := filepath.Join(metaDir, "question.json")
+	answerPath := filepath.Join(metaDir, "answer.json")
+
+	type questionPayload struct {
+		Question  string    `json:"question"`
+		Timestamp time.Time `json:"timestamp"`
+		SessionID string    `json:"session_id"`
+		Agent     string    `json:"agent"`
+	}
+	payload, err := json.Marshal(questionPayload{
+		Question:  args.Question,
+		Timestamp: time.Now().UTC(),
+		SessionID: ctx.SessionID,
+		Agent:     ctx.Agent,
+	})
 	if err != nil {
-		return toolFailure("Question", "", "", fmt.Errorf("failed to read answer: %w", err))
+		return toolFailure("Question", "", "", fmt.Errorf("failed to encode question: %w", err))
 	}
-	answer = strings.TrimRight(answer, "\r\n")
+	if err := os.MkdirAll(metaDir, 0700); err != nil {
+		return toolFailure("Question", "", "", fmt.Errorf("failed to create session metadata directory: %w", err))
+	}
+	// Remove a stale answer before writing the question so we don't pick up an
+	// old response.
+	_ = os.Remove(answerPath)
+	if err := os.WriteFile(questionPath, payload, 0600); err != nil {
+		return toolFailure("Question", "", "", fmt.Errorf("failed to write question: %w", err))
+	}
 
-	return toolSuccess("Question", "", answer, Step{
+	deadline := time.Now().Add(questionPollTimeout)
+	for time.Now().Before(deadline) {
+		time.Sleep(500 * time.Millisecond)
+		data, err := os.ReadFile(answerPath)
+		if err != nil {
+			continue
+		}
+		var ans struct {
+			Answer string `json:"answer"`
+		}
+		if err := json.Unmarshal(data, &ans); err != nil {
+			continue
+		}
+		_ = os.Remove(questionPath)
+		return toolSuccess("Question", "", ans.Answer, Step{
+			Type:    "tool",
+			Tool:    "Question",
+			Content: args.Question,
+			Success: boolPtr(true),
+		})
+	}
+
+	_ = os.Remove(questionPath)
+	return toolSuccess("Question", "", "No answer was provided (timed out after waiting for a response).", Step{
 		Type:    "tool",
 		Tool:    "Question",
 		Content: args.Question,

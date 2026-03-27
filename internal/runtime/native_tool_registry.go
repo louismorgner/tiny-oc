@@ -189,17 +189,17 @@ Anti-patterns:
 		},
 		{
 			Name: "Skill",
-			Description: `Load the instructions for a named skill that has been provisioned in this session.
+			Description: `Load the full instructions for a named skill provisioned in this session.
 
-Skills are pre-configured instruction sets (SKILL.md files) that provide specialized knowledge or workflows. Use this tool when a task matches a known skill — it returns the skill's full instructions so you can follow them.
+Available skills are listed in the system prompt under <available_skills>. When a task matches a skill's description, call this tool with the skill's name to load its complete instructions, then follow them.
 
 Parameters:
-- skill (required): The name of the skill to load. This must match a skill directory under .toc-native/skills/ in the session workspace.
+- skill (required): The name of the skill to load, as listed in the system prompt.
 
 Output: The full content of the skill's SKILL.md file (truncated at 64KB). Returns an error if the skill does not exist.
 
 Anti-patterns:
-- Do NOT guess skill names — if you are unsure what skills are available, check the session context or ask the user.
+- Do NOT guess skill names — only use names listed in <available_skills>.
 - Do NOT invoke a skill that is already loaded in the current conversation — follow its instructions directly instead of loading it again.`,
 			Parameters: map[string]interface{}{
 				"type": "object",

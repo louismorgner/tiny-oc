@@ -122,6 +122,140 @@ func TestSaveAndLoadState(t *testing.T) {
 	}
 }
 
+func TestBuildSkillCatalog(t *testing.T) {
+	dir := t.TempDir()
+
+	// Empty dir → empty catalog.
+	if got := buildSkillCatalog(dir); got != "" {
+		t.Fatalf("expected empty catalog for empty dir, got %q", got)
+	}
+
+	// Non-existent dir → empty catalog.
+	if got := buildSkillCatalog(filepath.Join(dir, "nonexistent")); got != "" {
+		t.Fatalf("expected empty catalog for missing dir, got %q", got)
+	}
+
+	// One valid skill.
+	skillDir := filepath.Join(dir, "commit")
+	if err := os.MkdirAll(skillDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	skillMD := "---\nname: commit\ndescription: Generate a conventional commit message and create a commit.\n---\n\nInstructions here.\n"
+	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte(skillMD), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	catalog := buildSkillCatalog(dir)
+	if catalog == "" {
+		t.Fatal("expected non-empty catalog")
+	}
+	if !strings.Contains(catalog, `name="commit"`) {
+		t.Errorf("catalog missing skill name: %q", catalog)
+	}
+	if !strings.Contains(catalog, "conventional commit") {
+		t.Errorf("catalog missing description: %q", catalog)
+	}
+	if !strings.Contains(catalog, "<available_skills>") {
+		t.Errorf("catalog missing XML wrapper: %q", catalog)
+	}
+
+	// Skill with XML-special characters in description is escaped.
+	specialDir := filepath.Join(dir, "special")
+	if err := os.MkdirAll(specialDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	specialMD := "---\nname: special\ndescription: Use when code has <errors> & warnings.\n---\n"
+	if err := os.WriteFile(filepath.Join(specialDir, "SKILL.md"), []byte(specialMD), 0644); err != nil {
+		t.Fatal(err)
+	}
+	catalog2 := buildSkillCatalog(dir)
+	if !strings.Contains(catalog2, "&lt;errors&gt;") {
+		t.Errorf("catalog did not escape XML in description: %q", catalog2)
+	}
+	if !strings.Contains(catalog2, "&amp;") {
+		t.Errorf("catalog did not escape & in description: %q", catalog2)
+	}
+
+	// Skill without description is skipped.
+	nodescDir := filepath.Join(dir, "nodesc")
+	if err := os.MkdirAll(nodescDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(nodescDir, "SKILL.md"), []byte("---\nname: nodesc\n---\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	catalog3 := buildSkillCatalog(dir)
+	if strings.Contains(catalog3, `name="nodesc"`) {
+		t.Errorf("catalog should skip skill with no description: %q", catalog3)
+	}
+}
+
+func TestEnsureSystemPromptInjectsSkillCatalog(t *testing.T) {
+	sessionDir := t.TempDir()
+	nativeDir := filepath.Join(sessionDir, ".toc-native")
+	skillsDir := filepath.Join(nativeDir, "skills")
+
+	if err := os.MkdirAll(nativeDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(nativeDir, "system-prompt.md"), []byte("You are an agent.\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// No skills yet — system prompt alone.
+	state := &State{SessionDir: sessionDir}
+	if err := ensureSystemPrompt(state); err != nil {
+		t.Fatal(err)
+	}
+	if len(state.Messages) != 1 || state.Messages[0].Role != "system" {
+		t.Fatalf("expected system message, got %+v", state.Messages)
+	}
+	if strings.Contains(state.Messages[0].Content, "available_skills") {
+		t.Errorf("catalog should not appear when no skills present")
+	}
+
+	// Add a skill — catalog should appear on next fresh state.
+	if err := os.MkdirAll(filepath.Join(skillsDir, "commit"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	skillMD := "---\nname: commit\ndescription: Create a git commit.\n---\nInstructions.\n"
+	if err := os.WriteFile(filepath.Join(skillsDir, "commit", "SKILL.md"), []byte(skillMD), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	state2 := &State{SessionDir: sessionDir}
+	if err := ensureSystemPrompt(state2); err != nil {
+		t.Fatal(err)
+	}
+	content := state2.Messages[0].Content
+	if !strings.Contains(content, "You are an agent.") {
+		t.Errorf("system prompt missing base content: %q", content)
+	}
+	if !strings.Contains(content, "<available_skills>") {
+		t.Errorf("system prompt missing skill catalog: %q", content)
+	}
+	if !strings.Contains(content, `name="commit"`) {
+		t.Errorf("system prompt missing skill name: %q", content)
+	}
+
+	// No system-prompt.md but skills present — catalog becomes the system prompt.
+	sessionDir3 := t.TempDir()
+	skillsDir3 := filepath.Join(sessionDir3, ".toc-native", "skills", "review")
+	if err := os.MkdirAll(skillsDir3, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(skillsDir3, "SKILL.md"), []byte("---\nname: review\ndescription: Review code.\n---\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	state3 := &State{SessionDir: sessionDir3}
+	if err := ensureSystemPrompt(state3); err != nil {
+		t.Fatal(err)
+	}
+	if len(state3.Messages) != 1 || !strings.Contains(state3.Messages[0].Content, "available_skills") {
+		t.Errorf("expected skill-only system prompt, got %+v", state3.Messages)
+	}
+}
+
 func TestNativeParseSessionLog(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "events.jsonl")

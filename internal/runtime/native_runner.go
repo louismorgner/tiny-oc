@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -87,12 +88,25 @@ func RunNativeSession(opts NativeRunOptions, stdin io.Reader, stdout io.Writer) 
 	if strings.TrimSpace(opts.Prompt) != "" {
 		err := runNativePrompt(client, state, toolSpecs, profile, opts.Prompt, toolCtx, stdout, opts.Mode == "detached")
 		if err != nil {
-			return err
+			// In interactive mode, if the agent hit the iteration limit,
+			// print a notice and fall through to the interactive loop so
+			// the user can continue or exit.
+			if errors.Is(err, errMaxIterationsReached) && opts.Mode != "detached" {
+				maxIter := defaultMaxIterations
+				if sessionCfg != nil && sessionCfg.RuntimeConfig.MaxIterations > 0 {
+					maxIter = sessionCfg.RuntimeConfig.MaxIterations
+				}
+				fmt.Fprintf(stdout, "\nAgent reached tool iteration limit (%d). You can send a message to continue or type /exit to end the session.\n", maxIter)
+				// fall through to interactive loop below
+			} else {
+				return err
+			}
+		} else {
+			if err := waitForSessionNotifications(client, state, toolSpecs, profile, toolCtx, stdout, opts.Mode == "detached"); err != nil {
+				return err
+			}
+			return finalizeNativeSession(client, state, sessionCfg, toolSpecs, profile, toolCtx, stdout, true)
 		}
-		if err := waitForSessionNotifications(client, state, toolSpecs, profile, toolCtx, stdout, opts.Mode == "detached"); err != nil {
-			return err
-		}
-		return finalizeNativeSession(client, state, sessionCfg, toolSpecs, profile, toolCtx, stdout, true)
 	}
 
 	if opts.Mode == "detached" {
@@ -198,6 +212,15 @@ func RunNativeSession(opts NativeRunOptions, stdin io.Reader, stdout io.Writer) 
 		}
 
 		if err := runNativePrompt(client, state, toolSpecs, profile, line, toolCtx, stdout, false); err != nil {
+			if errors.Is(err, errMaxIterationsReached) {
+				maxIter := defaultMaxIterations
+				if sessionCfg != nil && sessionCfg.RuntimeConfig.MaxIterations > 0 {
+					maxIter = sessionCfg.RuntimeConfig.MaxIterations
+				}
+				fmt.Fprintf(stdout, "\nAgent reached tool iteration limit (%d). You can send a message to continue or type /exit to end the session.\n", maxIter)
+				// Continue the loop – the next iteration will prompt for user input.
+				continue
+			}
 			// If a prompt fails, still finalize rather than bailing out
 			// without running post-session hooks.
 			return err
@@ -422,6 +445,14 @@ func runNativePrompt(client *openRouterClient, state *State, toolSpecs []NativeT
 
 	err := runNativeLoop(client, state, toolSpecs, profile, toolCtx, sess, stdout, detached)
 	if err != nil {
+		// In interactive sessions, propagate the sentinel error without
+		// marking the session as failed so the caller can prompt for input.
+		if errors.Is(err, errMaxIterationsReached) && !detached {
+			state.Status = "ready"
+			state.PendingTurn = nil
+			_ = SaveStateInWorkspace(state.Workspace, state.SessionID, state)
+			return err
+		}
 		state.Status = "failed"
 		state.LastError = err.Error()
 		state.PendingTurn = nil
@@ -449,7 +480,12 @@ func runNativePrompt(client *openRouterClient, state *State, toolSpecs []NativeT
 	return SaveStateInWorkspace(state.Workspace, state.SessionID, state)
 }
 
-const defaultMaxIterations = 24
+const defaultMaxIterations = 126
+
+// errMaxIterationsReached is returned by runNativeLoop when the agent
+// exhausts its tool iteration budget. Interactive callers can catch this
+// to prompt the user instead of failing the session.
+var errMaxIterationsReached = fmt.Errorf("native runtime exceeded max tool iterations")
 
 func runNativeLoop(client *openRouterClient, state *State, toolSpecs []NativeToolSpec, profile runtimeinfo.NativeModelProfile, toolCtx nativeToolContext, sess *session.Session, stdout io.Writer, detached bool) error {
 	defer func() {
@@ -636,7 +672,7 @@ func runNativeLoop(client *openRouterClient, state *State, toolSpecs []NativeToo
 		}
 	}
 
-	return fmt.Errorf("native runtime exceeded max tool iterations")
+	return errMaxIterationsReached
 }
 
 func waitForSessionNotifications(client *openRouterClient, state *State, toolSpecs []NativeToolSpec, profile runtimeinfo.NativeModelProfile, toolCtx nativeToolContext, stdout io.Writer, detached bool) error {

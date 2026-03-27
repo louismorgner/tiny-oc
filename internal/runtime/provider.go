@@ -60,14 +60,15 @@ type LaunchOptions struct {
 }
 
 type DetachedOptions struct {
-	Dir        string
-	Model      string
-	Prompt     string
-	Workspace  string
-	AgentName  string
-	SessionID  string
-	OutputPath string
-	Resume     bool
+	Dir             string
+	Model           string
+	Prompt          string
+	Workspace       string
+	AgentName       string
+	SessionID       string
+	ParentSessionID string
+	OutputPath      string
+	Resume          bool
 }
 
 // Provider owns runtime-specific process launch and observability behavior.

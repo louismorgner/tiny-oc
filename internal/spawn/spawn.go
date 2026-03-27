@@ -305,7 +305,7 @@ func SpawnSubSession(cfg *agent.AgentConfig, opts SubSpawnOpts) (*SpawnResult, e
 	if err := provider.LaunchDetached(runtime.DetachedOptions{
 		Dir: workDir, Model: sessionCfg.Model, Prompt: opts.Prompt,
 		Workspace: opts.WorkspaceDir, AgentName: sessionCfg.Agent,
-		SessionID: sessionID, OutputPath: outputPath,
+		SessionID: sessionID, ParentSessionID: opts.ParentSessionID, OutputPath: outputPath,
 	}); err != nil {
 		return nil, fmt.Errorf("failed to launch sub-agent: %w", err)
 	}
@@ -378,7 +378,7 @@ func ResumeSubSession(s *session.Session, opts SubResumeOpts) (*SpawnResult, err
 	if err := provider.LaunchDetached(runtime.DetachedOptions{
 		Dir: s.WorkspacePath, Model: sessionCfg.Model, Prompt: resumePrompt,
 		Workspace: opts.WorkspaceDir, AgentName: s.Agent, SessionID: s.ID,
-		OutputPath: outputPath, Resume: true,
+		ParentSessionID: s.ParentSessionID, OutputPath: outputPath, Resume: true,
 	}); err != nil {
 		return nil, fmt.Errorf("failed to launch resumed sub-agent: %w", err)
 	}

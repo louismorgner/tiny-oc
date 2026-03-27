@@ -120,18 +120,20 @@ The native runtime reads an OpenRouter API key from the environment (`OPENROUTER
 toc config set openrouter_key sk-or-...
 ```
 
-To override the OpenRouter API endpoint, set `OPENROUTER_BASE_URL`:
+To override the API endpoint, set `TOC_API_BASE_URL` (or `OPENROUTER_BASE_URL` for backward compatibility):
 
 ```bash
-OPENROUTER_BASE_URL=https://my-proxy.example.com/api/v1 toc run --agent my-agent
+TOC_API_BASE_URL=https://my-proxy.example.com/api/v1 toc run --agent my-agent
 ```
 
 This is useful for inspecting API traffic through a local proxy. For example, using [mitmproxy](https://mitmproxy.org/) in reverse mode:
 
 ```bash
 mitmweb --mode reverse:https://openrouter.ai --listen-port 8000
-OPENROUTER_BASE_URL=http://localhost:8000/api/v1 toc run --agent my-agent
+TOC_API_BASE_URL=http://localhost:8000/api/v1 toc run --agent my-agent
 ```
+
+Plain `http://` URLs are supported — the HTTP client does not enforce HTTPS.
 
 The env var propagates to sub-agent sessions automatically.
 

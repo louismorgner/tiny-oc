@@ -189,7 +189,10 @@ func newOpenRouterClientFromEnv() (*openRouterClient, error) {
 			"  Get a key at: https://openrouter.ai/keys")
 	}
 
-	baseURL := strings.TrimRight(strings.TrimSpace(os.Getenv("OPENROUTER_BASE_URL")), "/")
+	baseURL := strings.TrimRight(strings.TrimSpace(os.Getenv("TOC_API_BASE_URL")), "/")
+	if baseURL == "" {
+		baseURL = strings.TrimRight(strings.TrimSpace(os.Getenv("OPENROUTER_BASE_URL")), "/")
+	}
 	if baseURL == "" {
 		baseURL = defaultOpenRouterBaseURL
 	}

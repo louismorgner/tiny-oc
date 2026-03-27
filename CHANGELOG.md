@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- `OPENROUTER_BASE_URL` env var support in the native runtime for redirecting API traffic to a custom endpoint (e.g. a local mitmproxy instance for debugging).
+- `TOC_API_BASE_URL` env var in the native runtime for redirecting API traffic to a custom endpoint (e.g. a local mitmproxy instance). `OPENROUTER_BASE_URL` remains supported as a fallback for backward compatibility. Plain `http://` URLs work without any extra configuration.
 
 ## [0.3.3] - 2026-03-25
 

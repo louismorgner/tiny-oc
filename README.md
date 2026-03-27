@@ -67,6 +67,7 @@ When you run `toc agent spawn`, it:
 - [Getting started](docs/getting-started.md) — install, create your first agent, spawn a session
 - [Configuration reference](docs/configuration.md) — all config fields, snapshot sync patterns, audit log format
 - [Runtimes](docs/runtimes.md) — provider abstraction, Claude Code vs toc-native, hooks, model profiles
+- [toc-native Runtime](docs/toc-native-runtime.md) — in-depth architecture, agent loop, tools, compaction, and current beta edges
 - [Skills guide](docs/skills.md) — create, install, and attach reusable capabilities
 - [Integrations](docs/integrations.md) — API gateway, credential storage, permissions, built-in integrations
 - [Architecture](docs/architecture.md) — project structure and design decisions

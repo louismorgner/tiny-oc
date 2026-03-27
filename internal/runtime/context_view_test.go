@@ -191,6 +191,30 @@ func TestBuildContextView_InjectsTodosBeforeWorkingSet(t *testing.T) {
 	}
 }
 
+func TestBuildContextView_SkipsNilTodos(t *testing.T) {
+	state := &State{
+		Messages: []Message{
+			{Role: "system", Content: "system prompt"},
+			{Role: "user", Content: "hello"},
+		},
+		Todos: nil,
+		WorkingSet: &WorkingSet{
+			FilesEdited: []string{"main.go"},
+		},
+	}
+
+	view := BuildContextView(state)
+	if len(view) != 3 {
+		t.Fatalf("len(view) = %d, want 3", len(view))
+	}
+	if strings.Contains(view[1].Content, "[toc-todos]") {
+		t.Fatalf("did not expect todo injection at view[1], got %q", view[1].Content)
+	}
+	if !strings.Contains(view[1].Content, "[toc-working-set]") {
+		t.Fatalf("expected working set injection at view[1], got %q", view[1].Content)
+	}
+}
+
 func TestBuildContextView_NoWorkingSet(t *testing.T) {
 	state := &State{
 		Messages: []Message{

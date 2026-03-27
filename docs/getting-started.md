@@ -7,7 +7,7 @@ This guide walks you through installing toc and spawning your first agent sessio
 - [Go 1.25+](https://go.dev/dl/)
 - A supported runtime installed and authenticated
 
-Current runtime implementation: [Claude Code](https://docs.anthropic.com/en/docs/claude-code)
+Supported external runtimes: [Claude Code](https://docs.anthropic.com/en/docs/claude-code) and [OpenAI Codex CLI](https://developers.openai.com/codex/cli)
 
 ## Installation
 
@@ -46,9 +46,10 @@ The interactive prompt asks for:
 
 1. **Name** — lowercase alphanumeric with hyphens (e.g. `pr-reviewer`)
 2. **Description** — shown in `toc agent list` and shell completions
-3. **Model** — depends on the selected runtime; today `claude-code` supports `default`, `sonnet`, `opus`, and `haiku`
-4. **Context patterns** — optional snapshot-sync patterns for files that should flow back into the parent agent snapshot (see [snapshot sync](configuration.md#snapshot-sync-patterns))
-5. **Instructions** — the agent's system prompt, written to `agent.md`
+3. **Runtime** — choose `claude-code`, `codex`, or `toc-native`
+4. **Model** — depends on the selected runtime; `claude-code` supports Claude aliases, `codex` defaults to `gpt-5-codex`, and `toc-native` uses an OpenRouter model ID
+5. **Context patterns** — optional snapshot-sync patterns for files that should flow back into the parent agent snapshot (see [snapshot sync](configuration.md#snapshot-sync-patterns))
+6. **Instructions** — the agent's system prompt, written to `agent.md`
 
 This creates two files in `.toc/agents/<name>/`:
 
@@ -75,7 +76,7 @@ This:
 4. Sets up any runtime-specific snapshot-sync or permission machinery
 5. Launches a runtime session with the configured model
 
-With the current `claude-code` runtime, you're now inside a Claude Code session with your agent's instructions loaded.
+With `claude-code`, you're dropped into Claude Code with `CLAUDE.md` provisioned for the session. With `codex`, toc provisions `AGENTS.md` and launches the OpenAI Codex CLI in the isolated session workspace.
 
 ## Resume a session
 
@@ -94,7 +95,7 @@ toc status
 ## Next steps
 
 - [Configuration reference](configuration.md) — all config fields and options
-- [Runtimes](runtimes.md) — Claude Code vs toc-native, hooks, model profiles
+- [Runtimes](runtimes.md) — Claude Code vs Codex vs toc-native, hooks, model profiles
 - [Skills guide](skills.md) — add reusable capabilities to your agents
 - [Integrations](integrations.md) — connect agents to GitHub, Slack, and other APIs
 - [Architecture](architecture.md) — how toc works under the hood

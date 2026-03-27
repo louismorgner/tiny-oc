@@ -184,3 +184,27 @@ func TestForSession_NativeStateUsage(t *testing.T) {
 		t.Fatalf("usage = %#v", u)
 	}
 }
+
+func TestParseCodexJSONL(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "codex.jsonl")
+
+	content := `{"type":"thread.started","thread_id":"codex-thread-1"}
+{"type":"turn.completed","usage":{"input_tokens":100,"cached_input_tokens":25,"output_tokens":40}}
+{"type":"turn.completed","usage":{"input_tokens":10,"cached_input_tokens":5,"output_tokens":4}}
+`
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	u := parseCodexJSONL(path)
+	if u.InputTokens != 110 {
+		t.Fatalf("InputTokens = %d", u.InputTokens)
+	}
+	if u.CacheRead != 30 {
+		t.Fatalf("CacheRead = %d", u.CacheRead)
+	}
+	if u.OutputTokens != 44 {
+		t.Fatalf("OutputTokens = %d", u.OutputTokens)
+	}
+}

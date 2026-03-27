@@ -16,7 +16,8 @@ import (
 func init() {
 	agentCreateCmd.Flags().String("name", "", "agent name (skip interactive prompt)")
 	agentCreateCmd.Flags().String("description", "", "agent description")
-	agentCreateCmd.Flags().String("model", "", "model: default, sonnet, opus, or haiku")
+	agentCreateCmd.Flags().String("runtime", runtimeinfo.DefaultRuntime, "runtime: claude-code, codex, or toc-native")
+	agentCreateCmd.Flags().String("model", "", "model for the selected runtime")
 	agentCreateCmd.Flags().StringSlice("skills", nil, "comma-separated skill names or URLs")
 	agentCreateCmd.Flags().StringSlice("context", nil, "comma-separated context sync patterns")
 	agentCreateCmd.Flags().String("instructions", "", "agent instructions (or @file to read from file)")
@@ -36,6 +37,7 @@ var agentCreateCmd = &cobra.Command{
 
 		name, _ := cmd.Flags().GetString("name")
 		desc, _ := cmd.Flags().GetString("description")
+		runtimeName, _ := cmd.Flags().GetString("runtime")
 		model, _ := cmd.Flags().GetString("model")
 		skills, _ := cmd.Flags().GetStringSlice("skills")
 		contextPatterns, _ := cmd.Flags().GetStringSlice("context")
@@ -47,9 +49,12 @@ var agentCreateCmd = &cobra.Command{
 		// If --name is provided, run in non-interactive mode
 		if name != "" {
 			if model == "" {
-				model = "sonnet"
+				model = runtimeinfo.DefaultModel(runtimeName)
 			}
 			if err := agent.ValidateName(name); err != nil {
+				return err
+			}
+			if err := runtimeinfo.ValidateRuntime(runtimeName); err != nil {
 				return err
 			}
 			if agent.Exists(name) {
@@ -76,7 +81,7 @@ var agentCreateCmd = &cobra.Command{
 			}
 
 			cfg := agent.AgentConfig{
-				Runtime:     "claude-code",
+				Runtime:     runtimeName,
 				Name:        name,
 				Description: desc,
 				Model:       model,
@@ -99,7 +104,7 @@ var agentCreateCmd = &cobra.Command{
 			auditLog("agent.create", map[string]interface{}{
 				"agent":   name,
 				"model":   model,
-				"runtime": "claude-code",
+				"runtime": runtimeName,
 			})
 
 			ui.Success("Created agent %s", ui.Bold(name))
@@ -111,18 +116,15 @@ var agentCreateCmd = &cobra.Command{
 
 		var skillsRaw, contextRaw, instructions string
 		var composeRaw, subAgentsRaw string
-		model = runtimeinfo.DefaultModel(runtimeinfo.DefaultRuntime)
+		runtimeName = runtimeinfo.DefaultRuntime
+		model = runtimeinfo.DefaultModel(runtimeName)
 
-		modelOptions := make([]huh.Option[string], 0, len(runtimeinfo.ModelOptions(runtimeinfo.DefaultRuntime)))
-		for _, opt := range runtimeinfo.ModelOptions(runtimeinfo.DefaultRuntime) {
-			label := opt.Label
-			if opt.Description != "" {
-				label += " — " + opt.Description
-			}
-			modelOptions = append(modelOptions, huh.NewOption(label, opt.ID))
+		runtimeOptions := make([]huh.Option[string], 0, len(runtimeinfo.Supported()))
+		for _, runtimeID := range runtimeinfo.Supported() {
+			runtimeOptions = append(runtimeOptions, huh.NewOption(runtimeID, runtimeID))
 		}
 
-		basics := huh.NewForm(
+		selectRuntime := huh.NewForm(
 			huh.NewGroup(
 				huh.NewInput().
 					Title("Agent name").
@@ -146,6 +148,30 @@ var agentCreateCmd = &cobra.Command{
 					Description("what does this agent do? (optional)").
 					Value(&desc),
 
+				huh.NewSelect[string]().
+					Title("Runtime").
+					Options(runtimeOptions...).
+					Value(&runtimeName),
+			),
+		)
+
+		selectRuntime.WithProgramOptions(ui.FormOptions()...)
+		if err := selectRuntime.Run(); err != nil {
+			return err
+		}
+
+		model = runtimeinfo.DefaultModel(runtimeName)
+		modelOptions := make([]huh.Option[string], 0, len(runtimeinfo.ModelOptions(runtimeName)))
+		for _, opt := range runtimeinfo.ModelOptions(runtimeName) {
+			label := opt.Label
+			if opt.Description != "" {
+				label += " — " + opt.Description
+			}
+			modelOptions = append(modelOptions, huh.NewOption(label, opt.ID))
+		}
+
+		details := huh.NewForm(
+			huh.NewGroup(
 				huh.NewSelect[string]().
 					Title("Model").
 					Options(modelOptions...).
@@ -187,8 +213,8 @@ var agentCreateCmd = &cobra.Command{
 			),
 		)
 
-		basics.WithProgramOptions(ui.FormOptions()...)
-		if err := basics.Run(); err != nil {
+		details.WithProgramOptions(ui.FormOptions()...)
+		if err := details.Run(); err != nil {
 			return err
 		}
 

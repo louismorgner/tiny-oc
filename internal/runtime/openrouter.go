@@ -243,11 +243,13 @@ func (c *openRouterClient) Chat(ctx context.Context, req chatRequest) (*chatResp
 		return nil, err
 	}
 
+	endpoint := c.baseURL + "/chat/completions"
 	var lastErr error
 	for attempt := 0; attempt < maxRetryAttempts; attempt++ {
 		if attempt > 0 {
 			delay := retryDelay(attempt-1, nil)
-			fmt.Fprintf(os.Stderr, "OpenRouter returned an error, retrying in %s (attempt %d/%d)...\n", delay, attempt+1, maxRetryAttempts)
+			fmt.Fprintf(os.Stderr, "OpenRouter error (model=%s, endpoint=%s): %v — retrying in %s (attempt %d/%d)...\n",
+				req.Model, endpoint, lastErr, delay, attempt+1, maxRetryAttempts)
 			select {
 			case <-ctx.Done():
 				return nil, ctx.Err()
@@ -255,7 +257,7 @@ func (c *openRouterClient) Chat(ctx context.Context, req chatRequest) (*chatResp
 			}
 		}
 
-		httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/chat/completions", bytes.NewReader(body))
+		httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
 		if err != nil {
 			return nil, err
 		}
@@ -271,7 +273,7 @@ func (c *openRouterClient) Chat(ctx context.Context, req chatRequest) (*chatResp
 		resp, err := c.httpClient.Do(httpReq)
 		if err != nil {
 			if isRetryableNetworkError(err) {
-				lastErr = err
+				lastErr = fmt.Errorf("network error: %w", err)
 				continue
 			}
 			return nil, err
@@ -305,11 +307,11 @@ func (c *openRouterClient) Chat(ctx context.Context, req chatRequest) (*chatResp
 	// All retries exhausted — produce a descriptive final error.
 	if lastErr != nil {
 		if isRetryableNetworkError(lastErr) {
-			return nil, fmt.Errorf("OpenRouter unreachable after %d attempts: %w. Your session is saved and can be resumed.", maxRetryAttempts, lastErr)
+			return nil, fmt.Errorf("OpenRouter unreachable after %d attempts (model=%s): %w. Your session is saved and can be resumed.", maxRetryAttempts, req.Model, lastErr)
 		}
-		return nil, fmt.Errorf("OpenRouter server error after %d attempts. Your session is saved and can be resumed.", maxRetryAttempts)
+		return nil, fmt.Errorf("OpenRouter error after %d attempts (model=%s): %w. Your session is saved and can be resumed.", maxRetryAttempts, req.Model, lastErr)
 	}
-	return nil, fmt.Errorf("OpenRouter request failed after %d attempts", maxRetryAttempts)
+	return nil, fmt.Errorf("OpenRouter request failed after %d attempts (model=%s)", maxRetryAttempts, req.Model)
 }
 
 func (c *openRouterClient) ChatStream(ctx context.Context, req chatRequest, onText func(string) error) (*chatResponse, error) {
@@ -320,12 +322,14 @@ func (c *openRouterClient) ChatStream(ctx context.Context, req chatRequest, onTe
 		return nil, err
 	}
 
+	endpoint := c.baseURL + "/chat/completions"
 	var resp *http.Response
 	var lastErr error
 	for attempt := 0; attempt < maxRetryAttempts; attempt++ {
 		if attempt > 0 {
 			delay := retryDelay(attempt-1, resp)
-			fmt.Fprintf(os.Stderr, "OpenRouter returned an error, retrying in %s (attempt %d/%d)...\n", delay, attempt+1, maxRetryAttempts)
+			fmt.Fprintf(os.Stderr, "OpenRouter error (model=%s, endpoint=%s): %v — retrying in %s (attempt %d/%d)...\n",
+				req.Model, endpoint, lastErr, delay, attempt+1, maxRetryAttempts)
 			select {
 			case <-ctx.Done():
 				return nil, ctx.Err()
@@ -333,7 +337,7 @@ func (c *openRouterClient) ChatStream(ctx context.Context, req chatRequest, onTe
 			}
 		}
 
-		httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/chat/completions", bytes.NewReader(body))
+		httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
 		if err != nil {
 			return nil, err
 		}
@@ -349,7 +353,7 @@ func (c *openRouterClient) ChatStream(ctx context.Context, req chatRequest, onTe
 		resp, err = c.httpClient.Do(httpReq)
 		if err != nil {
 			if isRetryableNetworkError(err) {
-				lastErr = err
+				lastErr = fmt.Errorf("network error: %w", err)
 				continue
 			}
 			return nil, err
@@ -376,9 +380,9 @@ func (c *openRouterClient) ChatStream(ctx context.Context, req chatRequest, onTe
 
 	if lastErr != nil {
 		if isRetryableNetworkError(lastErr) {
-			return nil, fmt.Errorf("OpenRouter unreachable after %d attempts: %w. Your session is saved and can be resumed.", maxRetryAttempts, lastErr)
+			return nil, fmt.Errorf("OpenRouter unreachable after %d attempts (model=%s): %w. Your session is saved and can be resumed.", maxRetryAttempts, req.Model, lastErr)
 		}
-		return nil, fmt.Errorf("OpenRouter server error after %d attempts. Your session is saved and can be resumed.", maxRetryAttempts)
+		return nil, fmt.Errorf("OpenRouter error after %d attempts (model=%s): %w. Your session is saved and can be resumed.", maxRetryAttempts, req.Model, lastErr)
 	}
 	defer resp.Body.Close()
 

@@ -170,6 +170,21 @@ func TestBuildDetachedScript_WithoutModel(t *testing.T) {
 	}
 }
 
+func TestBuildDetachedScript_OmitsDefaultModelAlias(t *testing.T) {
+	dir := t.TempDir()
+	promptPath := filepath.Join(dir, "toc-prompt.txt")
+	os.WriteFile(promptPath, []byte("test"), 0644)
+
+	script := runtime.BuildClaudeDetachedScript("toc", runtime.DetachedOptions{
+		Dir: dir, Model: "default", Workspace: "/ws", AgentName: "agent",
+		SessionID: "sess", OutputPath: filepath.Join(dir, "toc-output.txt"),
+	}, promptPath)
+
+	if strings.Contains(script, "--model") {
+		t.Error("script should not contain --model when model is the default alias")
+	}
+}
+
 func TestBuildDetachedScript_Resume_UsesResumeFlag(t *testing.T) {
 	dir := t.TempDir()
 	promptPath := filepath.Join(dir, "toc-prompt.txt")

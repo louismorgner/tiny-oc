@@ -16,7 +16,7 @@ import (
 func init() {
 	agentCreateCmd.Flags().String("name", "", "agent name (skip interactive prompt)")
 	agentCreateCmd.Flags().String("description", "", "agent description")
-	agentCreateCmd.Flags().String("model", "", "model: sonnet, opus, or haiku")
+	agentCreateCmd.Flags().String("model", "", "model: default, sonnet, opus, or haiku")
 	agentCreateCmd.Flags().StringSlice("skills", nil, "comma-separated skill names or URLs")
 	agentCreateCmd.Flags().StringSlice("context", nil, "comma-separated context sync patterns")
 	agentCreateCmd.Flags().String("instructions", "", "agent instructions (or @file to read from file)")

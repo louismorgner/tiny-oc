@@ -43,6 +43,7 @@ func ModelOptions(runtimeName string) []ModelOption {
 	switch runtimeName {
 	case DefaultRuntime:
 		return []ModelOption{
+			{ID: "default", Label: "Default", Description: "Claude Code default for your account tier"},
 			{ID: "sonnet", Label: "Sonnet", Description: "fast, great for most tasks"},
 			{ID: "opus", Label: "Opus", Description: "most capable, deeper reasoning"},
 			{ID: "haiku", Label: "Haiku", Description: "lightweight, quick responses"},
@@ -71,10 +72,10 @@ func ValidateModelSelection(runtimeName, model string, allowCustomNativeModel bo
 	switch runtimeName {
 	case DefaultRuntime:
 		switch model {
-		case "sonnet", "opus", "haiku":
+		case "default", "sonnet", "opus", "haiku":
 			return nil
 		default:
-			return fmt.Errorf("unknown model: %s (expected sonnet, opus, or haiku)", model)
+			return fmt.Errorf("unknown model: %s (expected default, sonnet, opus, or haiku)", model)
 		}
 	case NativeRuntime:
 		return ValidateNativeModel(model, allowCustomNativeModel)

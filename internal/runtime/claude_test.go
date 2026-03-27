@@ -106,6 +106,20 @@ func TestClaudeProvider_SkillsDirAndPostSessionSync(t *testing.T) {
 	}
 }
 
+func TestBuildClaudeArgs_OmitsDefaultModelAlias(t *testing.T) {
+	args := buildClaudeArgs(LaunchOptions{Model: "default"})
+	if strings.Contains(strings.Join(args, " "), "--model") {
+		t.Fatalf("buildClaudeArgs() should omit --model for default alias, got %#v", args)
+	}
+}
+
+func TestBuildClaudeArgs_IncludesExplicitModel(t *testing.T) {
+	args := buildClaudeArgs(LaunchOptions{Model: "opus"})
+	if !strings.Contains(strings.Join(args, " "), "--model opus") {
+		t.Fatalf("buildClaudeArgs() should include explicit model, got %#v", args)
+	}
+}
+
 func TestSaveAndLoadEventLog(t *testing.T) {
 	ts1 := time.Date(2026, 3, 25, 12, 0, 0, 0, time.UTC)
 	ts2 := ts1.Add(5 * time.Second)

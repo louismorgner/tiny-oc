@@ -59,10 +59,7 @@ func (claudeProvider) PostSessionSync(workDir, agentDir string, patterns []strin
 }
 
 func (claudeProvider) LaunchInteractive(opts LaunchOptions) error {
-	args := []string{"--dangerously-skip-permissions"}
-	if opts.Model != "" {
-		args = append(args, "--model", opts.Model)
-	}
+	args := buildClaudeArgs(opts)
 	if opts.Prompt != "" {
 		args = append(args, "-p", opts.Prompt)
 	}
@@ -120,12 +117,27 @@ func (claudeProvider) LaunchDetached(opts DetachedOptions) error {
 	return cmd.Process.Release()
 }
 
+func buildClaudeArgs(opts LaunchOptions) []string {
+	args := []string{"--dangerously-skip-permissions"}
+	if model := claudeModelArg(opts.Model); model != "" {
+		args = append(args, "--model", model)
+	}
+	return args
+}
+
+func claudeModelArg(model string) string {
+	if model == "default" {
+		return ""
+	}
+	return model
+}
+
 // BuildClaudeDetachedScript builds the wrapper script for a detached Claude session.
 func BuildClaudeDetachedScript(helperExecutable string, opts DetachedOptions, promptPath string) string {
 	args := "claude --dangerously-skip-permissions"
 	args += fmt.Sprintf(" -p \"$(cat %q)\"", promptPath)
-	if opts.Model != "" {
-		args += fmt.Sprintf(" --model %s", opts.Model)
+	if model := claudeModelArg(opts.Model); model != "" {
+		args += fmt.Sprintf(" --model %s", model)
 	}
 	if opts.Resume && opts.SessionID != "" {
 		args += fmt.Sprintf(" --resume %s", opts.SessionID)

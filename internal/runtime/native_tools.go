@@ -60,7 +60,9 @@ func nativeRead(ctx nativeToolContext, call ToolCall) toolExecution {
 		return toolFailure("Read", args.FilePath, "", err)
 	}
 
-	allLines := strings.Split(string(data), "\n")
+	content := string(data)
+	content = strings.TrimRight(content, "\n")
+	allLines := strings.Split(content, "\n")
 
 	// Determine the line range to return.
 	startLine := 1

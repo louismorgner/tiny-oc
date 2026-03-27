@@ -217,6 +217,10 @@ func TestNativeReadCatNFormat(t *testing.T) {
 	if !strings.Contains(result.Message, "     3\tline three") {
 		t.Fatalf("expected line 3 in cat -n format, got %q", result.Message)
 	}
+	// Trailing newline in file must not produce a phantom empty line 4.
+	if strings.Contains(result.Message, "     4\t") {
+		t.Fatalf("trailing newline produced phantom empty line: %q", result.Message)
+	}
 }
 
 func TestNativeReadOffsetAndLimit(t *testing.T) {

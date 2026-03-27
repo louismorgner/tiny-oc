@@ -78,6 +78,7 @@ type State struct {
 	LastCompactedAt   time.Time          `json:"last_compacted_at,omitempty"`
 	LastRecoveredAt   time.Time          `json:"last_recovered_at,omitempty"`
 	Usage             TokenUsageSnapshot `json:"usage,omitempty"`
+	LastRequestUsage  LastRequestUsage   `json:"last_request_usage,omitempty"`
 	Messages          []Message          `json:"messages,omitempty"`
 	PendingTurn       *TurnCheckpoint    `json:"pending_turn,omitempty"`
 	CrashInfo         *CrashInfo         `json:"crash_info,omitempty"`
@@ -100,6 +101,15 @@ type TurnCheckpoint struct {
 }
 
 type TokenUsageSnapshot struct {
+	InputTokens  int64 `json:"input_tokens,omitempty"`
+	OutputTokens int64 `json:"output_tokens,omitempty"`
+	CacheRead    int64 `json:"cache_read,omitempty"`
+	CacheCreate  int64 `json:"cache_create,omitempty"`
+}
+
+// LastRequestUsage holds the token counts from the most recent API call,
+// giving visibility into per-request context pressure and cache efficiency.
+type LastRequestUsage struct {
 	InputTokens  int64 `json:"input_tokens,omitempty"`
 	OutputTokens int64 `json:"output_tokens,omitempty"`
 	CacheRead    int64 `json:"cache_read,omitempty"`

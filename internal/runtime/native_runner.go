@@ -566,11 +566,22 @@ func accumulateUsage(state *State, resp *chatResponse) {
 	if state == nil || resp == nil {
 		return
 	}
+	// Cumulative totals across the session.
 	state.Usage.InputTokens += resp.Usage.PromptTokens
 	state.Usage.OutputTokens += resp.Usage.CompletionTokens
 	if d := resp.Usage.PromptTokensDetails; d != nil {
 		state.Usage.CacheRead += d.CachedTokens
 		state.Usage.CacheCreate += d.CacheWriteTokens
+	}
+	// Per-request snapshot: overwritten each call so debug/status can show
+	// the latest request's context size and cache efficiency.
+	state.LastRequestUsage = LastRequestUsage{
+		InputTokens:  resp.Usage.PromptTokens,
+		OutputTokens: resp.Usage.CompletionTokens,
+	}
+	if d := resp.Usage.PromptTokensDetails; d != nil {
+		state.LastRequestUsage.CacheRead = d.CachedTokens
+		state.LastRequestUsage.CacheCreate = d.CacheWriteTokens
 	}
 }
 

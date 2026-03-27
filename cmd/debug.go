@@ -169,8 +169,19 @@ type debugUsageInfo struct {
 	CacheRead    int64    `json:"cache_read,omitempty"`
 	CacheCreate  int64    `json:"cache_create,omitempty"`
 	TotalTokens  int64    `json:"total_tokens,omitempty"`
-	CostUSD      *float64 `json:"cost_usd,omitempty"`
-	TokenTrajectory string `json:"token_trajectory,omitempty"`
+	CostUSD         *float64 `json:"cost_usd,omitempty"`
+	TokenTrajectory string   `json:"token_trajectory,omitempty"`
+
+	// Last-request usage shows what the most recent API call consumed,
+	// useful for understanding context pressure near the window limit.
+	LastRequest *debugLastRequestUsage `json:"last_request,omitempty"`
+}
+
+type debugLastRequestUsage struct {
+	InputTokens  int64 `json:"input_tokens,omitempty"`
+	OutputTokens int64 `json:"output_tokens,omitempty"`
+	CacheRead    int64 `json:"cache_read,omitempty"`
+	CacheCreate  int64 `json:"cache_create,omitempty"`
 }
 
 type debugToolTiming struct {
@@ -530,7 +541,6 @@ func debugUsageDetails(s *session.Session, state *iruntime.State) debugUsageInfo
 	} else {
 		tokens = usage.ForSession(s)
 	}
-
 	info := debugUsageInfo{
 		InputTokens:  tokens.InputTokens,
 		OutputTokens: tokens.OutputTokens,
@@ -539,10 +549,22 @@ func debugUsageDetails(s *session.Session, state *iruntime.State) debugUsageInfo
 		TotalTokens:  tokens.Total(),
 	}
 
-	// Estimate cost if we have token data and a model
+	// Per-request snapshot from last API call.
+	if state != nil {
+		lr := state.LastRequestUsage
+		if lr.InputTokens > 0 || lr.OutputTokens > 0 {
+			info.LastRequest = &debugLastRequestUsage{
+				InputTokens:  lr.InputTokens,
+				OutputTokens: lr.OutputTokens,
+				CacheRead:    lr.CacheRead,
+				CacheCreate:  lr.CacheCreate,
+			}
+		}
+	}
+
+	// Estimate cost if we know the model.
 	if state != nil && state.Model != "" && tokens.Total() > 0 {
-		cost := estimateCostUSD(state.Model, tokens)
-		if cost > 0 {
+		if cost := usage.EstimateCost(state.Model, tokens); cost > 0 {
 			info.CostUSD = &cost
 		}
 	}
@@ -562,38 +584,6 @@ func debugUsageDetails(s *session.Session, state *iruntime.State) debugUsageInfo
 	}
 
 	return info
-}
-
-// estimateCostUSD provides a rough cost estimate based on known model pricing.
-// Prices are approximate and may not reflect current OpenRouter rates.
-func estimateCostUSD(model string, tokens usage.TokenUsage) float64 {
-	type pricing struct {
-		inputPer1M  float64
-		outputPer1M float64
-	}
-	// Approximate OpenRouter pricing (USD per 1M tokens)
-	knownPricing := map[string]pricing{
-		"openai/gpt-4o-mini":     {0.15, 0.60},
-		"openai/gpt-4o":          {2.50, 10.00},
-		"anthropic/claude-sonnet-4": {3.00, 15.00},
-	}
-	// Try prefix matches for custom model variants
-	p, ok := knownPricing[model]
-	if !ok {
-		for prefix, price := range knownPricing {
-			if strings.HasPrefix(model, prefix) {
-				p = price
-				ok = true
-				break
-			}
-		}
-	}
-	if !ok {
-		return 0
-	}
-	inputCost := float64(tokens.InputTokens) / 1_000_000 * p.inputPer1M
-	outputCost := float64(tokens.OutputTokens) / 1_000_000 * p.outputPer1M
-	return inputCost + outputCost
 }
 
 func debugExitReason(s *session.Session, state *iruntime.State, status string) string {
@@ -987,15 +977,26 @@ func printDebugReport(report *debugReport, full bool) {
 	}
 	fmt.Println()
 
-	fmt.Printf("  %s\n", ui.Bold("Usage"))
+	fmt.Printf("  %s\n", ui.Bold("Usage (cumulative)"))
 	fmt.Printf("    input=%d output=%d cache_read=%d cache_create=%d total=%d\n", report.Usage.InputTokens, report.Usage.OutputTokens, report.Usage.CacheRead, report.Usage.CacheCreate, report.Usage.TotalTokens)
+	if report.Usage.CacheRead > 0 || report.Usage.CacheCreate > 0 {
+		// InputTokens already includes CacheRead and CacheCreate as subsets.
+		if report.Usage.InputTokens > 0 {
+			pct := float64(report.Usage.CacheRead) / float64(report.Usage.InputTokens) * 100
+			fmt.Printf("    cache_hit_rate: %.1f%%\n", pct)
+		}
+	}
 	if report.Usage.CostUSD != nil {
-		fmt.Printf("    cost_usd: ~$%.4f\n", *report.Usage.CostUSD)
+		fmt.Printf("    cost_usd: $%.4f\n", *report.Usage.CostUSD)
 	} else {
-		fmt.Printf("    cost_usd: unavailable (unknown model pricing)\n")
+		fmt.Printf("    cost_usd: unavailable\n")
 	}
 	if report.Usage.TokenTrajectory != "" {
 		fmt.Printf("    trajectory: %s\n", report.Usage.TokenTrajectory)
+	}
+	if lr := report.Usage.LastRequest; lr != nil {
+		fmt.Printf("  %s\n", ui.Bold("Usage (last request)"))
+		fmt.Printf("    input=%d output=%d cache_read=%d cache_create=%d\n", lr.InputTokens, lr.OutputTokens, lr.CacheRead, lr.CacheCreate)
 	}
 	fmt.Println()
 

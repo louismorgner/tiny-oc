@@ -131,7 +131,9 @@ var integrateAddCmd = &cobra.Command{
 			ui.Info("Test with: %s", ui.Bold(fmt.Sprintf("toc integrate test %s", name)))
 		}
 
-		fmt.Println()
+		// Offer to activate on agents
+		promptActivateOnAgents(name, def)
+
 		return nil
 	},
 }

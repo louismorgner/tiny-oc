@@ -1,0 +1,19 @@
+runtime: toc-native
+name: superfounder-product-founder
+description: Product founder agent — orchestrates work, maintains product vision, delegates to CTO
+group: superfounder
+model: anthropic/claude-opus-4.6
+context:
+  - BOOTSTRAP.md
+  - product.md
+  - repo/
+compose:
+  - BOOTSTRAP.md
+  - product.md
+permissions:
+  filesystem:
+    read: "on"
+    write: "on"
+    execute: "on"
+  sub-agents:
+    superfounder-cto: "on"

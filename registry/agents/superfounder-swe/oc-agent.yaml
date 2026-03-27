@@ -1,0 +1,14 @@
+runtime: toc-native
+name: superfounder-swe
+description: Software engineer agent — executes precise implementation tasks, writes production-quality code
+group: superfounder
+model: openai/gpt-5.4
+context:
+  - BOOTSTRAP.md
+compose:
+  - BOOTSTRAP.md
+permissions:
+  filesystem:
+    read: "on"
+    write: "on"
+    execute: "on"

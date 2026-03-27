@@ -69,6 +69,73 @@ func TestSaveAndLoadSessionConfig(t *testing.T) {
 	}
 }
 
+func TestResolveSessionConfig_MaxIterations_Default(t *testing.T) {
+	cfg := ResolveSessionConfig(&agent.AgentConfig{
+		Name:    "test-agent",
+		Runtime: runtimeinfo.NativeRuntime,
+		Model:   "openai/gpt-4o-mini",
+		AllowCustomNativeModel: true,
+	})
+	if cfg.RuntimeConfig.MaxIterations != defaultMaxIterations {
+		t.Fatalf("MaxIterations = %d, want %d", cfg.RuntimeConfig.MaxIterations, defaultMaxIterations)
+	}
+}
+
+func TestResolveSessionConfig_MaxIterations_AgentYAML(t *testing.T) {
+	cfg := ResolveSessionConfig(&agent.AgentConfig{
+		Name:          "test-agent",
+		Runtime:       runtimeinfo.NativeRuntime,
+		Model:         "openai/gpt-4o-mini",
+		MaxIterations: 50,
+		AllowCustomNativeModel: true,
+	})
+	if cfg.RuntimeConfig.MaxIterations != 50 {
+		t.Fatalf("MaxIterations = %d, want 50", cfg.RuntimeConfig.MaxIterations)
+	}
+}
+
+func TestResolveSessionConfig_MaxIterations_EnvVar(t *testing.T) {
+	t.Setenv("TOC_MAX_ITERATIONS", "100")
+	cfg := ResolveSessionConfig(&agent.AgentConfig{
+		Name:          "test-agent",
+		Runtime:       runtimeinfo.NativeRuntime,
+		Model:         "openai/gpt-4o-mini",
+		MaxIterations: 50,
+		AllowCustomNativeModel: true,
+	})
+	if cfg.RuntimeConfig.MaxIterations != 100 {
+		t.Fatalf("MaxIterations = %d, want 100 (env should override agent yaml)", cfg.RuntimeConfig.MaxIterations)
+	}
+}
+
+func TestResolveSessionConfig_MaxIterations_CLIOverride(t *testing.T) {
+	t.Setenv("TOC_MAX_ITERATIONS", "100")
+	cfg := ResolveSessionConfig(&agent.AgentConfig{
+		Name:          "test-agent",
+		Runtime:       runtimeinfo.NativeRuntime,
+		Model:         "openai/gpt-4o-mini",
+		MaxIterations: 50,
+		AllowCustomNativeModel: true,
+	}, ResolveOptions{MaxIterationsOverride: 200})
+	if cfg.RuntimeConfig.MaxIterations != 200 {
+		t.Fatalf("MaxIterations = %d, want 200 (CLI should override env and agent yaml)", cfg.RuntimeConfig.MaxIterations)
+	}
+}
+
+func TestResolveSessionConfig_MaxIterations_InvalidEnvIgnored(t *testing.T) {
+	t.Setenv("TOC_MAX_ITERATIONS", "notanumber")
+	cfg := ResolveSessionConfig(&agent.AgentConfig{
+		Name:          "test-agent",
+		Runtime:       runtimeinfo.NativeRuntime,
+		Model:         "openai/gpt-4o-mini",
+		MaxIterations: 50,
+		AllowCustomNativeModel: true,
+	})
+	if cfg.RuntimeConfig.MaxIterations != 50 {
+		t.Fatalf("MaxIterations = %d, want 50 (invalid env should be ignored)", cfg.RuntimeConfig.MaxIterations)
+	}
+}
+
 func TestLoadSessionConfigInWorkspace_Missing(t *testing.T) {
 	_, err := LoadSessionConfigInWorkspace(t.TempDir(), "missing")
 	if !os.IsNotExist(err) {

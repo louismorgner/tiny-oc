@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 
 	"github.com/tiny-oc/toc/internal/agent"
 	"github.com/tiny-oc/toc/internal/integration"
@@ -44,9 +45,19 @@ type SessionConfig struct {
 	LLM                    SessionLLMConfig      `json:"llm,omitempty"`
 }
 
-func ResolveSessionConfig(cfg *agent.AgentConfig) *SessionConfig {
+// ResolveOptions contains optional overrides for session config resolution.
+type ResolveOptions struct {
+	MaxIterationsOverride int // CLI flag override; 0 means not set
+}
+
+func ResolveSessionConfig(cfg *agent.AgentConfig, opts ...ResolveOptions) *SessionConfig {
 	if cfg == nil {
 		return nil
+	}
+
+	var resolveOpts ResolveOptions
+	if len(opts) > 0 {
+		resolveOpts = opts[0]
 	}
 
 	sessionCfg := &SessionConfig{
@@ -67,9 +78,16 @@ func ResolveSessionConfig(cfg *agent.AgentConfig) *SessionConfig {
 	}
 	if cfg.Runtime == runtimeinfo.NativeRuntime {
 		sessionCfg.RuntimeConfig.EnabledTools = NativeToolNames()
+		// Priority: CLI flag > env var > oc-agent.yaml > hardcoded default
 		sessionCfg.RuntimeConfig.MaxIterations = defaultMaxIterations
 		if cfg.MaxIterations > 0 {
 			sessionCfg.RuntimeConfig.MaxIterations = cfg.MaxIterations
+		}
+		if v, err := strconv.Atoi(os.Getenv("TOC_MAX_ITERATIONS")); err == nil && v > 0 {
+			sessionCfg.RuntimeConfig.MaxIterations = v
+		}
+		if resolveOpts.MaxIterationsOverride > 0 {
+			sessionCfg.RuntimeConfig.MaxIterations = resolveOpts.MaxIterationsOverride
 		}
 		sessionCfg.RuntimeConfig.CompactionTriggerChars = 800000
 		sessionCfg.RuntimeConfig.CompactionKeepRecent = 12

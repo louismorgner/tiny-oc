@@ -122,6 +122,72 @@ func TestParseCodexExecLog(t *testing.T) {
 	}
 }
 
+func TestParseCodexRolloutOlderShellFormat(t *testing.T) {
+	provider, err := Get(runtimeinfo.CodexRuntime)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Older Codex CLI emits "shell" function calls with JSON-string output
+	logPath := filepath.Join(t.TempDir(), codexEventsFile)
+	lines := []map[string]interface{}{
+		{
+			"timestamp": "2026-03-27T11:00:00Z",
+			"type":      "session_meta",
+			"payload": map[string]interface{}{
+				"id":        "codex-thread-old",
+				"timestamp": "2026-03-27T11:00:00Z",
+				"cwd":       "/tmp/test",
+			},
+		},
+		{
+			"timestamp": "2026-03-27T11:00:01Z",
+			"type":      "response_item",
+			"payload": map[string]interface{}{
+				"type":      "function_call",
+				"name":      "shell",
+				"arguments": `{"cmd":"ls -la"}`,
+				"call_id":   "call-old-1",
+			},
+		},
+		{
+			"timestamp": "2026-03-27T11:00:02Z",
+			"type":      "response_item",
+			"payload": map[string]interface{}{
+				"type":    "function_call_output",
+				"call_id": "call-old-1",
+				"output":  `{"output":"total 8\ndrwxr-xr-x  2 user user 4096 Mar 27 11:00 .\n","exit_code":0}`,
+			},
+		},
+	}
+	var content []byte
+	for _, line := range lines {
+		data, err := json.Marshal(line)
+		if err != nil {
+			t.Fatal(err)
+		}
+		content = append(content, data...)
+		content = append(content, '\n')
+	}
+	if err := os.WriteFile(logPath, content, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	parsed, err := provider.ParseSessionLog(logPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(parsed.Steps) != 1 {
+		t.Fatalf("expected 1 parsed step, got %d: %#v", len(parsed.Steps), parsed.Steps)
+	}
+	if parsed.Steps[0].Tool != "Bash" || parsed.Steps[0].Command != "ls -la" {
+		t.Fatalf("expected bash step from older shell format, got %#v", parsed.Steps[0])
+	}
+	if parsed.Steps[0].ExitCode != 0 {
+		t.Fatalf("expected exit code 0, got %d", parsed.Steps[0].ExitCode)
+	}
+}
+
 func TestParseCodexRolloutLogAndDiscoverByWorkspace(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)

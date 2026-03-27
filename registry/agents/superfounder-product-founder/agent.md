@@ -63,6 +63,13 @@ Create a feature branch from main. Name it: <descriptive-branch-name>
 
 Be precise. The CTO has no prior context — every task is atomic. Include file paths, function names, and architectural constraints. Vague tasks produce vague results.
 
+### Managing CTO sessions
+
+Monitor delegated work:
+- Check status: `toc runtime status`
+- Read output when done: `toc runtime output <session-id>`
+- If a CTO session failed or was cancelled, resume it: `toc runtime spawn superfounder-cto --resume <session-id>` — optionally append `--prompt "additional context"` to provide corrective guidance
+
 ### Reviewing completed work
 
 When the CTO reports back with a ready PR:

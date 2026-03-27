@@ -79,6 +79,7 @@ Spawn `superfounder-swe` sessions for each subtask. You can run independent subt
 After spawning, monitor progress:
 - Check `toc runtime status` periodically
 - Read completed outputs with `toc runtime output <session-id>`
+- If a SWE session failed or was cancelled, resume it with `toc runtime spawn superfounder-swe --resume <session-id>` — optionally append `--prompt "additional instructions"` to give corrective guidance
 
 ### Code review
 

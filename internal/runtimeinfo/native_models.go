@@ -71,6 +71,16 @@ var nativeModelProfiles = []NativeModelProfile{
 		MaxOutputTokens:   32768,
 		ReservedBuffer:    8192,
 	},
+	{
+		ID:                "anthropic/claude-opus-4.6",
+		Label:             "Claude Opus 4.6",
+		Description:       "Anthropic flagship model for coding and agentic workflows with 1M context",
+		SupportsTools:     true,
+		SupportsStreaming: true,
+		ContextWindow:     1000000,
+		MaxOutputTokens:   128000,
+		ReservedBuffer:    8192,
+	},
 }
 
 func NativeProfiles() []NativeModelProfile {

@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/JohannesKaufmann/html-to-markdown/v2/converter"
 	"github.com/JohannesKaufmann/html-to-markdown/v2/plugin/base"
@@ -21,7 +22,7 @@ import (
 const (
 	webFetchTimeout  = 20 * time.Second
 	maxWebFetchBytes = 2 * 1024 * 1024
-	webFetchUA       = "tiny-oc-toc-native/1.0 (+https://github.com/tiny-oc/toc)"
+	webFetchUA       = "tiny-oc-toc-native/1.0 (+https://github.com/louismorgner/tiny-oc)"
 )
 
 var nativeWebFetchClient = &http.Client{
@@ -83,7 +84,7 @@ func fetchWebContent(rawURL string) (string, Step, error) {
 	}
 	defer resp.Body.Close()
 
-	body, err := readWebFetchBody(resp.Body, maxWebFetchBytes)
+	body, truncated, err := readWebFetchBody(resp.Body, maxWebFetchBytes)
 	if err != nil {
 		return "", Step{}, err
 	}
@@ -103,6 +104,9 @@ func fetchWebContent(rawURL string) (string, Step, error) {
 		return "", Step{}, fmt.Errorf("GET %s returned %s", finalURL.String(), resp.Status)
 	}
 
+	if truncated {
+		content += fmt.Sprintf("\n\n[Response truncated: exceeded %d byte limit]", maxWebFetchBytes)
+	}
 	output := formatWebFetchOutput(rawURL, finalURL.String(), resp.Status, mediaType, title, content)
 	lines := 0
 	if output != "" {
@@ -118,16 +122,16 @@ func fetchWebContent(rawURL string) (string, Step, error) {
 	}, nil
 }
 
-func readWebFetchBody(r io.Reader, limit int64) ([]byte, error) {
+func readWebFetchBody(r io.Reader, limit int64) (data []byte, truncated bool, err error) {
 	limited := io.LimitReader(r, limit+1)
-	data, err := io.ReadAll(limited)
+	data, err = io.ReadAll(limited)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	if int64(len(data)) > limit {
-		return nil, fmt.Errorf("response exceeded %d bytes", limit)
+		return data[:limit], true, nil
 	}
-	return data, nil
+	return data, false, nil
 }
 
 func detectWebFetchMediaType(contentType string, body []byte) string {
@@ -136,7 +140,11 @@ func detectWebFetchMediaType(contentType string, body []byte) string {
 			return strings.ToLower(mediaType)
 		}
 	}
-	return strings.ToLower(strings.TrimSpace(http.DetectContentType(body)))
+	detected := strings.ToLower(strings.TrimSpace(http.DetectContentType(body)))
+	if detected == "application/octet-stream" && utf8.Valid(body) {
+		return "text/plain"
+	}
+	return detected
 }
 
 func renderWebFetchContent(mediaType string, body []byte, pageURL *url.URL) (content string, title string, err error) {
@@ -164,12 +172,12 @@ func convertHTMLForWebFetch(body []byte, pageURL *url.URL) (string, string, erro
 	}
 
 	title := extractHTMLTitle(doc)
-	root, bodyFallback := selectWebFetchRoot(doc)
+	root := selectWebFetchRoot(doc)
 	if root == nil {
 		root = doc
 	}
 
-	sanitizeWebFetchTree(root, pageURL, bodyFallback)
+	sanitizeWebFetchTree(root, pageURL)
 
 	conv := converter.NewConverter(
 		converter.WithPlugins(
@@ -182,6 +190,7 @@ func convertHTMLForWebFetch(body []byte, pageURL *url.URL) (string, string, erro
 			),
 		),
 	)
+	conv.Register.TagType("header", converter.TagTypeRemove, converter.PriorityStandard)
 	conv.Register.TagType("nav", converter.TagTypeRemove, converter.PriorityStandard)
 	conv.Register.TagType("footer", converter.TagTypeRemove, converter.PriorityStandard)
 	conv.Register.TagType("aside", converter.TagTypeRemove, converter.PriorityStandard)
@@ -201,7 +210,7 @@ func convertHTMLForWebFetch(body []byte, pageURL *url.URL) (string, string, erro
 	return content, title, nil
 }
 
-func sanitizeWebFetchTree(node *html.Node, pageURL *url.URL, removePageChrome bool) {
+func sanitizeWebFetchTree(node *html.Node, pageURL *url.URL) {
 	if node == nil {
 		return
 	}
@@ -209,26 +218,22 @@ func sanitizeWebFetchTree(node *html.Node, pageURL *url.URL, removePageChrome bo
 
 	for child := node.FirstChild; child != nil; {
 		next := child.NextSibling
-		if shouldRemoveWebFetchNode(child, removePageChrome) {
+		if shouldRemoveWebFetchNode(child) {
 			node.RemoveChild(child)
 			child = next
 			continue
 		}
-		sanitizeWebFetchTree(child, pageURL, removePageChrome)
+		sanitizeWebFetchTree(child, pageURL)
 		child = next
 	}
 }
 
-func shouldRemoveWebFetchNode(node *html.Node, removePageChrome bool) bool {
+func shouldRemoveWebFetchNode(node *html.Node) bool {
 	if node == nil || node.Type != html.ElementNode {
 		return false
 	}
 
-	name := strings.ToLower(node.Data)
-	if isAlwaysRemovedWebNode(name) {
-		return true
-	}
-	if removePageChrome && isPageChromeWebNode(name) {
+	if isAlwaysRemovedWebNode(strings.ToLower(node.Data)) {
 		return true
 	}
 
@@ -249,15 +254,6 @@ func shouldRemoveWebFetchNode(node *html.Node, removePageChrome bool) bool {
 func isAlwaysRemovedWebNode(name string) bool {
 	switch name {
 	case "script", "style", "noscript", "svg", "canvas", "template", "iframe":
-		return true
-	default:
-		return false
-	}
-}
-
-func isPageChromeWebNode(name string) bool {
-	switch name {
-	case "header", "nav", "footer", "aside":
 		return true
 	default:
 		return false
@@ -289,28 +285,28 @@ func absolutizeURLAttr(raw string, pageURL *url.URL) string {
 	return pageURL.ResolveReference(ref).String()
 }
 
-func selectWebFetchRoot(doc *html.Node) (*html.Node, bool) {
+func selectWebFetchRoot(doc *html.Node) *html.Node {
 	if node := findFirstHTMLElement(doc, func(n *html.Node) bool {
 		return strings.EqualFold(n.Data, "main")
 	}); node != nil {
-		return node, false
+		return node
 	}
 	if node := findFirstHTMLElement(doc, func(n *html.Node) bool {
 		return hasHTMLAttr(n, "role", "main")
 	}); node != nil {
-		return node, false
+		return node
 	}
 	if node := findFirstHTMLElement(doc, func(n *html.Node) bool {
 		return strings.EqualFold(n.Data, "article")
 	}); node != nil {
-		return node, false
+		return node
 	}
 	if node := findFirstHTMLElement(doc, func(n *html.Node) bool {
 		return strings.EqualFold(n.Data, "body")
 	}); node != nil {
-		return node, true
+		return node
 	}
-	return doc, true
+	return doc
 }
 
 func findFirstHTMLElement(node *html.Node, match func(*html.Node) bool) *html.Node {
@@ -394,6 +390,10 @@ func formatWebFetchOutput(requestURL, finalURL, status, mediaType, title, conten
 func normalizeWebFetchText(s string) string {
 	s = strings.ReplaceAll(s, "\r\n", "\n")
 	s = strings.ReplaceAll(s, "\r", "\n")
+	// Collapse 3+ consecutive newlines to 2 (one blank line).
+	for strings.Contains(s, "\n\n\n") {
+		s = strings.ReplaceAll(s, "\n\n\n", "\n\n")
+	}
 	return strings.TrimSpace(s)
 }
 

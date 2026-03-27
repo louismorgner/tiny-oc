@@ -124,6 +124,57 @@ func TestNativeWebFetchReportsFinalURLAfterRedirect(t *testing.T) {
 	}
 }
 
+func TestNativeWebFetchPermAskBlocks(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/plain")
+		_, _ = w.Write([]byte("should not reach"))
+	}))
+	defer server.Close()
+
+	result := nativeWebFetch(nativeToolContext{
+		Agent: "tester",
+		Manifest: &integration.PermissionManifest{
+			Agent: "tester",
+			Network: agent.NetworkPermissions{
+				Web: agent.PermAsk,
+			},
+		},
+	}, toolCall(t, "WebFetch", map[string]interface{}{
+		"url": server.URL,
+	}))
+
+	if result.Step.Success == nil || *result.Step.Success {
+		t.Fatalf("expected PermAsk to block, got %#v", result)
+	}
+	if !strings.Contains(result.Message, "network web") {
+		t.Fatalf("unexpected permission error: %q", result.Message)
+	}
+}
+
+func TestNativeWebFetchTruncatesOversizedBody(t *testing.T) {
+	const bodySize = maxWebFetchBytes + 512
+	big := strings.Repeat("a", int(bodySize))
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/plain")
+		_, _ = w.Write([]byte(big))
+	}))
+	defer server.Close()
+
+	result := nativeWebFetch(nativeToolContext{
+		Agent:    "tester",
+		Manifest: allowWebFetchManifest(),
+	}, toolCall(t, "WebFetch", map[string]interface{}{
+		"url": server.URL,
+	}))
+
+	if result.Step.Success == nil || !*result.Step.Success {
+		t.Fatalf("expected success with truncated body, got %#v", result)
+	}
+	if !strings.Contains(result.Message, "truncated") {
+		t.Fatalf("expected truncation warning, got %q", result.Message)
+	}
+}
+
 func allowWebFetchManifest() *integration.PermissionManifest {
 	return &integration.PermissionManifest{
 		Agent: "tester",

@@ -21,6 +21,7 @@ var (
 	nativeRunModel     string
 	nativeRunPrompt    string
 	nativeRunResume    bool
+	nativeRunTrace     bool
 )
 
 func init() {
@@ -32,6 +33,7 @@ func init() {
 	nativeRunCmd.Flags().StringVar(&nativeRunModel, "model", "", "Model identifier")
 	nativeRunCmd.Flags().StringVar(&nativeRunPrompt, "prompt-file", "", "Optional prompt file")
 	nativeRunCmd.Flags().BoolVar(&nativeRunResume, "resume", false, "Resume an existing session")
+	nativeRunCmd.Flags().BoolVar(&nativeRunTrace, "trace", false, "Write per-turn LLM request/response trace to trace.jsonl in the session directory (also enabled via TOC_TRACE=1)")
 	rootCmd.AddCommand(nativeRunCmd)
 }
 
@@ -59,6 +61,7 @@ var nativeRunCmd = &cobra.Command{
 			Model:     nativeRunModel,
 			Prompt:    prompt,
 			Resume:    nativeRunResume,
+			Trace:     nativeRunTrace,
 			SpawnFunc: nativeSpawnSubAgent,
 		}, os.Stdin, os.Stdout)
 	},

@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	rdebug "runtime/debug"
 	"sort"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -31,6 +32,7 @@ type NativeRunOptions struct {
 	Model     string
 	Prompt    string
 	Resume    bool
+	Trace     bool
 	SpawnFunc SubAgentSpawnFunc
 }
 
@@ -79,6 +81,15 @@ func RunNativeSession(opts NativeRunOptions, stdin io.Reader, stdout io.Writer) 
 		Manifest:   manifest,
 		Config:     sessionCfg,
 		SpawnFunc:  opts.SpawnFunc,
+	}
+	envTrace, _ := strconv.ParseBool(os.Getenv("TOC_TRACE"))
+	if opts.Trace || envTrace {
+		tw, err := newTraceWriter(MetadataDir(opts.Workspace, opts.SessionID))
+		if err != nil {
+			return fmt.Errorf("failed to open trace file: %w", err)
+		}
+		defer tw.Close()
+		toolCtx.Trace = tw
 	}
 	toolSpecs := nativeToolSet(nil)
 	if sessionCfg != nil {
@@ -578,6 +589,7 @@ func runNativeLoop(client *openRouterClient, state *State, toolSpecs []NativeToo
 		if err != nil {
 			return err
 		}
+		toolCtx.Trace.WriteTurn(i, req, resp)
 		accumulateUsage(state, resp)
 
 		msg := resp.Choices[0].Message

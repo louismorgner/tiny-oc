@@ -28,9 +28,8 @@ var pruneProtectedTools = map[string]bool{
 	"SubAgent": true, // coordination metadata
 }
 
-// maybeManageContext is the new entry point for context management. It uses
-// token-budget-aware decisions when a model profile is available, falling
-// back to the legacy char-threshold path otherwise.
+// maybeManageContext is the entry point for context management. It resolves
+// configuration overrides and delegates to the token-budget-aware pipeline.
 func maybeManageContext(state *State, sess *session.Session, cfg *SessionConfig, profile runtimeinfo.NativeModelProfile, client *openRouterClient) (bool, error) {
 	if state == nil {
 		return false, nil

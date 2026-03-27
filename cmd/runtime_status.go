@@ -43,25 +43,26 @@ var runtimeStatusCmd = &cobra.Command{
 }
 
 type statusJSON struct {
-	ID               string             `json:"id"`
-	Name             string             `json:"name,omitempty"`
-	Agent            string             `json:"agent"`
-	Status           string             `json:"status"`
-	Prompt           string             `json:"prompt,omitempty"`
-	ExitCode         *int               `json:"exit_code,omitempty"`
-	Model            string             `json:"model,omitempty"`
-	Runtime          string             `json:"runtime,omitempty"`
-	RuntimeState     string             `json:"runtime_state,omitempty"`
-	ResumeCount      int                `json:"resume_count,omitempty"`
-	Recoveries       int                `json:"recovery_count,omitempty"`
-	Compactions      int                `json:"compactions,omitempty"`
-	LastError        string             `json:"last_error,omitempty"`
-	LastRecovery     string             `json:"last_recovery,omitempty"`
-	Todos            []runtime.TodoItem `json:"todos,omitempty"`
-	TokenTotal       int64              `json:"token_total,omitempty"`
-	InputTokens      int64              `json:"input_tokens,omitempty"`
-	OutputTokens     int64              `json:"output_tokens,omitempty"`
-	LastRequestInput int64              `json:"last_request_input,omitempty"`
+	ID               string                   `json:"id"`
+	Name             string                   `json:"name,omitempty"`
+	Agent            string                   `json:"agent"`
+	Status           string                   `json:"status"`
+	Prompt           string                   `json:"prompt,omitempty"`
+	ExitCode         *int                     `json:"exit_code,omitempty"`
+	Model            string                   `json:"model,omitempty"`
+	Runtime          string                   `json:"runtime,omitempty"`
+	RuntimeState     string                   `json:"runtime_state,omitempty"`
+	ResumeCount      int                      `json:"resume_count,omitempty"`
+	Recoveries       int                      `json:"recovery_count,omitempty"`
+	Compactions      int                      `json:"compactions,omitempty"`
+	LastError        string                   `json:"last_error,omitempty"`
+	LastRecovery     string                   `json:"last_recovery,omitempty"`
+	Todos            []runtime.TodoItem       `json:"todos,omitempty"`
+	PendingQuestion  *runtime.PendingQuestion `json:"pending_question,omitempty"`
+	TokenTotal       int64                    `json:"token_total,omitempty"`
+	InputTokens      int64                    `json:"input_tokens,omitempty"`
+	OutputTokens     int64                    `json:"output_tokens,omitempty"`
+	LastRequestInput int64                    `json:"last_request_input,omitempty"`
 }
 
 func statusJSONForSession(s *session.Session) statusJSON {
@@ -89,6 +90,9 @@ func statusJSONForSession(s *session.Session) statusJSON {
 		sj.InputTokens = summary.Tokens.InputTokens
 		sj.OutputTokens = summary.Tokens.OutputTokens
 		sj.LastRequestInput = summary.LastRequestContext
+	}
+	if pending, err := runtime.LoadPendingQuestion(s); err == nil && pending != nil {
+		sj.PendingQuestion = pending
 	}
 	return sj
 }
@@ -169,6 +173,7 @@ func showSubAgentStatus(ctx *runtime.Context, sessionID string) error {
 	if exitCode, err := s.ReadExitCode(); err == nil {
 		fmt.Printf("  %s %d\n", ui.Bold("Exit code:"), exitCode)
 	}
+	pendingQuestion, _ := runtime.LoadPendingQuestion(s)
 	if summary, err := loadRuntimeStateSummary(s); err == nil && summary != nil {
 		if summary.Model != "" {
 			fmt.Printf("  %s %s\n", ui.Bold("Model:"), ui.Dim(summary.Model))
@@ -206,6 +211,12 @@ func showSubAgentStatus(ctx *runtime.Context, sessionID string) error {
 			}
 		}
 	}
+	if pendingQuestion != nil {
+		if !pendingQuestion.Timestamp.IsZero() {
+			fmt.Printf("  %s %s\n", ui.Bold("Question asked:"), ui.Dim(pendingQuestion.Timestamp.Format("2006-01-02 15:04:05Z07:00")))
+		}
+		fmt.Printf("  %s %s\n", ui.Bold("Pending question:"), ui.Dim(pendingQuestion.Question))
+	}
 	if s.Prompt != "" {
 		prompt := s.Prompt
 		if len(prompt) > 80 {
@@ -227,6 +238,11 @@ func showSubAgentStatus(ctx *runtime.Context, sessionID string) error {
 	case session.StatusCancelled:
 		ui.Info("Resume: %s", ui.Bold(fmt.Sprintf("toc runtime spawn %s --resume %s", s.Agent, sessionID)))
 		fmt.Println()
+	default:
+		if pendingQuestion != nil {
+			ui.Info("Answer: %s", ui.Bold(fmt.Sprintf("toc answer %s --text \"...\"", sessionID)))
+			fmt.Println()
+		}
 	}
 
 	return nil
@@ -248,7 +264,12 @@ func listSubAgentStatuses(ctx *runtime.Context) error {
 	fmt.Printf("  %-10s %-16s %-10s %-10s %s\n", ui.Dim("──────────"), ui.Dim("────────────────"), ui.Dim("──────────"), ui.Dim("──────────"), ui.Dim("────────────────────────────"))
 
 	for _, s := range children {
-		badge := statusBadge(s.ResolvedStatus())
+		status := s.ResolvedStatus()
+		pendingQuestion, _ := runtime.LoadPendingQuestion(&s)
+		badge := statusBadge(status)
+		if pendingQuestion != nil && status == session.StatusActive {
+			badge = ui.Yellow("? question")
+		}
 		tokenText := ""
 		if summary, err := loadRuntimeStateSummary(&s); err == nil && summary != nil {
 			tokenText = summary.Tokens.FormatTotal()

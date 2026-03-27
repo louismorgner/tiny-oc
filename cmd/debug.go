@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	goRuntime "runtime"
 	"sort"
 	"strings"
@@ -138,6 +139,7 @@ type debugStateInfo struct {
 	RuntimeStatus    string                         `json:"runtime_status,omitempty"`
 	Model            string                         `json:"model,omitempty"`
 	LastError        string                         `json:"last_error,omitempty"`
+	PendingQuestion  *iruntime.PendingQuestion      `json:"pending_question,omitempty"`
 	PendingTurn      *iruntime.TurnCheckpoint       `json:"pending_turn,omitempty"`
 	PendingTurnLabel string                         `json:"pending_turn_label,omitempty"`
 	RecoveryCount    int                            `json:"recovery_count,omitempty"`
@@ -150,13 +152,13 @@ type debugStateInfo struct {
 }
 
 type debugTimelineInfo struct {
-	TotalEvents      int                    `json:"total_events"`
-	EventTypes       map[string]int         `json:"event_types,omitempty"`
-	LastToolCall     string                 `json:"last_tool_call,omitempty"`
-	LastErrorEvent   *iruntime.Event        `json:"last_error_event,omitempty"`
-	RecentEvents     []iruntime.Event       `json:"recent_events,omitempty"`
-	RecentToolTimings []debugToolTiming     `json:"recent_tool_timings,omitempty"`
-	LastAssistantMsg string                 `json:"last_assistant_msg,omitempty"`
+	TotalEvents       int               `json:"total_events"`
+	EventTypes        map[string]int    `json:"event_types,omitempty"`
+	LastToolCall      string            `json:"last_tool_call,omitempty"`
+	LastErrorEvent    *iruntime.Event   `json:"last_error_event,omitempty"`
+	RecentEvents      []iruntime.Event  `json:"recent_events,omitempty"`
+	RecentToolTimings []debugToolTiming `json:"recent_tool_timings,omitempty"`
+	LastAssistantMsg  string            `json:"last_assistant_msg,omitempty"`
 }
 
 type debugProcessInfo struct {
@@ -168,11 +170,11 @@ type debugProcessInfo struct {
 }
 
 type debugUsageInfo struct {
-	InputTokens  int64    `json:"input_tokens,omitempty"`
-	OutputTokens int64    `json:"output_tokens,omitempty"`
-	CacheRead    int64    `json:"cache_read,omitempty"`
-	CacheCreate  int64    `json:"cache_create,omitempty"`
-	TotalTokens  int64    `json:"total_tokens,omitempty"`
+	InputTokens     int64    `json:"input_tokens,omitempty"`
+	OutputTokens    int64    `json:"output_tokens,omitempty"`
+	CacheRead       int64    `json:"cache_read,omitempty"`
+	CacheCreate     int64    `json:"cache_create,omitempty"`
+	TotalTokens     int64    `json:"total_tokens,omitempty"`
 	CostUSD         *float64 `json:"cost_usd,omitempty"`
 	TokenTrajectory string   `json:"token_trajectory,omitempty"`
 
@@ -411,6 +413,9 @@ func buildDebugReport(s *session.Session, eventLimit int, full bool) (*debugRepo
 				report.State.ContextDiag = &diag
 			}
 		}
+	}
+	if pendingQuestion, err := iruntime.LoadPendingQuestion(s); err == nil && pendingQuestion != nil {
+		report.State.PendingQuestion = pendingQuestion
 	}
 
 	report.Timeline = debugTimelineDetails(state, events, eventLimit, full)
@@ -660,6 +665,7 @@ func buildDiagnosis(report *debugReport, state *iruntime.State, events []iruntim
 	highTokens := report.Usage.InputTokens > 200000
 	lastTool := report.Timeline.LastToolCall
 	hasError := report.State.LastError != ""
+	hasPendingQuestion := report.State.PendingQuestion != nil
 
 	// Case 1: Process dead but status says active — the core zombie detection
 	if processDead && (status == "active" || status == "running") {
@@ -745,7 +751,18 @@ func buildDiagnosis(report *debugReport, state *iruntime.State, events []iruntim
 		return d
 	}
 
-	// Case 5: Active and actually alive
+	// Case 5: Waiting on operator input
+	if hasPendingQuestion {
+		d.Verdict = "WAITING FOR ANSWER — operator input required"
+		d.Confidence = "high"
+		evidence = append(evidence, "session posted a pending Question tool request")
+		evidence = append(evidence, "question: "+report.State.PendingQuestion.Question)
+		d.Evidence = evidence
+		d.Suggestions = append(d.Suggestions, "Answer with: toc answer "+report.Session.ID[:8]+" --text \"...\"")
+		return d
+	}
+
+	// Case 6: Active and actually alive
 	if processAlive && status == "active" {
 		d.Verdict = "RUNNING — session appears healthy"
 		d.Confidence = "high"
@@ -756,7 +773,7 @@ func buildDiagnosis(report *debugReport, state *iruntime.State, events []iruntim
 		return d
 	}
 
-	// Case 6: Completed successfully
+	// Case 7: Completed successfully
 	if status == "completed" || status == session.StatusCompletedOK {
 		d.Verdict = "COMPLETED — session finished normally"
 		d.Confidence = "high"
@@ -785,10 +802,19 @@ func readDebugArtifact(paths ...string) *debugArtifact {
 }
 
 func debugMetadataArtifacts(s *session.Session) []debugBundleArtifact {
+	metadataDir := s.MetadataDirPath()
+	questionPath := ""
+	answerPath := ""
+	if metadataDir != "" {
+		questionPath = filepath.Join(metadataDir, "question.json")
+		answerPath = filepath.Join(metadataDir, "answer.json")
+	}
 	artifacts := []debugBundleArtifact{
 		{Name: "state.json", Path: iruntime.StatePath(s)},
 		{Name: "events.jsonl", Path: iruntime.EventLogPath(s)},
 		{Name: "stderr.log", Path: iruntime.StderrLogPath(s)},
+		{Name: "question.json", Path: questionPath},
+		{Name: "answer.json", Path: answerPath},
 		{Name: "toc-output.txt", Path: s.WorkspacePath + "/toc-output.txt"},
 		{Name: "toc-output.txt.tmp", Path: s.WorkspacePath + "/toc-output.txt.tmp"},
 	}
@@ -908,6 +934,13 @@ func printDebugReport(report *debugReport, full bool) {
 	}
 	if report.State.LastError != "" {
 		fmt.Printf("    last_error: %s\n", report.State.LastError)
+	}
+	if report.State.PendingQuestion != nil {
+		fmt.Printf("    pending_question: %s\n", report.State.PendingQuestion.Question)
+		if !report.State.PendingQuestion.Timestamp.IsZero() {
+			fmt.Printf("    pending_since: %s\n", report.State.PendingQuestion.Timestamp.Format(time.RFC3339))
+		}
+		fmt.Printf("    answer_with: toc answer %s --text \"...\"\n", report.Session.ID)
 	}
 	if report.State.PendingTurnLabel != "" && report.State.PendingTurn != nil {
 		fmt.Printf("    pending_turn: %s\n", report.State.PendingTurnLabel)

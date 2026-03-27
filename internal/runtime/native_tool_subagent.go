@@ -212,6 +212,9 @@ func subAgentStatus(ctx nativeToolContext, sessionID string) toolExecution {
 				"agent":      s.Agent,
 				"status":     s.ResolvedStatus(),
 			}
+			if pendingQuestion, err := LoadPendingQuestion(&s); err == nil && pendingQuestion != nil {
+				entry["pending_question"] = pendingQuestion
+			}
 			if s.Name != "" {
 				entry["name"] = s.Name
 			}
@@ -257,6 +260,9 @@ func subAgentStatus(ctx nativeToolContext, sessionID string) toolExecution {
 			p = p[:97] + "..."
 		}
 		result["prompt"] = p
+	}
+	if pendingQuestion, err := LoadPendingQuestion(s); err == nil && pendingQuestion != nil {
+		result["pending_question"] = pendingQuestion
 	}
 	if exitCode, err := s.ReadExitCode(); err == nil {
 		result["exit_code"] = exitCode

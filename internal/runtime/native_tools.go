@@ -459,8 +459,8 @@ func nativeQuestion(ctx nativeToolContext, call ToolCall) toolExecution {
 	}
 
 	metaDir := MetadataDir(ctx.Workspace, ctx.SessionID)
-	questionPath := filepath.Join(metaDir, "question.json")
-	answerPath := filepath.Join(metaDir, "answer.json")
+	questionPath := pendingQuestionPath(metaDir)
+	answerPath := pendingAnswerPath(metaDir)
 
 	type questionPayload struct {
 		Question  string    `json:"question"`

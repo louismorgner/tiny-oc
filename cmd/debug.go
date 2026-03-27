@@ -108,6 +108,7 @@ type debugReport struct {
 	Timeline      debugTimelineInfo     `json:"timeline"`
 	Process       debugProcessInfo      `json:"process"`
 	Usage         debugUsageInfo        `json:"usage"`
+	Diagnosis     debugDiagnosis        `json:"diagnosis"`
 	System        debugSystemInfo       `json:"system"`
 	Output        *debugArtifact        `json:"output,omitempty"`
 	Stderr        *debugArtifact        `json:"stderr,omitempty"`
@@ -144,18 +145,21 @@ type debugStateInfo struct {
 }
 
 type debugTimelineInfo struct {
-	TotalEvents    int              `json:"total_events"`
-	EventTypes     map[string]int   `json:"event_types,omitempty"`
-	LastToolCall   string           `json:"last_tool_call,omitempty"`
-	LastErrorEvent *iruntime.Event  `json:"last_error_event,omitempty"`
-	RecentEvents   []iruntime.Event `json:"recent_events,omitempty"`
+	TotalEvents      int                    `json:"total_events"`
+	EventTypes       map[string]int         `json:"event_types,omitempty"`
+	LastToolCall     string                 `json:"last_tool_call,omitempty"`
+	LastErrorEvent   *iruntime.Event        `json:"last_error_event,omitempty"`
+	RecentEvents     []iruntime.Event       `json:"recent_events,omitempty"`
+	RecentToolTimings []debugToolTiming     `json:"recent_tool_timings,omitempty"`
+	LastAssistantMsg string                 `json:"last_assistant_msg,omitempty"`
 }
 
 type debugProcessInfo struct {
-	PID      *int `json:"pid,omitempty"`
-	Alive    bool `json:"alive"`
-	Zombie   bool `json:"zombie"`
-	ExitCode *int `json:"exit_code,omitempty"`
+	PID        *int   `json:"pid,omitempty"`
+	Alive      bool   `json:"alive"`
+	Zombie     bool   `json:"zombie"`
+	ExitCode   *int   `json:"exit_code,omitempty"`
+	ExitSignal string `json:"exit_signal,omitempty"`
 }
 
 type debugUsageInfo struct {
@@ -165,6 +169,21 @@ type debugUsageInfo struct {
 	CacheCreate  int64    `json:"cache_create,omitempty"`
 	TotalTokens  int64    `json:"total_tokens,omitempty"`
 	CostUSD      *float64 `json:"cost_usd,omitempty"`
+	TokenTrajectory string `json:"token_trajectory,omitempty"`
+}
+
+type debugToolTiming struct {
+	Tool       string `json:"tool"`
+	DurationMS int64  `json:"duration_ms,omitempty"`
+	TimedOut   bool   `json:"timed_out,omitempty"`
+	Success    *bool  `json:"success,omitempty"`
+}
+
+type debugDiagnosis struct {
+	Verdict     string   `json:"verdict"`
+	Confidence  string   `json:"confidence"`
+	Evidence    []string `json:"evidence,omitempty"`
+	Suggestions []string `json:"suggestions,omitempty"`
 }
 
 type debugSystemInfo struct {
@@ -371,6 +390,7 @@ func buildDebugReport(s *session.Session, eventLimit int, full bool) (*debugRepo
 	report.Output = readDebugArtifact(s.WorkspacePath+"/toc-output.txt", s.WorkspacePath+"/toc-output.txt.tmp")
 	report.Stderr = readDebugArtifact(iruntime.StderrLogPath(s))
 	report.MetadataFiles = debugMetadataArtifacts(s)
+	report.Diagnosis = buildDiagnosis(report, state, events)
 
 	if full {
 		report.FullState = state
@@ -406,6 +426,8 @@ func debugTimelineDetails(state *iruntime.State, events []iruntime.Event, eventL
 	typeCounts := make(map[string]int)
 	var lastError *iruntime.Event
 	lastTool := ""
+	lastAssistantMsg := ""
+	var toolTimings []debugToolTiming
 	for i := range events {
 		ev := events[i]
 		typeCounts[ev.Step.Type]++
@@ -415,10 +437,36 @@ func debugTimelineDetails(state *iruntime.State, events []iruntime.Event, eventL
 		}
 		if ev.Step.Tool != "" {
 			lastTool = ev.Step.Tool
+			timing := debugToolTiming{
+				Tool:       ev.Step.Tool,
+				DurationMS: ev.Step.DurationMS,
+				TimedOut:   ev.Step.TimedOut,
+				Success:    ev.Step.Success,
+			}
+			toolTimings = append(toolTimings, timing)
+		}
+		if ev.Step.Type == "text" && strings.TrimSpace(ev.Step.Content) != "" {
+			lastAssistantMsg = ev.Step.Content
 		}
 	}
 	if lastTool == "" {
 		lastTool = iruntime.LastToolCall(state)
+	}
+
+	// Also extract last assistant message from state messages if not found in events
+	if lastAssistantMsg == "" && state != nil {
+		for i := len(state.Messages) - 1; i >= 0; i-- {
+			msg := state.Messages[i]
+			if msg.Role == "assistant" && strings.TrimSpace(msg.Content) != "" {
+				lastAssistantMsg = msg.Content
+				break
+			}
+		}
+	}
+
+	// Truncate last assistant message for display
+	if len(lastAssistantMsg) > 500 {
+		lastAssistantMsg = lastAssistantMsg[:497] + "..."
 	}
 
 	recent := events
@@ -426,12 +474,20 @@ func debugTimelineDetails(state *iruntime.State, events []iruntime.Event, eventL
 		recent = events[len(events)-eventLimit:]
 	}
 
+	// Only keep last 10 tool timings
+	recentTimings := toolTimings
+	if len(recentTimings) > 10 {
+		recentTimings = recentTimings[len(recentTimings)-10:]
+	}
+
 	return debugTimelineInfo{
-		TotalEvents:    len(events),
-		EventTypes:     typeCounts,
-		LastToolCall:   lastTool,
-		LastErrorEvent: lastError,
-		RecentEvents:   recent,
+		TotalEvents:       len(events),
+		EventTypes:        typeCounts,
+		LastToolCall:      lastTool,
+		LastErrorEvent:    lastError,
+		RecentEvents:      recent,
+		RecentToolTimings: recentTimings,
+		LastAssistantMsg:  lastAssistantMsg,
 	}
 }
 
@@ -443,6 +499,20 @@ func debugProcessDetails(s *session.Session, status string) debugProcessInfo {
 	}
 	if exitCode, err := s.ReadExitCode(); err == nil {
 		info.ExitCode = &exitCode
+		// Common signal-based exit codes (128 + signal number)
+		if exitCode > 128 && exitCode <= 128+31 {
+			sigNum := exitCode - 128
+			signalNames := map[int]string{
+				1: "SIGHUP", 2: "SIGINT", 3: "SIGQUIT", 6: "SIGABRT",
+				9: "SIGKILL", 11: "SIGSEGV", 13: "SIGPIPE", 14: "SIGALRM",
+				15: "SIGTERM",
+			}
+			if name, ok := signalNames[sigNum]; ok {
+				info.ExitSignal = name
+			} else {
+				info.ExitSignal = fmt.Sprintf("signal %d", sigNum)
+			}
+		}
 	}
 	return info
 }
@@ -459,13 +529,70 @@ func debugUsageDetails(s *session.Session, state *iruntime.State) debugUsageInfo
 	} else {
 		tokens = usage.ForSession(s)
 	}
-	return debugUsageInfo{
+
+	info := debugUsageInfo{
 		InputTokens:  tokens.InputTokens,
 		OutputTokens: tokens.OutputTokens,
 		CacheRead:    tokens.CacheRead,
 		CacheCreate:  tokens.CacheCreate,
 		TotalTokens:  tokens.Total(),
 	}
+
+	// Estimate cost if we have token data and a model
+	if state != nil && state.Model != "" && tokens.Total() > 0 {
+		cost := estimateCostUSD(state.Model, tokens)
+		if cost > 0 {
+			info.CostUSD = &cost
+		}
+	}
+
+	// Token trajectory: characterize the growth pattern
+	if tokens.InputTokens > 0 {
+		ratio := float64(tokens.InputTokens) / float64(tokens.InputTokens+tokens.OutputTokens)
+		if tokens.InputTokens > 200000 {
+			info.TokenTrajectory = fmt.Sprintf("high context (%.0f%% input) — approaching model limits", ratio*100)
+		} else if tokens.InputTokens > 100000 {
+			info.TokenTrajectory = fmt.Sprintf("elevated context (%.0f%% input)", ratio*100)
+		} else if ratio > 0.95 {
+			info.TokenTrajectory = fmt.Sprintf("input-heavy (%.0f%% input) — mostly reading, little generation", ratio*100)
+		} else {
+			info.TokenTrajectory = "normal"
+		}
+	}
+
+	return info
+}
+
+// estimateCostUSD provides a rough cost estimate based on known model pricing.
+// Prices are approximate and may not reflect current OpenRouter rates.
+func estimateCostUSD(model string, tokens usage.TokenUsage) float64 {
+	type pricing struct {
+		inputPer1M  float64
+		outputPer1M float64
+	}
+	// Approximate OpenRouter pricing (USD per 1M tokens)
+	knownPricing := map[string]pricing{
+		"openai/gpt-4o-mini":     {0.15, 0.60},
+		"openai/gpt-4o":          {2.50, 10.00},
+		"anthropic/claude-sonnet-4": {3.00, 15.00},
+	}
+	// Try prefix matches for custom model variants
+	p, ok := knownPricing[model]
+	if !ok {
+		for prefix, price := range knownPricing {
+			if strings.HasPrefix(model, prefix) {
+				p = price
+				ok = true
+				break
+			}
+		}
+	}
+	if !ok {
+		return 0
+	}
+	inputCost := float64(tokens.InputTokens) / 1_000_000 * p.inputPer1M
+	outputCost := float64(tokens.OutputTokens) / 1_000_000 * p.outputPer1M
+	return inputCost + outputCost
 }
 
 func debugExitReason(s *session.Session, state *iruntime.State, status string) string {
@@ -479,7 +606,26 @@ func debugExitReason(s *session.Session, state *iruntime.State, status string) s
 		if exitCode == 0 {
 			return "exit code 0"
 		}
+		// Decode signal-based exit codes
+		if exitCode > 128 && exitCode <= 128+31 {
+			sigNum := exitCode - 128
+			signalNames := map[int]string{
+				9: "SIGKILL (likely OOM)", 11: "SIGSEGV (segfault)",
+				15: "SIGTERM", 6: "SIGABRT",
+			}
+			if name, ok := signalNames[sigNum]; ok {
+				return fmt.Sprintf("killed by %s (exit code %d)", name, exitCode)
+			}
+			return fmt.Sprintf("killed by signal %d (exit code %d)", sigNum, exitCode)
+		}
 		return fmt.Sprintf("exit code %d", exitCode)
+	}
+	// Process dead but no exit code — most likely killed externally
+	if status == session.StatusZombie || status == "active" {
+		pid, pidErr := s.ReadPID()
+		if pidErr == nil && !isProcessAlive(pid) {
+			return "process died without cleanup (no exit code captured)"
+		}
 	}
 	if status == session.StatusZombie {
 		return "process exited before finalizing output"
@@ -488,6 +634,134 @@ func debugExitReason(s *session.Session, state *iruntime.State, status string) s
 		return "cancelled"
 	}
 	return ""
+}
+
+func isProcessAlive(pid int) bool {
+	return syscall.Kill(pid, 0) == nil
+}
+
+func buildDiagnosis(report *debugReport, state *iruntime.State, events []iruntime.Event) debugDiagnosis {
+	d := debugDiagnosis{}
+	var evidence []string
+
+	processAlive := report.Process.Alive
+	processDead := !processAlive && report.Process.PID != nil
+	hasExitCode := report.Process.ExitCode != nil
+	status := report.Session.Status
+	stderrEmpty := report.Stderr == nil || strings.TrimSpace(report.Stderr.Content) == ""
+	outputMissing := report.Output == nil
+	hasCrashInfo := report.State.CrashInfo != nil
+	highTokens := report.Usage.InputTokens > 200000
+	lastTool := report.Timeline.LastToolCall
+	hasError := report.State.LastError != ""
+
+	// Case 1: Process dead but status says active — the core zombie detection
+	if processDead && (status == "active" || status == "running") {
+		evidence = append(evidence, "process is dead but status is still '"+status+"'")
+		d.Verdict = "CRASHED — process died without cleanup"
+		d.Confidence = "high"
+
+		if report.Process.ExitSignal == "SIGKILL" {
+			evidence = append(evidence, "exit signal: SIGKILL (likely OOM killer)")
+			d.Suggestions = append(d.Suggestions, "Check system logs: dmesg | grep -i oom")
+		} else if report.Process.ExitSignal == "SIGSEGV" {
+			evidence = append(evidence, "exit signal: SIGSEGV (segmentation fault)")
+		} else if report.Process.ExitSignal != "" {
+			evidence = append(evidence, "exit signal: "+report.Process.ExitSignal)
+		}
+
+		if highTokens {
+			evidence = append(evidence, fmt.Sprintf("high token usage (%dk input) — likely memory pressure", report.Usage.InputTokens/1000))
+			d.Suggestions = append(d.Suggestions, "Consider enabling compaction or reducing max_iterations to limit context growth")
+		}
+
+		if stderrEmpty && outputMissing {
+			evidence = append(evidence, "no stderr and no output — process was killed externally (OOM/SIGKILL)")
+			if !highTokens {
+				d.Suggestions = append(d.Suggestions, "Check system logs for OOM events or manual kills")
+			}
+		}
+
+		if lastTool == "Bash" {
+			evidence = append(evidence, "last pending tool was Bash — possible hung command")
+			d.Suggestions = append(d.Suggestions, "Check if the Bash command was long-running or resource-intensive")
+		}
+
+		d.Evidence = evidence
+		return d
+	}
+
+	// Case 2: Explicit crash with panic info
+	if hasCrashInfo {
+		d.Verdict = "PANICKED — Go runtime panic"
+		d.Confidence = "high"
+		if report.State.CrashInfo.PanicMessage != "" {
+			evidence = append(evidence, "panic: "+report.State.CrashInfo.PanicMessage)
+		}
+		if report.State.CrashInfo.LastToolCall != "" {
+			evidence = append(evidence, "last tool: "+report.State.CrashInfo.LastToolCall)
+		}
+		d.Evidence = evidence
+		d.Suggestions = append(d.Suggestions, "This is a bug in toc — file an issue with the stack trace from --full output")
+		return d
+	}
+
+	// Case 3: Failed with error
+	if hasError && (status == "failed" || status == session.StatusCompletedError) {
+		d.Verdict = "FAILED — runtime error"
+		d.Confidence = "high"
+		evidence = append(evidence, "last_error: "+report.State.LastError)
+		if strings.Contains(report.State.LastError, "OpenRouter") {
+			d.Suggestions = append(d.Suggestions, "API error — check OpenRouter status and your API key/credits")
+		}
+		if strings.Contains(report.State.LastError, "max tool iterations") {
+			d.Suggestions = append(d.Suggestions, "Agent hit the iteration limit — increase max_iterations in session config or simplify the task")
+		}
+		d.Evidence = evidence
+		return d
+	}
+
+	// Case 4: Zombie detected by session resolution
+	if status == session.StatusZombie {
+		d.Verdict = "ZOMBIE — process exited before writing output"
+		d.Confidence = "high"
+		if stderrEmpty {
+			evidence = append(evidence, "no stderr captured")
+		}
+		if highTokens {
+			evidence = append(evidence, fmt.Sprintf("high token usage (%dk input)", report.Usage.InputTokens/1000))
+		}
+		if !hasExitCode {
+			evidence = append(evidence, "no exit code — shell wrapper may have been killed too")
+		}
+		d.Evidence = evidence
+		d.Suggestions = append(d.Suggestions, "Resume with: toc runtime spawn <agent> --resume "+report.Session.ID[:8])
+		return d
+	}
+
+	// Case 5: Active and actually alive
+	if processAlive && status == "active" {
+		d.Verdict = "RUNNING — session appears healthy"
+		d.Confidence = "high"
+		if highTokens {
+			evidence = append(evidence, fmt.Sprintf("warning: high token usage (%dk input) — monitor for OOM", report.Usage.InputTokens/1000))
+		}
+		d.Evidence = evidence
+		return d
+	}
+
+	// Case 6: Completed successfully
+	if status == "completed" || status == session.StatusCompletedOK {
+		d.Verdict = "COMPLETED — session finished normally"
+		d.Confidence = "high"
+		return d
+	}
+
+	// Default: can't determine
+	d.Verdict = "UNKNOWN — insufficient evidence"
+	d.Confidence = "low"
+	d.Suggestions = append(d.Suggestions, "Run with --full for complete state dump")
+	return d
 }
 
 func readDebugArtifact(paths ...string) *debugArtifact {
@@ -586,6 +860,23 @@ func writeTarEntry(tw *tar.Writer, name string, data []byte) error {
 
 func printDebugReport(report *debugReport, full bool) {
 	fmt.Println()
+
+	// Diagnosis banner — show the verdict prominently at the top
+	if report.Diagnosis.Verdict != "" {
+		fmt.Printf("  %s %s\n", ui.Bold("Diagnosis:"), report.Diagnosis.Verdict)
+		if len(report.Diagnosis.Evidence) > 0 {
+			for _, ev := range report.Diagnosis.Evidence {
+				fmt.Printf("    - %s\n", ev)
+			}
+		}
+		if len(report.Diagnosis.Suggestions) > 0 {
+			for _, s := range report.Diagnosis.Suggestions {
+				fmt.Printf("    > %s\n", s)
+			}
+		}
+		fmt.Println()
+	}
+
 	fmt.Printf("  %s %s\n", ui.Bold("Session:"), ui.Cyan(report.Session.ID))
 	fmt.Printf("  %s %s\n", ui.Bold("Agent:"), ui.Cyan(report.Session.Agent))
 	fmt.Printf("  %s %s\n", ui.Bold("Status:"), ui.Dim(report.Session.Status))
@@ -628,6 +919,13 @@ func printDebugReport(report *debugReport, full bool) {
 	}
 	fmt.Println()
 
+	// Last Words — what was the agent doing before it died?
+	if report.Timeline.LastAssistantMsg != "" {
+		fmt.Printf("  %s\n", ui.Bold("Last Words"))
+		fmt.Println(indentBlock(report.Timeline.LastAssistantMsg, "    "))
+		fmt.Println()
+	}
+
 	fmt.Printf("  %s\n", ui.Bold("Timeline"))
 	fmt.Printf("    total_events: %d\n", report.Timeline.TotalEvents)
 	if len(report.Timeline.EventTypes) > 0 {
@@ -638,6 +936,22 @@ func printDebugReport(report *debugReport, full bool) {
 	}
 	if report.Timeline.LastErrorEvent != nil {
 		fmt.Printf("    last_error_event: %s\n", strings.TrimSpace(report.Timeline.LastErrorEvent.Step.Content))
+	}
+	if len(report.Timeline.RecentToolTimings) > 0 {
+		fmt.Printf("    tool_timings:\n")
+		for _, t := range report.Timeline.RecentToolTimings {
+			suffix := ""
+			if t.TimedOut {
+				suffix = " (TIMED OUT)"
+			} else if t.Success != nil && !*t.Success {
+				suffix = " (failed)"
+			}
+			if t.DurationMS > 0 {
+				fmt.Printf("      - %s %dms%s\n", t.Tool, t.DurationMS, suffix)
+			} else {
+				fmt.Printf("      - %s%s\n", t.Tool, suffix)
+			}
+		}
 	}
 	if len(report.Timeline.RecentEvents) > 0 {
 		fmt.Printf("    recent_events:\n")
@@ -667,11 +981,21 @@ func printDebugReport(report *debugReport, full bool) {
 	if report.Process.ExitCode != nil {
 		fmt.Printf("    exit_code: %d\n", *report.Process.ExitCode)
 	}
+	if report.Process.ExitSignal != "" {
+		fmt.Printf("    exit_signal: %s\n", report.Process.ExitSignal)
+	}
 	fmt.Println()
 
 	fmt.Printf("  %s\n", ui.Bold("Usage"))
 	fmt.Printf("    input=%d output=%d cache_read=%d cache_create=%d total=%d\n", report.Usage.InputTokens, report.Usage.OutputTokens, report.Usage.CacheRead, report.Usage.CacheCreate, report.Usage.TotalTokens)
-	fmt.Printf("    cost_usd: unavailable\n")
+	if report.Usage.CostUSD != nil {
+		fmt.Printf("    cost_usd: ~$%.4f\n", *report.Usage.CostUSD)
+	} else {
+		fmt.Printf("    cost_usd: unavailable (unknown model pricing)\n")
+	}
+	if report.Usage.TokenTrajectory != "" {
+		fmt.Printf("    trajectory: %s\n", report.Usage.TokenTrajectory)
+	}
 	fmt.Println()
 
 	printArtifact("toc-output", report.Output)

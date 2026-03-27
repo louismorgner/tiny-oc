@@ -18,10 +18,11 @@ type traceEntry struct {
 }
 
 type traceTokens struct {
-	Prompt     int64 `json:"prompt"`
-	Completion int64 `json:"completion"`
-	Total      int64 `json:"total"`
-	Cached     int64 `json:"cached,omitempty"`
+	Prompt      int64 `json:"prompt"`
+	Completion  int64 `json:"completion"`
+	Total       int64 `json:"total"`
+	CacheRead   int64 `json:"cache_read,omitempty"`
+	CacheCreate int64 `json:"cache_create,omitempty"`
 }
 
 // traceWriter appends trace entries to a JSONL file. A nil traceWriter is safe
@@ -64,7 +65,8 @@ func (tw *traceWriter) WriteTurn(turn int, req chatRequest, resp *chatResponse) 
 			Total:      resp.Usage.TotalTokens,
 		}
 		if resp.Usage.PromptTokensDetails != nil {
-			entry.Tokens.Cached = resp.Usage.PromptTokensDetails.CachedTokens
+			entry.Tokens.CacheRead = resp.Usage.PromptTokensDetails.CachedTokens
+			entry.Tokens.CacheCreate = resp.Usage.PromptTokensDetails.CacheWriteTokens
 		}
 	}
 	tw.mu.Lock()

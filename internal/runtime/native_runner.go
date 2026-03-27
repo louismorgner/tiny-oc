@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	rdebug "runtime/debug"
 	"sort"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -81,7 +82,8 @@ func RunNativeSession(opts NativeRunOptions, stdin io.Reader, stdout io.Writer) 
 		Config:     sessionCfg,
 		SpawnFunc:  opts.SpawnFunc,
 	}
-	if opts.Trace || os.Getenv("TOC_TRACE") != "" {
+	envTrace, _ := strconv.ParseBool(os.Getenv("TOC_TRACE"))
+	if opts.Trace || envTrace {
 		tw, err := newTraceWriter(MetadataDir(opts.Workspace, opts.SessionID))
 		if err != nil {
 			return fmt.Errorf("failed to open trace file: %w", err)

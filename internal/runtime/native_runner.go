@@ -404,7 +404,7 @@ func runNativeLoop(client *openRouterClient, state *State, toolSpecs []NativeToo
 		maxIterations = toolCtx.Config.RuntimeConfig.MaxIterations
 	}
 	for i := 0; i < maxIterations; i++ {
-		compacted, err := maybeCompactState(state, sess, toolCtx.Config)
+		compacted, err := maybeManageContext(state, sess, toolCtx.Config, profile)
 		if err != nil {
 			return err
 		}
@@ -500,6 +500,12 @@ func runNativeLoop(client *openRouterClient, state *State, toolSpecs []NativeToo
 
 		for _, call := range msg.ToolCalls {
 			result := executeNativeTool(toolSpecs, toolCtx, call)
+
+			// Update working set
+			if state.WorkingSet == nil {
+				state.WorkingSet = &WorkingSet{}
+			}
+			state.WorkingSet.UpdateFromToolCall(call.Function.Name, call.Function.Arguments)
 
 			if !detached {
 				var parsedArgs map[string]interface{}

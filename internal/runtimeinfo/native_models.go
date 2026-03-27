@@ -11,6 +11,9 @@ type NativeModelProfile struct {
 	Description       string
 	SupportsTools     bool
 	SupportsStreaming bool
+	ContextWindow     int // total context window in tokens (0 = unknown)
+	MaxOutputTokens   int // max output tokens (0 = use provider default)
+	ReservedBuffer    int // tokens reserved for tool defs, system overhead
 }
 
 type NativeCapabilityContract struct {
@@ -24,6 +27,9 @@ var nativeModelProfiles = []NativeModelProfile{
 		Description:       "fast default for agent-first runtime iteration",
 		SupportsTools:     true,
 		SupportsStreaming: true,
+		ContextWindow:     128000,
+		MaxOutputTokens:   16384,
+		ReservedBuffer:    4096,
 	},
 	{
 		ID:                "openai/gpt-4o",
@@ -31,6 +37,9 @@ var nativeModelProfiles = []NativeModelProfile{
 		Description:       "stronger OpenAI general-purpose model",
 		SupportsTools:     true,
 		SupportsStreaming: true,
+		ContextWindow:     128000,
+		MaxOutputTokens:   16384,
+		ReservedBuffer:    4096,
 	},
 	{
 		ID:                "anthropic/claude-sonnet-4",
@@ -38,6 +47,9 @@ var nativeModelProfiles = []NativeModelProfile{
 		Description:       "strong coding and reasoning via OpenRouter",
 		SupportsTools:     true,
 		SupportsStreaming: true,
+		ContextWindow:     200000,
+		MaxOutputTokens:   16384,
+		ReservedBuffer:    4096,
 	},
 	{
 		ID:                "openai/gpt-5.4",
@@ -120,5 +132,8 @@ func ResolveNativeProfile(model string) NativeModelProfile {
 		Description:       "custom OpenRouter model",
 		SupportsTools:     true,
 		SupportsStreaming: true,
+		ContextWindow:     128000, // conservative default for unknown models
+		MaxOutputTokens:   8192,
+		ReservedBuffer:    4096,
 	}
 }

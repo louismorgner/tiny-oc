@@ -10,7 +10,7 @@ import (
 	"github.com/tiny-oc/toc/internal/session"
 )
 
-const StateVersion = 4
+const StateVersion = 5
 
 type Message struct {
 	Role         string        `json:"role"`
@@ -71,17 +71,19 @@ type State struct {
 	Prompt            string             `json:"prompt,omitempty"`
 	ResumeCount       int                `json:"resume_count,omitempty"`
 	RecoveryCount     int                `json:"recovery_count,omitempty"`
-	CompactionCount   int                `json:"compaction_count,omitempty"`
-	CompactedMessages int                `json:"compacted_messages,omitempty"`
-	LastError         string             `json:"last_error,omitempty"`
-	LastRecovery      string             `json:"last_recovery,omitempty"`
-	LastCompactedAt   time.Time          `json:"last_compacted_at,omitempty"`
-	LastRecoveredAt   time.Time          `json:"last_recovered_at,omitempty"`
-	Usage             TokenUsageSnapshot `json:"usage,omitempty"`
-	LastRequestUsage  LastRequestUsage   `json:"last_request_usage,omitempty"`
-	Messages          []Message          `json:"messages,omitempty"`
-	PendingTurn       *TurnCheckpoint    `json:"pending_turn,omitempty"`
-	CrashInfo         *CrashInfo         `json:"crash_info,omitempty"`
+	CompactionCount   int                   `json:"compaction_count,omitempty"`
+	CompactedMessages int                   `json:"compacted_messages,omitempty"`
+	LastError         string                `json:"last_error,omitempty"`
+	LastRecovery      string                `json:"last_recovery,omitempty"`
+	LastCompactedAt   time.Time             `json:"last_compacted_at,omitempty"`
+	LastRecoveredAt   time.Time             `json:"last_recovered_at,omitempty"`
+	Usage             TokenUsageSnapshot    `json:"usage,omitempty"`
+	LastRequestUsage  LastRequestUsage      `json:"last_request_usage,omitempty"`
+	Messages          []Message             `json:"messages,omitempty"`
+	Continuation      *ContinuationArtifact `json:"continuation,omitempty"`
+	WorkingSet        *WorkingSet           `json:"working_set,omitempty"`
+	PendingTurn       *TurnCheckpoint       `json:"pending_turn,omitempty"`
+	CrashInfo         *CrashInfo            `json:"crash_info,omitempty"`
 	CreatedAt         time.Time          `json:"created_at"`
 	UpdatedAt         time.Time          `json:"updated_at"`
 }

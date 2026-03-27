@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -35,7 +36,21 @@ func maybeCompactState(state *State, sess *session.Session, cfg *SessionConfig) 
 		}
 	}
 
-	if estimateMessageChars(state.Messages) <= triggerChars {
+	currentChars := estimateMessageChars(state.Messages)
+
+	// Phase 1: Progressive tool result aging.
+	// Before doing a full compaction (which loses context), try shrinking
+	// old tool outputs first. This is cheaper and preserves more signal.
+	// We age tool results that are older than keepRecent messages, reducing
+	// them to a smaller budget (1/4 of original tool budget).
+	if currentChars > triggerChars*3/4 {
+		aged := ageToolResults(state.Messages, keepRecent)
+		if aged > 0 {
+			currentChars = estimateMessageChars(state.Messages)
+		}
+	}
+
+	if currentChars <= triggerChars {
 		return false, nil
 	}
 
@@ -143,18 +158,17 @@ func summarizeCompactedMessage(msg Message) string {
 		return "User: " + truncateInline(msg.Content, 240)
 	case "assistant":
 		if len(msg.ToolCalls) > 0 {
-			var names []string
+			// Preserve tool call details — the paths, commands, and patterns
+			// are more useful than just the tool names for context reconstruction.
+			var callSummaries []string
 			for _, call := range msg.ToolCalls {
-				if call.Function.Name != "" {
-					names = append(names, call.Function.Name)
-				}
+				callSummaries = append(callSummaries, summarizeToolCall(call))
 			}
-			if msg.Content != "" && len(names) > 0 {
-				return fmt.Sprintf("Assistant: %s | requested tools: %s", truncateInline(msg.Content, 120), strings.Join(names, ", "))
+			calls := strings.Join(callSummaries, "; ")
+			if msg.Content != "" {
+				return fmt.Sprintf("Assistant: %s | tools: %s", truncateInline(msg.Content, 120), calls)
 			}
-			if len(names) > 0 {
-				return "Assistant requested tools: " + strings.Join(names, ", ")
-			}
+			return "Assistant tools: " + calls
 		}
 		if msg.Content != "" {
 			return "Assistant: " + truncateInline(msg.Content, 240)
@@ -167,7 +181,17 @@ func summarizeCompactedMessage(msg Message) string {
 		if msg.Content == "" {
 			return "Tool result: " + name
 		}
-		return fmt.Sprintf("Tool %s: %s", name, truncateInline(msg.Content, 200))
+		// For tool results, include the first line (often a summary or file path)
+		// plus a size hint so the model knows how much was there.
+		firstLine := msg.Content
+		if idx := strings.IndexByte(firstLine, '\n'); idx >= 0 {
+			firstLine = firstLine[:idx]
+		}
+		sizeHint := ""
+		if len(msg.Content) > 200 {
+			sizeHint = fmt.Sprintf(" [%d bytes total]", len(msg.Content))
+		}
+		return fmt.Sprintf("Tool %s: %s%s", name, truncateInline(firstLine, 160), sizeHint)
 	case "system":
 		return ""
 	}
@@ -176,6 +200,51 @@ func summarizeCompactedMessage(msg Message) string {
 		return truncateInline(msg.Content, 200)
 	}
 	return ""
+}
+
+// summarizeToolCall extracts the key parameter (path, command, pattern)
+// from a tool call so compaction summaries retain actionable context.
+// Knowing "Read(main.go)" is far more useful than just "Read".
+func summarizeToolCall(call ToolCall) string {
+	name := call.Function.Name
+	if name == "" {
+		return "unknown"
+	}
+	key := extractToolCallKey(name, call.Function.Arguments)
+	if key != "" {
+		return name + "(" + key + ")"
+	}
+	return name
+}
+
+// extractToolCallKey pulls the most identifying parameter from a tool call's
+// JSON arguments. This is a best-effort extraction — if parsing fails, we
+// return empty and fall back to just the tool name.
+func extractToolCallKey(toolName, argsJSON string) string {
+	if argsJSON == "" {
+		return ""
+	}
+	var args map[string]interface{}
+	if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
+		return ""
+	}
+	// Each tool has a primary identifying parameter.
+	var key string
+	switch toolName {
+	case "Read", "Write", "Edit":
+		key, _ = args["file_path"].(string)
+	case "Bash":
+		key, _ = args["command"].(string)
+	case "Grep":
+		key, _ = args["pattern"].(string)
+	case "Glob":
+		key, _ = args["pattern"].(string)
+	case "Skill":
+		key, _ = args["skill"].(string)
+	case "SubAgent":
+		key, _ = args["action"].(string)
+	}
+	return truncateInline(key, 80)
 }
 
 func estimateMessageChars(messages []Message) int {
@@ -208,4 +277,40 @@ func truncateInline(s string, max int) string {
 		return s[:max]
 	}
 	return s[:max-3] + "..."
+}
+
+// ageToolResults shrinks tool result messages that are older than keepRecent
+// positions in the message list. It replaces large tool outputs with
+// middle-truncated versions at 1/4 of the tool's normal budget.
+//
+// This is the first line of defense against context bloat: before doing a
+// full compaction that summarizes and drops messages, we can reclaim
+// significant space by trimming the large outputs that have already been
+// consumed by the model in earlier turns.
+//
+// Returns the number of messages that were shrunk.
+func ageToolResults(messages []Message, keepRecent int) int {
+	if len(messages) <= keepRecent {
+		return 0
+	}
+
+	cutoff := len(messages) - keepRecent
+	aged := 0
+	for i := 0; i < cutoff; i++ {
+		msg := &messages[i]
+		if msg.Role != "tool" || msg.Content == "" {
+			continue
+		}
+		// Age to 1/4 of the tool's normal budget.
+		agedBudget := toolOutputBudget(msg.Name) / 4
+		if agedBudget < 512 {
+			agedBudget = 512
+		}
+		if len(msg.Content) <= agedBudget {
+			continue
+		}
+		msg.Content = truncateMiddle(msg.Content, agedBudget)
+		aged++
+	}
+	return aged
 }

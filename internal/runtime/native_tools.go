@@ -60,7 +60,7 @@ func nativeRead(ctx nativeToolContext, call ToolCall) toolExecution {
 	if args.StartLine > 0 || args.EndLine > 0 {
 		text = sliceLines(text, args.StartLine, args.EndLine)
 	}
-	text = truncateString(text, maxToolOutputBytes)
+	text = truncateToolOutput("Read", text)
 	lines := 0
 	if text != "" {
 		lines = strings.Count(text, "\n") + 1
@@ -252,7 +252,7 @@ func nativeGrep(ctx nativeToolContext, call ToolCall) toolExecution {
 		return toolFailure("Grep", args.Path, args.Pattern, err)
 	}
 
-	return toolSuccess("Grep", args.Path, truncateString(string(output), maxToolOutputBytes), Step{
+	return toolSuccess("Grep", args.Path, truncateToolOutput("Grep", string(output)), Step{
 		Type:    "tool",
 		Tool:    "Grep",
 		Path:    args.Path,
@@ -322,7 +322,7 @@ func nativeBash(ctx nativeToolContext, call ToolCall) toolExecution {
 	step.ExitCode = 0
 	step.Success = boolPtr(true)
 	return toolExecution{
-		Message: truncateString(string(output), maxToolOutputBytes),
+		Message: truncateToolOutput("Bash", string(output)),
 		Step:    step,
 	}
 }
@@ -362,7 +362,7 @@ func nativeSkill(ctx nativeToolContext, call ToolCall) toolExecution {
 			},
 		}
 	}
-	return toolSuccess("Skill", "", truncateString(string(data), maxToolOutputBytes), Step{
+	return toolSuccess("Skill", "", truncateToolOutput("Skill", string(data)), Step{
 		Type:    "skill",
 		Skill:   name,
 		Success: boolPtr(true),
@@ -467,7 +467,7 @@ func writeFilePreserveMode(path string, data []byte, defaultMode fs.FileMode) er
 }
 
 func joinToolMessage(output, suffix string) string {
-	output = truncateString(output, maxToolOutputBytes)
+	output = truncateToolOutput("Bash", output)
 	suffix = strings.TrimSpace(suffix)
 	if output == "" {
 		return suffix

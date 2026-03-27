@@ -500,6 +500,268 @@ func TestRunNativeSession_ContinuesAfterSubAgentNotification(t *testing.T) {
 	}
 }
 
+func TestRunNativeSession_MaxIterationsPromptsUser(t *testing.T) {
+	// When the agent exhausts its iteration budget in an interactive session,
+	// the runner should print a continuation prompt and wait for user input
+	// instead of failing the session.
+	workDir := t.TempDir()
+	metaWorkspace := t.TempDir()
+	agentDir := filepath.Join(metaWorkspace, ".toc", "agents", "iter-agent")
+	if err := os.MkdirAll(agentDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(workDir, ".toc-native"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(workDir, ".toc-native", "system-prompt.md"), []byte("You are a test agent.\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Set MaxIterations to 1 so the limit is hit immediately after one tool call cycle.
+	if err := SaveSessionConfigInWorkspace(metaWorkspace, "sess-iter", &SessionConfig{
+		Agent:   "iter-agent",
+		Runtime: runtimeinfo.NativeRuntime,
+		Model:   "openai/gpt-4o-mini",
+		RuntimeConfig: SessionRuntimeOptions{
+			EnabledTools:  NativeToolNames(),
+			MaxIterations: 1,
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	callCount := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		callCount++
+		var req chatRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		switch callCount {
+		case 1:
+			// First call: return a tool call so the loop uses its one iteration.
+			writeSSEChunk(t, w, map[string]interface{}{
+				"id":    "resp-iter-1",
+				"model": req.Model,
+				"choices": []map[string]interface{}{
+					{
+						"index": 0,
+						"delta": map[string]interface{}{
+							"role":    "assistant",
+							"content": "",
+							"tool_calls": []map[string]interface{}{
+								{
+									"index": 0,
+									"id":    "call-iter-1",
+									"type":  "function",
+									"function": map[string]interface{}{
+										"name":      "Read",
+										"arguments": `{"file_path":"` + filepath.Join(workDir, "notes.txt") + `"}`,
+									},
+								},
+							},
+						},
+					},
+				},
+			})
+			writeSSEChunk(t, w, map[string]interface{}{
+				"id":    "resp-iter-1",
+				"model": req.Model,
+				"usage": map[string]interface{}{"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
+				"choices": []map[string]interface{}{
+					{
+						"index":         0,
+						"delta":         map[string]interface{}{},
+						"finish_reason": "tool_calls",
+					},
+				},
+			})
+		case 2:
+			// Second call (after user continues): return a text-only response.
+			writeSSEChunk(t, w, map[string]interface{}{
+				"id":    "resp-iter-2",
+				"model": req.Model,
+				"choices": []map[string]interface{}{
+					{
+						"index": 0,
+						"delta": map[string]interface{}{
+							"role":    "assistant",
+							"content": "Continued successfully.",
+						},
+					},
+				},
+			})
+			writeSSEChunk(t, w, map[string]interface{}{
+				"id":    "resp-iter-2",
+				"model": req.Model,
+				"usage": map[string]interface{}{"prompt_tokens": 11, "completion_tokens": 6, "total_tokens": 17},
+				"choices": []map[string]interface{}{
+					{
+						"index":         0,
+						"delta":         map[string]interface{}{},
+						"finish_reason": "stop",
+					},
+				},
+			})
+		default:
+			t.Fatalf("unexpected request count %d", callCount)
+		}
+		_, _ = w.Write([]byte("data: [DONE]\n\n"))
+	}))
+	defer server.Close()
+
+	t.Setenv("OPENROUTER_API_KEY", "test-key")
+	t.Setenv("OPENROUTER_BASE_URL", server.URL)
+
+	// Create a file for the Read tool to find.
+	if err := os.WriteFile(filepath.Join(workDir, "notes.txt"), []byte("test content\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Simulate user input: after the iteration limit message, the user
+	// sends "keep going" followed by EOF.
+	stdinContent := "keep going\n"
+	stdin := strings.NewReader(stdinContent)
+
+	var stdout bytes.Buffer
+	err := RunNativeSession(NativeRunOptions{
+		Dir:       workDir,
+		SessionID: "sess-iter",
+		Agent:     "iter-agent",
+		Workspace: metaWorkspace,
+		Model:     "openai/gpt-4o-mini",
+		Prompt:    "Read notes.txt",
+	}, stdin, &stdout)
+	if err != nil {
+		t.Fatalf("RunNativeSession should not fail: %v", err)
+	}
+
+	out := stdout.String()
+	if !strings.Contains(out, "Agent reached tool iteration limit (1)") {
+		t.Fatalf("expected iteration limit message in stdout, got %q", out)
+	}
+	if !strings.Contains(out, "Continued successfully.") {
+		t.Fatalf("expected continuation response in stdout, got %q", out)
+	}
+
+	state, err := LoadStateInWorkspace(metaWorkspace, "sess-iter")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Session should have completed successfully, not "failed".
+	if state.Status == "failed" {
+		t.Fatalf("session should not be in failed state, got status=%q error=%q", state.Status, state.LastError)
+	}
+}
+
+func TestRunNativeSession_MaxIterationsDetachedFails(t *testing.T) {
+	// In detached mode, hitting the iteration limit should fail the session
+	// (no stdin to prompt).
+	workDir := t.TempDir()
+	metaWorkspace := t.TempDir()
+	agentDir := filepath.Join(metaWorkspace, ".toc", "agents", "iter-agent-d")
+	if err := os.MkdirAll(agentDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(workDir, ".toc-native"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(workDir, ".toc-native", "system-prompt.md"), []byte("You are a test agent.\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := SaveSessionConfigInWorkspace(metaWorkspace, "sess-iter-d", &SessionConfig{
+		Agent:   "iter-agent-d",
+		Runtime: runtimeinfo.NativeRuntime,
+		Model:   "openai/gpt-4o-mini",
+		RuntimeConfig: SessionRuntimeOptions{
+			EnabledTools:  NativeToolNames(),
+			MaxIterations: 1,
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req chatRequest
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		w.Header().Set("Content-Type", "text/event-stream")
+		// Always return a tool call so the loop never terminates naturally.
+		writeSSEChunk(t, w, map[string]interface{}{
+			"id":    "resp-d-1",
+			"model": req.Model,
+			"choices": []map[string]interface{}{
+				{
+					"index": 0,
+					"delta": map[string]interface{}{
+						"role":    "assistant",
+						"content": "",
+						"tool_calls": []map[string]interface{}{
+							{
+								"index": 0,
+								"id":    "call-d-1",
+								"type":  "function",
+								"function": map[string]interface{}{
+									"name":      "Read",
+									"arguments": `{"file_path":"` + filepath.Join(workDir, "notes.txt") + `"}`,
+								},
+							},
+						},
+					},
+				},
+			},
+		})
+		writeSSEChunk(t, w, map[string]interface{}{
+			"id":    "resp-d-1",
+			"model": req.Model,
+			"usage": map[string]interface{}{"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
+			"choices": []map[string]interface{}{
+				{
+					"index":         0,
+					"delta":         map[string]interface{}{},
+					"finish_reason": "tool_calls",
+				},
+			},
+		})
+		_, _ = w.Write([]byte("data: [DONE]\n\n"))
+	}))
+	defer server.Close()
+
+	t.Setenv("OPENROUTER_API_KEY", "test-key")
+	t.Setenv("OPENROUTER_BASE_URL", server.URL)
+
+	if err := os.WriteFile(filepath.Join(workDir, "notes.txt"), []byte("test content\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout bytes.Buffer
+	err := RunNativeSession(NativeRunOptions{
+		Mode:      "detached",
+		Dir:       workDir,
+		SessionID: "sess-iter-d",
+		Agent:     "iter-agent-d",
+		Workspace: metaWorkspace,
+		Model:     "openai/gpt-4o-mini",
+		Prompt:    "Read notes.txt",
+	}, bytes.NewBuffer(nil), &stdout)
+
+	if err == nil {
+		t.Fatal("expected error for detached session hitting iteration limit")
+	}
+	if !strings.Contains(err.Error(), "exceeded max tool iterations") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	state, err := LoadStateInWorkspace(metaWorkspace, "sess-iter-d")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.Status != "failed" {
+		t.Fatalf("detached session should be failed, got %q", state.Status)
+	}
+}
+
 func writeSSEChunk(t *testing.T, w http.ResponseWriter, payload map[string]interface{}) {
 	t.Helper()
 	data, err := json.Marshal(payload)

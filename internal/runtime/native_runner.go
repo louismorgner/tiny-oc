@@ -328,7 +328,9 @@ func runNativePrompt(client *openRouterClient, state *State, toolSpecs []NativeT
 	state.Status = "running"
 	state.LastError = ""
 	state.PendingTurn = nil
-	state.Messages = append(state.Messages, Message{Role: "user", Content: prompt})
+	userMsg := Message{Role: "user", Content: prompt}
+	state.Messages = append(state.Messages, userMsg)
+	state.Transcript = append(state.Transcript, userMsg)
 	if err := SaveStateInWorkspace(state.Workspace, state.SessionID, state); err != nil {
 		return err
 	}
@@ -404,7 +406,7 @@ func runNativeLoop(client *openRouterClient, state *State, toolSpecs []NativeToo
 		maxIterations = toolCtx.Config.RuntimeConfig.MaxIterations
 	}
 	for i := 0; i < maxIterations; i++ {
-		compacted, err := maybeCompactState(state, sess, toolCtx.Config)
+		compacted, err := maybeManageContext(state, sess, toolCtx.Config, profile, client)
 		if err != nil {
 			return err
 		}
@@ -419,12 +421,11 @@ func runNativeLoop(client *openRouterClient, state *State, toolSpecs []NativeToo
 			tools = nativeToolDefinitions(toolSpecs)
 		}
 
-		// Place a second cache breakpoint on the last tool result before
-		// the API call. Combined with the system prompt breakpoint, this
-		// creates two cache anchors: one at the top (stable system prompt)
-		// and one near the bottom (all accumulated context). On subsequent
-		// turns, the prefix up to this point can be served from cache.
-		applyCacheBreakpoint(state.Messages)
+		// Build a curated context view for the model request instead of
+		// sending raw state.Messages. This decouples persisted state from
+		// what the model sees and allows working-set injection.
+		contextView := BuildContextView(state)
+		applyCacheBreakpoint(contextView)
 
 		state.PendingTurn = &TurnCheckpoint{
 			Phase:     "awaiting_model",
@@ -438,7 +439,7 @@ func runNativeLoop(client *openRouterClient, state *State, toolSpecs []NativeToo
 		streamEmitter := newTextStreamEmitter(sess, stdout)
 		req := chatRequest{
 			Model:        state.Model,
-			Messages:     state.Messages,
+			Messages:     contextView,
 			Tools:        tools,
 			Provider:     &providerPreference{RequireParameters: true},
 			CacheControl: &cacheControl{Type: "ephemeral"},
@@ -460,6 +461,7 @@ func runNativeLoop(client *openRouterClient, state *State, toolSpecs []NativeToo
 
 		msg := resp.Choices[0].Message
 		state.Messages = append(state.Messages, msg)
+		state.Transcript = append(state.Transcript, msg)
 		if len(msg.ToolCalls) > 0 {
 			state.PendingTurn = &TurnCheckpoint{
 				Phase:     "executing_tools",
@@ -501,6 +503,12 @@ func runNativeLoop(client *openRouterClient, state *State, toolSpecs []NativeToo
 		for _, call := range msg.ToolCalls {
 			result := executeNativeTool(toolSpecs, toolCtx, call)
 
+			// Update working set
+			if state.WorkingSet == nil {
+				state.WorkingSet = &WorkingSet{}
+			}
+			state.WorkingSet.UpdateFromToolCall(call.Function.Name, call.Function.Arguments)
+
 			if !detached {
 				var parsedArgs map[string]interface{}
 				_ = json.Unmarshal([]byte(call.Function.Arguments), &parsedArgs)
@@ -520,12 +528,14 @@ func runNativeLoop(client *openRouterClient, state *State, toolSpecs []NativeToo
 			}); err != nil {
 				return err
 			}
-			state.Messages = append(state.Messages, Message{
+			toolMsg := Message{
 				Role:       "tool",
 				ToolCallID: call.ID,
 				Name:       call.Function.Name,
 				Content:    result.Message,
-			})
+			}
+			state.Messages = append(state.Messages, toolMsg)
+			state.Transcript = append(state.Transcript, toolMsg)
 			if err := SaveStateInWorkspace(state.Workspace, state.SessionID, state); err != nil {
 				return err
 			}

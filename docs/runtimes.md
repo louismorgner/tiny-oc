@@ -126,11 +126,23 @@ The native runtime persists state after each model turn to `.toc/sessions/<id>/s
 
 ### Context window management
 
-When the message history exceeds a character threshold, the native runtime compacts older messages into a summary while keeping recent turns intact. This is controlled by session config defaults:
+The native runtime actively manages context to maintain model quality over long sessions. It uses a multi-stage pipeline driven by token budgets derived from the model's context window:
 
-- Compaction trigger: ~24,000 characters
-- Keep recent: 12 messages
-- Max summary: ~6,000 characters
+1. **Token budget evaluation**: Before each model call, the runtime estimates input tokens and compares against the model's available input budget (context window minus output reservation minus tool overhead).
+2. **Pruning**: When usage exceeds 75% of the input budget, stale tool outputs from older turns are pruned. Error outputs and diffs are protected from pruning.
+3. **Structured compaction**: When usage exceeds 90% of the input budget (or pruning alone is insufficient), older messages are replaced with a structured continuation artifact that captures goal, decisions, working files, completed work, and open loops.
+4. **Fail-safe**: If context remains over budget after emergency compaction, the runtime returns an error rather than sending an over-budget request.
+
+The continuation artifact replaces the old freeform summary with structured fields that help the model resume effectively after compaction.
+
+**Working set tracking**: The runtime tracks files read, edited, and written, along with recent shell commands. This metadata feeds into compaction and diagnostics.
+
+Session config defaults:
+
+- Keep recent: 12 messages (retained after compaction)
+- Max continuation: ~6,000 characters
+
+For models with known context windows (GPT-4o: 128K, Claude Sonnet 4: 200K), token budgets are computed automatically. Custom models use a conservative 128K default.
 
 ## Choosing a runtime
 

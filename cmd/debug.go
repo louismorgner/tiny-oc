@@ -15,6 +15,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/tiny-oc/toc/internal/config"
 	iruntime "github.com/tiny-oc/toc/internal/runtime"
+	"github.com/tiny-oc/toc/internal/runtimeinfo"
 	"github.com/tiny-oc/toc/internal/session"
 	"github.com/tiny-oc/toc/internal/ui"
 	"github.com/tiny-oc/toc/internal/usage"
@@ -134,15 +135,18 @@ type debugSessionInfo struct {
 }
 
 type debugStateInfo struct {
-	RuntimeStatus    string                   `json:"runtime_status,omitempty"`
-	Model            string                   `json:"model,omitempty"`
-	LastError        string                   `json:"last_error,omitempty"`
-	PendingTurn      *iruntime.TurnCheckpoint `json:"pending_turn,omitempty"`
-	PendingTurnLabel string                   `json:"pending_turn_label,omitempty"`
-	RecoveryCount    int                      `json:"recovery_count,omitempty"`
-	ResumeCount      int                      `json:"resume_count,omitempty"`
-	CompactionCount  int                      `json:"compaction_count,omitempty"`
-	CrashInfo        *iruntime.CrashInfo      `json:"crash_info,omitempty"`
+	RuntimeStatus    string                         `json:"runtime_status,omitempty"`
+	Model            string                         `json:"model,omitempty"`
+	LastError        string                         `json:"last_error,omitempty"`
+	PendingTurn      *iruntime.TurnCheckpoint       `json:"pending_turn,omitempty"`
+	PendingTurnLabel string                         `json:"pending_turn_label,omitempty"`
+	RecoveryCount    int                            `json:"recovery_count,omitempty"`
+	ResumeCount      int                            `json:"resume_count,omitempty"`
+	CompactionCount  int                            `json:"compaction_count,omitempty"`
+	CrashInfo        *iruntime.CrashInfo            `json:"crash_info,omitempty"`
+	ContextDiag      *iruntime.ContextDiagnostics   `json:"context_diagnostics,omitempty"`
+	WorkingSet       *iruntime.WorkingSet           `json:"working_set,omitempty"`
+	Continuation     *iruntime.ContinuationArtifact `json:"continuation,omitempty"`
 }
 
 type debugTimelineInfo struct {
@@ -395,6 +399,17 @@ func buildDebugReport(s *session.Session, eventLimit int, full bool) (*debugRepo
 			ResumeCount:      state.ResumeCount,
 			CompactionCount:  state.CompactionCount,
 			CrashInfo:        state.CrashInfo,
+			WorkingSet:       state.WorkingSet,
+			Continuation:     state.Continuation,
+		}
+		// Add context diagnostics for native runtime sessions
+		if state.Model != "" && len(state.Messages) > 0 {
+			profile := runtimeinfo.ResolveNativeProfile(state.Model)
+			if profile.ContextWindow > 0 {
+				budgeter := iruntime.NewContextBudgeter(profile)
+				diag := iruntime.BuildContextDiagnostics(state.Messages, budgeter)
+				report.State.ContextDiag = &diag
+			}
 		}
 	}
 
@@ -906,6 +921,26 @@ func printDebugReport(report *debugReport, full bool) {
 		}
 		if report.State.CrashInfo.LastToolCall != "" {
 			fmt.Printf("    last_tool_call: %s\n", report.State.CrashInfo.LastToolCall)
+		}
+	}
+	if report.State.ContextDiag != nil {
+		diag := report.State.ContextDiag
+		fmt.Printf("    context: %d/%d tokens (%s)\n", diag.EstimatedInputTokens, diag.InputBudget, diag.BudgetDecision)
+		if len(diag.TopContributors) > 0 {
+			fmt.Printf("    top contributors:")
+			for _, c := range diag.TopContributors {
+				fmt.Printf(" %s=%d", c.Label, c.EstimatedTokens)
+			}
+			fmt.Println()
+		}
+	}
+	if report.State.WorkingSet != nil {
+		ws := report.State.WorkingSet
+		if len(ws.FilesEdited) > 0 {
+			fmt.Printf("    edited: %s\n", strings.Join(ws.FilesEdited, ", "))
+		}
+		if len(ws.FilesWritten) > 0 {
+			fmt.Printf("    written: %s\n", strings.Join(ws.FilesWritten, ", "))
 		}
 	}
 	fmt.Println()

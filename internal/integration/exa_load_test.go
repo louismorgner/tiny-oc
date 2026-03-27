@@ -15,10 +15,10 @@ func TestLoadExaDefinition(t *testing.T) {
 	if def.Auth.Method != "api_key" {
 		t.Errorf("expected auth method 'api_key', got: %s", def.Auth.Method)
 	}
-	if len(def.Actions) != 3 {
-		t.Errorf("expected 3 actions, got: %d", len(def.Actions))
+	if len(def.Actions) != 4 {
+		t.Errorf("expected 4 actions, got: %d", len(def.Actions))
 	}
-	for _, name := range []string{"search", "find_similar", "get_contents"} {
+	for _, name := range []string{"search", "find_similar", "get_contents", "extract"} {
 		if _, ok := def.Actions[name]; !ok {
 			t.Errorf("expected action '%s'", name)
 		}

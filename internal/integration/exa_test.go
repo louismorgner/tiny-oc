@@ -116,6 +116,85 @@ func TestBuildExaRequestBody_GetContents(t *testing.T) {
 	}
 }
 
+func TestBuildExaRequestBody_Extract(t *testing.T) {
+	params := map[string]string{
+		"ids":    "https://example.com/page1, https://example.com/page2",
+		"schema": `{"type":"object","properties":{"title":{"type":"string"},"price":{"type":"number"}},"required":["title"]}`,
+		"query":  "product details",
+	}
+
+	body := BuildExaRequestBody("extract", params)
+
+	// ids should be split into array
+	ids, ok := body["ids"].([]string)
+	if !ok {
+		t.Fatalf("expected ids to be []string, got: %T", body["ids"])
+	}
+	if len(ids) != 2 {
+		t.Errorf("expected 2 ids, got: %d", len(ids))
+	}
+
+	// schema and query should be removed from top level
+	if _, ok := body["schema"]; ok {
+		t.Error("schema should not be at top level")
+	}
+	if _, ok := body["query"]; ok {
+		t.Error("query should not be at top level")
+	}
+
+	// contents.summary should contain the schema and query
+	contents, ok := body["contents"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected contents to be a map, got: %T", body["contents"])
+	}
+	summary, ok := contents["summary"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected contents.summary to be a map, got: %T", contents["summary"])
+	}
+
+	// schema should be parsed JSON, not a string
+	schema, ok := summary["schema"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected schema to be parsed JSON object, got: %T", summary["schema"])
+	}
+	if schema["type"] != "object" {
+		t.Errorf("expected schema.type to be 'object', got: %v", schema["type"])
+	}
+
+	// query should be passed through
+	if summary["query"] != "product details" {
+		t.Errorf("expected summary.query to be 'product details', got: %v", summary["query"])
+	}
+}
+
+func TestBuildExaRequestBody_ExtractNoQuery(t *testing.T) {
+	params := map[string]string{
+		"ids":    "https://example.com/page1",
+		"schema": `{"type":"object","properties":{"name":{"type":"string"}}}`,
+	}
+
+	body := BuildExaRequestBody("extract", params)
+
+	contents, ok := body["contents"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected contents map, got: %T", body["contents"])
+	}
+	summary, ok := contents["summary"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected summary map, got: %T", contents["summary"])
+	}
+
+	// query should not be present
+	if _, ok := summary["query"]; ok {
+		t.Error("expected no query in summary when not provided")
+	}
+
+	// schema should still be there
+	if _, ok := summary["schema"]; !ok {
+		t.Error("expected schema in summary")
+	}
+}
+
 func TestBuildExaRequestBody_InvalidNumResults(t *testing.T) {
 	params := map[string]string{
 		"query":      "test",

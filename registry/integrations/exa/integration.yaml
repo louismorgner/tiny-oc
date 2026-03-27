@@ -96,3 +96,26 @@ actions:
       - results[].title
       - results[].url
       - results[].text
+
+  extract:
+    description: Extract structured data from web pages using a JSON schema — provide URLs and a schema to get back only the fields you need
+    scopes:
+      "*": any URL
+    params:
+      - name: ids
+        required: true
+      - name: schema
+        required: true
+      - name: query
+        required: false
+    method: POST
+    endpoint: https://api.exa.ai/contents
+    auth_header: "x-api-key: {{token}}"
+    body_format: json
+    rate_limit:
+      max: 30
+      window: 60s
+    returns:
+      - results[].title
+      - results[].url
+      - results[].summary

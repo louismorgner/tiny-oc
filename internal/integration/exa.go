@@ -1,6 +1,7 @@
 package integration
 
 import (
+	"encoding/json"
 	"strconv"
 	"strings"
 )
@@ -25,6 +26,8 @@ func BuildExaRequestBody(action string, params map[string]string) map[string]int
 		"excludeText":    true,
 		"ids":            true,
 	}
+	// JSON params (JSON string → parsed object)
+	jsonParams := map[string]bool{"schema": true}
 	// Boolean params
 	boolParams := map[string]bool{"moderation": true}
 
@@ -38,6 +41,13 @@ func BuildExaRequestBody(action string, params map[string]string) map[string]int
 			}
 		case arrayParams[k]:
 			body[k] = splitCSV(v)
+		case jsonParams[k]:
+			var obj interface{}
+			if err := json.Unmarshal([]byte(v), &obj); err == nil {
+				body[k] = obj
+			} else {
+				body[k] = v
+			}
 		case boolParams[k]:
 			body[k] = v == "true"
 		default:
@@ -61,6 +71,22 @@ func BuildExaRequestBody(action string, params map[string]string) map[string]int
 			body["contents"] = map[string]interface{}{
 				"text": true,
 			}
+		}
+	}
+
+	// For extract, nest schema and query into contents.summary
+	if action == "extract" {
+		summary := map[string]interface{}{}
+		if schema, ok := body["schema"]; ok {
+			summary["schema"] = schema
+			delete(body, "schema")
+		}
+		if query, ok := body["query"]; ok {
+			summary["query"] = query
+			delete(body, "query")
+		}
+		body["contents"] = map[string]interface{}{
+			"summary": summary,
 		}
 	}
 

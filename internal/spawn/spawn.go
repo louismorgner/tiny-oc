@@ -408,6 +408,9 @@ func restrictNativeSubAgentTools(cfg *runtime.SessionConfig) {
 	if cfg == nil || cfg.Runtime != runtimeinfo.NativeRuntime {
 		return
 	}
+	// An empty EnabledTools list currently means "no tools" for toc-native,
+	// so there's nothing to filter. If that invariant ever changes to mean
+	// "all tools", this helper must be revisited.
 	if len(cfg.RuntimeConfig.EnabledTools) == 0 {
 		return
 	}

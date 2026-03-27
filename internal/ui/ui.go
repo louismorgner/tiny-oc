@@ -112,6 +112,30 @@ func Select(label string, options []SelectOption, defaultIdx int) (string, error
 	return result, nil
 }
 
+// MultiSelect shows an interactive multi-select menu. Returns the selected values.
+func MultiSelect(label string, options []SelectOption, preselected []string) ([]string, error) {
+	var result []string
+
+	// Copy preselected into result so huh pre-selects them
+	result = append(result, preselected...)
+
+	huhOpts := make([]huh.Option[string], len(options))
+	for i, opt := range options {
+		huhOpts[i] = huh.NewOption(opt.Label, opt.Value)
+	}
+
+	sel := huh.NewMultiSelect[string]().
+		Title(label).
+		Options(huhOpts...).
+		Value(&result).
+		Height(len(options) + 3)
+
+	if err := runField(sel); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
 // Success prints a green success message.
 func Success(format string, args ...interface{}) {
 	fmt.Printf("  %s %s\n", Green("✓"), fmt.Sprintf(format, args...))

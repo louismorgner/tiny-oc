@@ -120,6 +120,21 @@ The native runtime reads an OpenRouter API key from the environment (`OPENROUTER
 toc config set openrouter_key sk-or-...
 ```
 
+To override the OpenRouter API endpoint, set `OPENROUTER_BASE_URL`:
+
+```bash
+OPENROUTER_BASE_URL=https://my-proxy.example.com/api/v1 toc run --agent my-agent
+```
+
+This is useful for inspecting API traffic through a local proxy. For example, using [mitmproxy](https://mitmproxy.org/) in reverse mode:
+
+```bash
+mitmweb --mode reverse:https://openrouter.ai --listen-port 8000
+OPENROUTER_BASE_URL=http://localhost:8000/api/v1 toc run --agent my-agent
+```
+
+The env var propagates to sub-agent sessions automatically.
+
 ### State and resume
 
 The native runtime persists state after each model turn to `.toc/sessions/<id>/state.json`. This includes the full message history, token usage, and a turn checkpoint for crash recovery. Resume loads this state and continues the conversation.

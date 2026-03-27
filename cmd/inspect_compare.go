@@ -11,6 +11,8 @@ import (
 	"github.com/tiny-oc/toc/internal/ui"
 )
 
+const inspectLatencyDiffToleranceMS int64 = 50
+
 func init() {
 	inspectCompareCmd.Flags().Bool("json", false, "Output structured JSON")
 	inspectCmd.AddCommand(inspectCompareCmd)
@@ -202,10 +204,7 @@ func printInspectCompareHuman(report inspectCompareReport) {
 
 	fmt.Printf("  %s\n", ui.Bold("Calls"))
 	for _, call := range report.Calls {
-		status := "same"
-		if !call.SamePath || !call.SameModel || !call.SameStatus || call.DurationDeltaMS != 0 || call.TokenDelta != 0 {
-			status = "diff"
-		}
+		status := inspectCallMatchLabel(call)
 		fmt.Printf("    #%d  %s  path %s -> %s  model %s -> %s\n",
 			call.Index,
 			ui.Dim(status),
@@ -234,6 +233,16 @@ func printInspectCompareHuman(report inspectCompareReport) {
 		}
 	}
 	fmt.Println()
+}
+
+func inspectCallMatchLabel(call inspectCallDiff) string {
+	if !call.SamePath || !call.SameModel || !call.SameStatus || call.TokenDelta != 0 {
+		return "diff"
+	}
+	if call.DurationDeltaMS > inspectLatencyDiffToleranceMS || call.DurationDeltaMS < -inspectLatencyDiffToleranceMS {
+		return "diff"
+	}
+	return "same"
 }
 
 func diffStrings(left, right []string) []string {

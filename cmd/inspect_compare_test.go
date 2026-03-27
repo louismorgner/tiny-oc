@@ -124,3 +124,20 @@ func TestInspectCompareJSON(t *testing.T) {
 		t.Fatalf("unexpected json: %s", data)
 	}
 }
+
+func TestInspectCallMatchLabel_ToleratesSmallLatencyDelta(t *testing.T) {
+	call := inspectCallDiff{
+		SamePath:        true,
+		SameModel:       true,
+		SameStatus:      true,
+		DurationDeltaMS: 25,
+	}
+	if got := inspectCallMatchLabel(call); got != "same" {
+		t.Fatalf("inspectCallMatchLabel() = %q, want same", got)
+	}
+
+	call.DurationDeltaMS = 75
+	if got := inspectCallMatchLabel(call); got != "diff" {
+		t.Fatalf("inspectCallMatchLabel() = %q, want diff", got)
+	}
+}

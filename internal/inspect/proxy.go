@@ -20,6 +20,7 @@ import (
 const (
 	HelperCommandName    = "__inspect-proxy"
 	DefaultClaudeBaseURL = "https://api.anthropic.com"
+	maxCaptureBodyBytes  = 8 << 20
 )
 
 type CaptureEntry struct {
@@ -55,7 +56,8 @@ type HelperOptions struct {
 type HelperProcess struct {
 	URL string
 
-	cmd *exec.Cmd
+	cmd        *exec.Cmd
+	stderrFile *os.File
 }
 
 type captureWriter struct {
@@ -96,15 +98,19 @@ func StartHelper(opts HelperOptions) (*HelperProcess, error) {
 	}
 	cmd := exec.Command(opts.Executable, args...)
 	cmd.Stdout = nil
+	var stderrFile *os.File
 	if opts.StderrPath != "" {
-		stderrFile, err := os.OpenFile(opts.StderrPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
-		if err != nil {
-			return nil, err
+		var openErr error
+		stderrFile, openErr = os.OpenFile(opts.StderrPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
+		if openErr != nil {
+			return nil, openErr
 		}
-		defer stderrFile.Close()
 		cmd.Stderr = stderrFile
 	}
 	if err := cmd.Start(); err != nil {
+		if stderrFile != nil {
+			_ = stderrFile.Close()
+		}
 		return nil, err
 	}
 
@@ -117,7 +123,7 @@ func StartHelper(opts HelperOptions) (*HelperProcess, error) {
 		if err == nil {
 			baseURL := strings.TrimSpace(string(data))
 			if baseURL != "" {
-				return &HelperProcess{URL: baseURL, cmd: cmd}, nil
+				return &HelperProcess{URL: baseURL, cmd: cmd, stderrFile: stderrFile}, nil
 			}
 		}
 		time.Sleep(25 * time.Millisecond)
@@ -125,15 +131,23 @@ func StartHelper(opts HelperOptions) (*HelperProcess, error) {
 
 	_ = cmd.Process.Kill()
 	_ = cmd.Wait()
+	if stderrFile != nil {
+		_ = stderrFile.Close()
+	}
 	return nil, fmt.Errorf("inspect proxy did not become ready")
 }
 
 func (hp *HelperProcess) Close() {
-	if hp == nil || hp.cmd == nil || hp.cmd.Process == nil {
+	if hp == nil {
 		return
 	}
-	_ = hp.cmd.Process.Kill()
-	_ = hp.cmd.Wait()
+	if hp.cmd != nil && hp.cmd.Process != nil {
+		_ = hp.cmd.Process.Kill()
+		_ = hp.cmd.Wait()
+	}
+	if hp.stderrFile != nil {
+		_ = hp.stderrFile.Close()
+	}
 }
 
 func RunProxy(ctx context.Context, listenAddr, upstreamBaseURL, capturePath, readyPath string) error {
@@ -202,10 +216,16 @@ func proxyRequest(parent context.Context, transport http.RoundTripper, cw *captu
 		Path:      r.URL.RequestURI(),
 	}
 
-	reqBody, err := io.ReadAll(r.Body)
+	reqBody, err := io.ReadAll(io.LimitReader(r.Body, maxCaptureBodyBytes+1))
 	if err != nil {
 		http.Error(w, "failed to read request body", http.StatusBadRequest)
 		entry.Error = fmt.Sprintf("read request body: %v", err)
+		cw.Write(entry)
+		return
+	}
+	if len(reqBody) > maxCaptureBodyBytes {
+		http.Error(w, "request body too large", http.StatusRequestEntityTooLarge)
+		entry.Error = fmt.Sprintf("request body exceeded %d bytes", maxCaptureBodyBytes)
 		cw.Write(entry)
 		return
 	}

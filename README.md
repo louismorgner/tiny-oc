@@ -82,6 +82,7 @@ When you run `toc agent spawn`, it:
 | `toc agent list` | List all configured agents |
 | `toc agent spawn <name>` | Spawn a new agent session |
 | `toc agent spawn <name> --resume <id>` | Resume an existing session |
+| `toc agent spawn <name> --resume <id> --inspect` | Resume a session with API traffic capture |
 | `toc agent spawn <name> --inspect` | Capture full upstream API traffic for a session |
 | `toc agent remove <name>` | Remove an agent and its sessions |
 | `toc agent skills <name>` | Manage skills for an agent |

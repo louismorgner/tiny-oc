@@ -30,10 +30,21 @@ var pruneProtectedTools = map[string]bool{
 }
 
 // proactiveStubAge is the number of recent messages to keep tool results
-// intact. Tool results older than this are proactively stubbed with a short
-// summary, regardless of budget pressure. This matches Claude Code's approach
-// of not waiting until the context is full to start managing tool results.
+// intact when stubbing is triggered by message count alone (secondary trigger).
 const proactiveStubAge = 16
+
+// proactiveStubBudgetRatio is the context utilization ratio at which
+// proactive stubbing kicks in regardless of message count. At 80% of the
+// input budget, we start stubbing old tool results to avoid hitting the
+// heavier compaction pipeline. This is slightly more aggressive than Claude
+// Code's 83.5% threshold but gives us more headroom for the budget-aware
+// pipeline to work with.
+const proactiveStubBudgetRatio = 0.80
+
+// proactiveStubBudgetKeepRecent is the number of recent messages to preserve
+// when proactive stubbing is triggered by budget pressure. Tighter than
+// proactiveStubAge because budget pressure means we need to reclaim tokens.
+const proactiveStubBudgetKeepRecent = 8
 
 // maybeManageContext is the entry point for context management. It resolves
 // configuration overrides and delegates to the token-budget-aware pipeline.
@@ -56,12 +67,26 @@ func maybeManageContext(state *State, sess *session.Session, cfg *SessionConfig,
 	}
 
 	// Phase 1: Proactive stubbing — replace old tool results with short
-	// summaries regardless of budget pressure. This is the single highest
-	// impact optimization: large Read/Grep/Bash results that are 4+ turns
-	// old are almost never re-referenced but consume thousands of tokens.
-	stubbed := stubOldToolResults(state.Messages, proactiveStubAge)
+	// summaries. Two triggers (whichever fires first):
+	//   Primary:   context utilization >= 80% of input budget → stub with
+	//              tight keepRecent (8) to reclaim tokens aggressively.
+	//   Secondary: message count exceeds proactiveStubAge (16) → stub
+	//              regardless of budget pressure to keep context lean.
+	budgeter := NewContextBudgeter(profile)
+	currentTokens := estimateMessagesTokens(state.Messages)
+	budgetUtilization := float64(currentTokens) / float64(budgeter.InputBudget())
+
+	stubKeepRecent := proactiveStubAge
+	if budgetUtilization >= proactiveStubBudgetRatio {
+		stubKeepRecent = proactiveStubBudgetKeepRecent
+	}
+	stubbed := stubOldToolResults(state.Messages, stubKeepRecent)
 	if stubbed > 0 {
-		emitContextEvent(sess, fmt.Sprintf("Proactively stubbed %d old tool results.", stubbed))
+		if budgetUtilization >= proactiveStubBudgetRatio {
+			emitContextEvent(sess, fmt.Sprintf("Proactively stubbed %d old tool results (budget pressure: %.0f%% utilization).", stubbed, budgetUtilization*100))
+		} else {
+			emitContextEvent(sess, fmt.Sprintf("Proactively stubbed %d old tool results.", stubbed))
+		}
 	}
 
 	// Phase 2: Budget-aware pipeline for heavier management.

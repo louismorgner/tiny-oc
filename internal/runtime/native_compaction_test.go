@@ -210,6 +210,126 @@ func TestStubOldToolResults_SkipsAlreadyStubbed(t *testing.T) {
 	}
 }
 
+func TestMaybeManageContext_BudgetTriggeredStubbing(t *testing.T) {
+	sess := &session.Session{
+		ID:          "sess-budget-stub",
+		Runtime:     runtimeinfo.NativeRuntime,
+		MetadataDir: t.TempDir(),
+	}
+
+	// Tiny context window: budget = 4096 - 1024 - 512 = 2560 tokens.
+	// 80% of 2560 = 2048 tokens ≈ 8192 bytes (at ~4 bytes/token estimate).
+	profile := runtimeinfo.NativeModelProfile{
+		ContextWindow:   4096,
+		MaxOutputTokens: 1024,
+		ReservedBuffer:  512,
+	}
+
+	// Build messages that are under proactiveStubAge (16) but over 80% budget.
+	// Each large tool result is ~3000 bytes ≈ 750 tokens. Three of them plus
+	// overhead should push us past 80% of the 2560-token budget (2048 tokens).
+	largeContent := strings.Repeat("x", 3000)
+	state := &State{
+		Runtime:   runtimeinfo.NativeRuntime,
+		SessionID: sess.ID,
+		Messages: []Message{
+			{Role: "system", Content: "system prompt"},
+			{Role: "user", Content: "request one"},
+			{Role: "assistant", Content: "", ToolCalls: []ToolCall{{ID: "1", Function: ToolCallFunction{Name: "Read"}}}},
+			{Role: "tool", Name: "Read", Content: largeContent},
+			{Role: "user", Content: "request two"},
+			{Role: "assistant", Content: "", ToolCalls: []ToolCall{{ID: "2", Function: ToolCallFunction{Name: "Bash"}}}},
+			{Role: "tool", Name: "Bash", Content: largeContent},
+			{Role: "user", Content: "request three"},
+			{Role: "assistant", Content: "", ToolCalls: []ToolCall{{ID: "3", Function: ToolCallFunction{Name: "Grep"}}}},
+			{Role: "tool", Name: "Grep", Content: largeContent},
+			// Recent messages (within proactiveStubBudgetKeepRecent=8)
+			{Role: "user", Content: "recent request"},
+			{Role: "assistant", Content: "recent reply"},
+		},
+	}
+
+	// Verify we're under proactiveStubAge (16 messages) — so message-count
+	// trigger alone would NOT fire.
+	if len(state.Messages) >= proactiveStubAge {
+		t.Fatalf("test setup: need fewer than %d messages, got %d", proactiveStubAge, len(state.Messages))
+	}
+
+	// Verify we're over 80% budget utilization so the budget trigger fires.
+	budgeter := NewContextBudgeter(profile)
+	tokens := estimateMessagesTokens(state.Messages)
+	utilization := float64(tokens) / float64(budgeter.InputBudget())
+	if utilization < proactiveStubBudgetRatio {
+		t.Fatalf("test setup: need >= %.0f%% utilization, got %.1f%% (%d/%d tokens)",
+			proactiveStubBudgetRatio*100, utilization*100, tokens, budgeter.InputBudget())
+	}
+
+	changed, err := maybeManageContext(state, sess, nil, profile, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !changed {
+		t.Fatal("expected budget-triggered proactive stubbing to make changes")
+	}
+
+	// The Read result at index 3 is outside the budget keepRecent window
+	// (cutoff = 12 - 8 = 4), so it should be stubbed.
+	if !strings.HasPrefix(state.Messages[3].Content, "[") {
+		t.Errorf("message[3] should be stubbed, got: %.80s", state.Messages[3].Content)
+	}
+	// The Bash result at index 6 is within the keepRecent window (>= cutoff 4),
+	// so it should be preserved.
+	if strings.HasPrefix(state.Messages[6].Content, "[") {
+		t.Errorf("message[6] should be preserved (within keepRecent), got: %s", state.Messages[6].Content)
+	}
+}
+
+func TestMaybeManageContext_MessageCountFallback(t *testing.T) {
+	sess := &session.Session{
+		ID:          "sess-msg-count",
+		Runtime:     runtimeinfo.NativeRuntime,
+		MetadataDir: t.TempDir(),
+	}
+
+	// Large context window so budget pressure is NOT a factor.
+	profile := runtimeinfo.NativeModelProfile{
+		ContextWindow:   1000000,
+		MaxOutputTokens: 8192,
+		ReservedBuffer:  4096,
+	}
+
+	// Build exactly proactiveStubAge+2 messages with a large tool result early on.
+	messages := []Message{
+		{Role: "system", Content: "system prompt"},
+		{Role: "user", Content: "first request"},
+		{Role: "assistant", Content: "", ToolCalls: []ToolCall{{ID: "1", Function: ToolCallFunction{Name: "Read"}}}},
+		{Role: "tool", Name: "Read", Content: strings.Repeat("y", 3000)},
+	}
+	// Pad to exceed proactiveStubAge.
+	for i := 0; i < proactiveStubAge; i++ {
+		messages = append(messages, Message{Role: "user", Content: "msg"})
+	}
+
+	state := &State{
+		Runtime:   runtimeinfo.NativeRuntime,
+		SessionID: sess.ID,
+		Messages:  messages,
+	}
+
+	changed, err := maybeManageContext(state, sess, nil, profile, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !changed {
+		t.Fatal("expected message-count-triggered proactive stubbing to make changes")
+	}
+
+	// The Read result at index 3 should be stubbed.
+	if !strings.HasPrefix(state.Messages[3].Content, "[") {
+		t.Errorf("message[3] should be stubbed, got: %.80s", state.Messages[3].Content)
+	}
+}
+
 func TestSummarizeToolCall_ExtractsKeyParam(t *testing.T) {
 	tests := []struct {
 		name string

@@ -3,21 +3,43 @@ package runtime
 import (
 	"fmt"
 	"strings"
+	"sync"
+
+	"github.com/tiktoken-go/tokenizer"
 )
 
-// Approximate bytes-per-token ratio for Claude/GPT-class models.
-// Anthropic and OpenAI both converge around 3.5–4 bytes per token for
-// English-heavy code/text. We use 4 for conservative (over-)estimation
-// so budget decisions err on the side of keeping content shorter.
+// tokenCodec is a lazily-initialized tiktoken encoder (cl100k_base).
+// cl100k_base is the closest publicly available encoding to what Claude
+// models use and gives much better estimates than the 4-byte heuristic.
+var (
+	tokenCodec     tokenizer.Codec
+	tokenCodecOnce sync.Once
+)
+
+func getTokenCodec() tokenizer.Codec {
+	tokenCodecOnce.Do(func() {
+		enc, err := tokenizer.Get(tokenizer.Cl100kBase)
+		if err == nil {
+			tokenCodec = enc
+		}
+	})
+	return tokenCodec
+}
+
+// approxBytesPerToken is the fallback ratio when the tokenizer is unavailable.
 const approxBytesPerToken = 4
 
-// estimateTokens returns a rough token count for the given string.
-// This is intentionally cheap (no tiktoken dependency) — the API
-// reports exact counts, so this is only used for pre-flight decisions
-// like "should we truncate this tool output before adding it to history?"
+// estimateTokens returns a token count for the given string using the
+// cl100k_base tokenizer. Falls back to len/4 if the tokenizer is unavailable.
 func estimateTokens(s string) int {
 	if len(s) == 0 {
 		return 0
+	}
+	if codec := getTokenCodec(); codec != nil {
+		n, err := codec.Count(s)
+		if err == nil {
+			return n
+		}
 	}
 	return (len(s) + approxBytesPerToken - 1) / approxBytesPerToken
 }

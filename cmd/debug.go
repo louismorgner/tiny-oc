@@ -27,6 +27,7 @@ func init() {
 	debugCmd.Flags().Int("events", 50, "Number of recent events to include")
 	debugCmd.Flags().Bool("last", false, "Resolve the most recent session automatically")
 	debugCmd.Flags().Bool("failed", false, "List failed or zombie sessions")
+	debugCmd.ValidArgsFunction = completeSessionIDs
 	rootCmd.AddCommand(debugCmd)
 }
 
@@ -202,7 +203,12 @@ func resolveDebugSession(args []string, last bool) (*session.Session, error) {
 	if len(args) == 0 {
 		return nil, fmt.Errorf("session ID required unless --last or --failed is set")
 	}
-	return session.FindByID(args[0])
+	s, err := session.FindByID(args[0])
+	if err != nil {
+		// Fall back to prefix matching for short-form IDs (e.g. "a46c28d5")
+		return session.FindByIDPrefix(args[0])
+	}
+	return s, nil
 }
 
 func mostRecentDebugSession() (*session.Session, error) {

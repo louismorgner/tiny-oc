@@ -60,7 +60,7 @@ func RunNativeSession(opts NativeRunOptions, stdin io.Reader, stdout io.Writer) 
 	if state.Prompt == "" && opts.Prompt != "" {
 		state.Prompt = opts.Prompt
 	}
-	if err := ensureSystemPrompt(state); err != nil {
+	if err := ensureSystemPrompt(state, sessionCfg); err != nil {
 		return err
 	}
 	if err := SaveStateInWorkspace(opts.Workspace, opts.SessionID, state); err != nil {
@@ -78,6 +78,7 @@ func RunNativeSession(opts NativeRunOptions, stdin io.Reader, stdout io.Writer) 
 		Workspace:  opts.Workspace,
 		Agent:      opts.Agent,
 		SessionID:  opts.SessionID,
+		State:      state,
 		Manifest:   manifest,
 		Config:     sessionCfg,
 		SpawnFunc:  opts.SpawnFunc,
@@ -345,7 +346,7 @@ func describeTurnCheckpoint(turn *TurnCheckpoint) string {
 	}
 }
 
-func ensureSystemPrompt(state *State) error {
+func ensureSystemPrompt(state *State, sessionCfg *SessionConfig) error {
 	if len(state.Messages) > 0 && state.Messages[0].Role == "system" {
 		// Ensure the system prompt has cache_control set — it's the most
 		// stable content across turns and benefits most from caching.
@@ -370,6 +371,13 @@ func ensureSystemPrompt(state *State) error {
 			content = catalog
 		}
 	}
+	if runtimeNotes := buildNativeRuntimeNotes(sessionCfg); runtimeNotes != "" {
+		if content != "" {
+			content = content + "\n\n" + runtimeNotes
+		} else {
+			content = runtimeNotes
+		}
+	}
 
 	if content == "" {
 		return nil
@@ -380,6 +388,27 @@ func ensureSystemPrompt(state *State) error {
 		CacheControl: &cacheControl{Type: "ephemeral"},
 	}}, state.Messages...)
 	return nil
+}
+
+func buildNativeRuntimeNotes(sessionCfg *SessionConfig) string {
+	if sessionCfg == nil {
+		return ""
+	}
+	if !toolEnabled(sessionCfg.RuntimeConfig.EnabledTools, "TodoWrite") {
+		return ""
+	}
+	return `If the task has multiple meaningful steps, use the TodoWrite tool to keep a short session todo list current.
+TodoWrite replaces the entire list on each call, so always send the full updated list.
+Prefer only one item with status "in_progress" at a time and mark items complete immediately.`
+}
+
+func toolEnabled(enabled []string, name string) bool {
+	for _, tool := range enabled {
+		if tool == name {
+			return true
+		}
+	}
+	return false
 }
 
 // buildSkillCatalog scans skillsDir for provisioned skills and returns an XML

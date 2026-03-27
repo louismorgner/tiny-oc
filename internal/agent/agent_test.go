@@ -1,6 +1,9 @@
 package agent
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestEffectivePermissions_Defaults(t *testing.T) {
 	cfg := &AgentConfig{Name: "test", Runtime: "claude-code", Model: "sonnet"}
@@ -178,6 +181,36 @@ func TestValidate_ClaudeCodeDefaultModelAllowed(t *testing.T) {
 	problems := cfg.Validate()
 	if len(problems) != 0 {
 		t.Fatalf("expected default model to be valid for claude-code, got %v", problems)
+	}
+}
+
+func TestValidate_SmallModelRequiresNativeOverride(t *testing.T) {
+	cfg := &AgentConfig{
+		Name:       "test",
+		Runtime:    "toc-native",
+		Model:      "openai/gpt-4o-mini",
+		SmallModel: "meta-llama/unknown",
+	}
+	problems := cfg.Validate()
+	if len(problems) == 0 {
+		t.Fatal("expected validation error for unsupported custom small_model")
+	}
+	if got := problems[0]; !strings.Contains(got, "invalid small_model:") {
+		t.Fatalf("expected small_model validation error, got %v", problems)
+	}
+}
+
+func TestValidate_SmallModelAllowedWithNativeOverride(t *testing.T) {
+	cfg := &AgentConfig{
+		Name:                   "test",
+		Runtime:                "toc-native",
+		Model:                  "openai/gpt-4o-mini",
+		SmallModel:             "meta-llama/unknown",
+		AllowCustomNativeModel: true,
+	}
+	problems := cfg.Validate()
+	if len(problems) != 0 {
+		t.Fatalf("expected override to allow custom small_model, got %v", problems)
 	}
 }
 

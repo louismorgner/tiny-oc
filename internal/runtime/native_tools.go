@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -16,6 +17,7 @@ import (
 
 	"github.com/tiny-oc/toc/internal/integration"
 	tocsync "github.com/tiny-oc/toc/internal/sync"
+	"github.com/tiny-oc/toc/internal/ui"
 )
 
 const maxToolOutputBytes = 64 * 1024
@@ -25,6 +27,7 @@ type nativeToolContext struct {
 	Workspace  string
 	Agent      string
 	SessionID  string
+	State      *State
 	Manifest   *integration.PermissionManifest
 	Config     *SessionConfig
 	SpawnFunc  SubAgentSpawnFunc
@@ -368,6 +371,197 @@ func nativeSkill(ctx nativeToolContext, call ToolCall) toolExecution {
 		Skill:   name,
 		Success: boolPtr(true),
 	})
+}
+
+func nativeTodoWrite(ctx nativeToolContext, call ToolCall) toolExecution {
+	if ctx.State == nil {
+		return toolFailure("TodoWrite", "", "", fmt.Errorf("todo state is not available"))
+	}
+
+	var args struct {
+		Todos []TodoItem `json:"todos"`
+	}
+	if err := decodeToolArgs(call.Function.Arguments, &args); err != nil {
+		return toolFailure("TodoWrite", "", "", err)
+	}
+
+	normalized := make([]TodoItem, 0, len(args.Todos))
+	for i, todo := range args.Todos {
+		content := strings.TrimSpace(todo.Content)
+		if content == "" {
+			return toolFailure("TodoWrite", "", "", fmt.Errorf("todo %d content must not be empty", i+1))
+		}
+		status := strings.TrimSpace(todo.Status)
+		if !isValidTodoStatus(status) {
+			return toolFailure("TodoWrite", "", "", fmt.Errorf("todo %d has invalid status %q", i+1, todo.Status))
+		}
+		priority := strings.TrimSpace(todo.Priority)
+		if !isValidTodoPriority(priority) {
+			return toolFailure("TodoWrite", "", "", fmt.Errorf("todo %d has invalid priority %q", i+1, todo.Priority))
+		}
+		normalized = append(normalized, TodoItem{
+			Content:  content,
+			Status:   status,
+			Priority: priority,
+		})
+	}
+
+	if len(normalized) == 0 {
+		ctx.State.Todos = nil
+	} else {
+		ctx.State.Todos = normalized
+	}
+
+	message := summarizeTodos(normalized)
+	return toolSuccess("TodoWrite", "", message, Step{
+		Type:    "tool",
+		Tool:    "TodoWrite",
+		Content: message,
+		Success: boolPtr(true),
+	})
+}
+
+// questionPollTimeout is the maximum time nativeQuestion will wait for an answer
+// in non-interactive sessions. Overridable in tests.
+var questionPollTimeout = 5 * time.Minute
+
+func nativeQuestion(ctx nativeToolContext, call ToolCall) toolExecution {
+	var args struct {
+		Question string `json:"question"`
+	}
+	if err := decodeToolArgs(call.Function.Arguments, &args); err != nil {
+		return toolFailure("Question", "", "", err)
+	}
+	if strings.TrimSpace(args.Question) == "" {
+		return toolFailure("Question", "", "", fmt.Errorf("question is required"))
+	}
+
+	if ui.IsTTY(os.Stdin) {
+		fmt.Fprintf(os.Stdout, "\n%s\n> ", args.Question)
+		reader := bufio.NewReader(os.Stdin)
+		answer, err := reader.ReadString('\n')
+		if err != nil {
+			return toolFailure("Question", "", "", fmt.Errorf("failed to read answer: %w", err))
+		}
+		answer = strings.TrimRight(answer, "\r\n")
+		return toolSuccess("Question", "", answer, Step{
+			Type:    "tool",
+			Tool:    "Question",
+			Content: args.Question,
+			Success: boolPtr(true),
+		})
+	}
+
+	// Non-interactive session: write the question to a well-known file and poll
+	// for an answer file so a parent session or operator can respond.
+	if ctx.Workspace == "" || ctx.SessionID == "" {
+		return toolFailure("Question", "", "", fmt.Errorf("clarification not available: session context is missing"))
+	}
+
+	metaDir := MetadataDir(ctx.Workspace, ctx.SessionID)
+	questionPath := filepath.Join(metaDir, "question.json")
+	answerPath := filepath.Join(metaDir, "answer.json")
+
+	type questionPayload struct {
+		Question  string    `json:"question"`
+		Timestamp time.Time `json:"timestamp"`
+		SessionID string    `json:"session_id"`
+		Agent     string    `json:"agent"`
+	}
+	payload, err := json.Marshal(questionPayload{
+		Question:  args.Question,
+		Timestamp: time.Now().UTC(),
+		SessionID: ctx.SessionID,
+		Agent:     ctx.Agent,
+	})
+	if err != nil {
+		return toolFailure("Question", "", "", fmt.Errorf("failed to encode question: %w", err))
+	}
+	if err := os.MkdirAll(metaDir, 0700); err != nil {
+		return toolFailure("Question", "", "", fmt.Errorf("failed to create session metadata directory: %w", err))
+	}
+	// Remove a stale answer before writing the question so we don't pick up an
+	// old response.
+	_ = os.Remove(answerPath)
+	if err := os.WriteFile(questionPath, payload, 0600); err != nil {
+		return toolFailure("Question", "", "", fmt.Errorf("failed to write question: %w", err))
+	}
+
+	deadline := time.Now().Add(questionPollTimeout)
+	for time.Now().Before(deadline) {
+		time.Sleep(500 * time.Millisecond)
+		data, err := os.ReadFile(answerPath)
+		if err != nil {
+			continue
+		}
+		var ans struct {
+			Answer string `json:"answer"`
+		}
+		if err := json.Unmarshal(data, &ans); err != nil {
+			continue
+		}
+		_ = os.Remove(questionPath)
+		_ = os.Remove(answerPath)
+		return toolSuccess("Question", "", ans.Answer, Step{
+			Type:    "tool",
+			Tool:    "Question",
+			Content: args.Question,
+			Success: boolPtr(true),
+		})
+	}
+
+	_ = os.Remove(questionPath)
+	return toolFailure("Question", "", "", fmt.Errorf("no answer was provided (timed out after %s)", questionPollTimeout))
+}
+
+func isValidTodoStatus(status string) bool {
+	switch status {
+	case "pending", "in_progress", "completed", "cancelled":
+		return true
+	default:
+		return false
+	}
+}
+
+func isValidTodoPriority(priority string) bool {
+	switch priority {
+	case "high", "medium", "low":
+		return true
+	default:
+		return false
+	}
+}
+
+func summarizeTodos(todos []TodoItem) string {
+	if len(todos) == 0 {
+		return "Cleared todo list."
+	}
+
+	counts := map[string]int{
+		"pending":     0,
+		"in_progress": 0,
+		"completed":   0,
+		"cancelled":   0,
+	}
+	for _, todo := range todos {
+		counts[todo.Status]++
+	}
+
+	parts := []string{}
+	if counts["in_progress"] > 0 {
+		parts = append(parts, fmt.Sprintf("%d in progress", counts["in_progress"]))
+	}
+	if counts["pending"] > 0 {
+		parts = append(parts, fmt.Sprintf("%d pending", counts["pending"]))
+	}
+	if counts["completed"] > 0 {
+		parts = append(parts, fmt.Sprintf("%d completed", counts["completed"]))
+	}
+	if counts["cancelled"] > 0 {
+		parts = append(parts, fmt.Sprintf("%d cancelled", counts["cancelled"]))
+	}
+
+	return fmt.Sprintf("Updated %d todos: %s.", len(todos), strings.Join(parts, ", "))
 }
 
 func toolSuccess(toolName, path, message string, step Step) toolExecution {

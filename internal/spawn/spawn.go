@@ -17,6 +17,7 @@ import (
 	"github.com/tiny-oc/toc/internal/naming"
 	"github.com/tiny-oc/toc/internal/registry"
 	"github.com/tiny-oc/toc/internal/runtime"
+	"github.com/tiny-oc/toc/internal/runtimeinfo"
 	"github.com/tiny-oc/toc/internal/session"
 	"github.com/tiny-oc/toc/internal/skill"
 	"github.com/tiny-oc/toc/internal/ui"
@@ -234,6 +235,7 @@ func SpawnSubSession(cfg *agent.AgentConfig, opts SubSpawnOpts) (*SpawnResult, e
 	sessionCfg := runtime.ResolveSessionConfig(cfg, runtime.ResolveOptions{
 		MaxIterationsOverride: opts.MaxIterations,
 	})
+	restrictNativeSubAgentTools(sessionCfg)
 	if err := runtime.ValidateSessionConfig(sessionCfg); err != nil {
 		return nil, err
 	}
@@ -342,6 +344,7 @@ func ResumeSubSession(s *session.Session, opts SubResumeOpts) (*SpawnResult, err
 	if err != nil {
 		return nil, fmt.Errorf("failed to load session config: %w", err)
 	}
+	restrictNativeSubAgentTools(sessionCfg)
 	if err := runtime.ValidateSessionConfig(sessionCfg); err != nil {
 		return nil, fmt.Errorf("invalid session config: %w", err)
 	}
@@ -399,6 +402,31 @@ func runPostSessionSync(provider runtime.Provider, workDir, agentDir string, pat
 		}
 	}
 	return len(synced)
+}
+
+func restrictNativeSubAgentTools(cfg *runtime.SessionConfig) {
+	if cfg == nil || cfg.Runtime != runtimeinfo.NativeRuntime {
+		return
+	}
+	// An empty EnabledTools list currently means "no tools" for toc-native,
+	// so there's nothing to filter. If that invariant ever changes to mean
+	// "all tools", this helper must be revisited.
+	if len(cfg.RuntimeConfig.EnabledTools) == 0 {
+		return
+	}
+
+	disabled := map[string]bool{
+		"TodoWrite": true,
+		"SubAgent":  true,
+	}
+	filtered := make([]string, 0, len(cfg.RuntimeConfig.EnabledTools))
+	for _, tool := range cfg.RuntimeConfig.EnabledTools {
+		if disabled[tool] {
+			continue
+		}
+		filtered = append(filtered, tool)
+	}
+	cfg.RuntimeConfig.EnabledTools = filtered
 }
 
 func printResumeCommand(agentName, sessionID string) {

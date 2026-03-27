@@ -211,6 +211,71 @@ Anti-patterns:
 			Handler: nativeSkill,
 		},
 		{
+			Name: "TodoWrite",
+			Description: `Replace the current session todo list with a new ordered list.
+
+Use TodoWrite for multi-step work, especially when you need to track progress across file edits, tests, and sub-agent coordination. Each call replaces the entire list, so always send the full current todo list.
+
+Parameters:
+- todos (required): Complete ordered todo list. Each item must include:
+  - content: brief task description
+  - status: pending, in_progress, completed, or cancelled
+  - priority: high, medium, or low
+
+Guidelines:
+- Prefer using TodoWrite when the task has multiple meaningful steps.
+- Keep only one item in_progress at a time when possible.
+- Mark items completed immediately after finishing them.
+- If the plan changes, rewrite the full list to match the new reality.
+
+Output: A short summary confirming the updated todo list.`,
+			Parameters: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"todos": map[string]interface{}{
+						"type": "array",
+						"items": map[string]interface{}{
+							"type": "object",
+							"properties": map[string]interface{}{
+								"content":  map[string]interface{}{"type": "string", "description": "Brief description of the task"},
+								"status":   map[string]interface{}{"type": "string", "enum": []string{"pending", "in_progress", "completed", "cancelled"}},
+								"priority": map[string]interface{}{"type": "string", "enum": []string{"high", "medium", "low"}},
+							},
+							"required": []string{"content", "status", "priority"},
+						},
+					},
+				},
+				"required": []string{"todos"},
+			},
+			Handler: nativeTodoWrite,
+	},
+	{
+		Name: "Question",
+			Description: `Ask the user a clarifying question and wait for their response.
+
+Use this tool when the task is ambiguous and you need information from the user before proceeding. The agent loop pauses, the question is shown to the user, and their answer is returned as the tool result.
+
+Parameters:
+- question (required): The question to ask the user. Be specific and concise.
+
+Output: The user's verbatim response as a string.
+
+This tool only works in interactive (TTY) sessions. In detached or non-interactive sessions it returns an error — do not call it from background sub-agents.
+
+Anti-patterns:
+- Do NOT ask multiple questions in one call — ask one focused question at a time.
+- Do NOT use this tool for questions you can answer yourself by reading files or running commands.
+- Do NOT call this tool in detached sessions or sub-agents — it will fail.`,
+			Parameters: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"question": map[string]interface{}{"type": "string"},
+				},
+				"required": []string{"question"},
+			},
+			Handler: nativeQuestion,
+		},
+		{
 			Name: "SubAgent",
 			Description: `Manage sub-agent sessions for multi-agent orchestration. Sub-agents run in the background as separate sessions with their own workspace, allowing parallel task execution.
 

@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestNativeEditRejectsEmptyOldString(t *testing.T) {
@@ -191,6 +192,181 @@ func TestNativeBashRejectsEmptyCommand(t *testing.T) {
 	if !strings.Contains(result.Message, "command is required") {
 		t.Fatalf("unexpected empty command message: %q", result.Message)
 	}
+}
+
+func TestNativeTodoWriteUpdatesState(t *testing.T) {
+	dir := t.TempDir()
+	state := &State{}
+
+	result := nativeTodoWrite(nativeToolContext{
+		SessionDir: dir,
+		Agent:      "tester",
+		State:      state,
+	}, toolCall(t, "TodoWrite", map[string]interface{}{
+		"todos": []map[string]interface{}{
+			{"content": "Implement TodoWrite", "status": "in_progress", "priority": "high"},
+			{"content": "Add tests", "status": "pending", "priority": "medium"},
+		},
+	}))
+
+	if result.Step.Success == nil || !*result.Step.Success {
+		t.Fatalf("expected TodoWrite success, got %#v", result)
+	}
+	if len(state.Todos) != 2 {
+		t.Fatalf("len(state.Todos) = %d, want 2", len(state.Todos))
+	}
+	if state.Todos[0].Content != "Implement TodoWrite" || state.Todos[1].Status != "pending" {
+		t.Fatalf("unexpected todos in state: %#v", state.Todos)
+	}
+	if !strings.Contains(result.Message, "Updated 2 todos") {
+		t.Fatalf("unexpected summary message: %q", result.Message)
+	}
+}
+
+func TestNativeTodoWriteRejectsInvalidStatus(t *testing.T) {
+	dir := t.TempDir()
+	state := &State{}
+
+	result := nativeTodoWrite(nativeToolContext{
+		SessionDir: dir,
+		Agent:      "tester",
+		State:      state,
+	}, toolCall(t, "TodoWrite", map[string]interface{}{
+		"todos": []map[string]interface{}{
+			{"content": "Bad todo", "status": "doing", "priority": "high"},
+		},
+	}))
+
+	if result.Step.Success == nil || *result.Step.Success {
+		t.Fatalf("expected TodoWrite failure, got %#v", result)
+	}
+	if !strings.Contains(result.Message, `invalid status "doing"`) {
+		t.Fatalf("unexpected error message: %q", result.Message)
+	}
+	if len(state.Todos) != 0 {
+		t.Fatalf("state should be unchanged on failure, got %#v", state.Todos)
+	}
+}
+
+func TestNativeQuestionNonInteractiveAnswered(t *testing.T) {
+	dir := t.TempDir()
+	metaDir := MetadataDir(dir, "test-session")
+	if err := os.MkdirAll(metaDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+
+	orig := questionPollTimeout
+	questionPollTimeout = 5 * time.Second
+	defer func() { questionPollTimeout = orig }()
+
+	// Write the answer file shortly after the question is posted.
+	answerPath := filepath.Join(metaDir, "answer.json")
+	go func() {
+		time.Sleep(300 * time.Millisecond)
+		_ = os.WriteFile(answerPath, []byte(`{"answer":"use the left branch"}`), 0600)
+	}()
+
+	result := nativeQuestion(nativeToolContext{
+		SessionDir: dir,
+		Workspace:  dir,
+		SessionID:  "test-session",
+		Agent:      "tester",
+	}, toolCall(t, "Question", map[string]interface{}{
+		"question": "Which branch should I use?",
+	}))
+
+	if result.Step.Success == nil || !*result.Step.Success {
+		t.Fatalf("expected success, got %#v", result)
+	}
+	if result.Message != "use the left branch" {
+		t.Fatalf("unexpected answer: %q", result.Message)
+	}
+
+	// question.json and answer.json should both have been cleaned up
+	if _, err := os.Stat(filepath.Join(metaDir, "question.json")); !os.IsNotExist(err) {
+		t.Fatal("question.json should be removed after answer is received")
+	}
+	if _, err := os.Stat(filepath.Join(metaDir, "answer.json")); !os.IsNotExist(err) {
+		t.Fatal("answer.json should be removed after answer is received")
+	}
+}
+
+func TestNativeQuestionNonInteractiveTimeout(t *testing.T) {
+	dir := t.TempDir()
+
+	orig := questionPollTimeout
+	questionPollTimeout = 600 * time.Millisecond
+	defer func() { questionPollTimeout = orig }()
+
+	result := nativeQuestion(nativeToolContext{
+		SessionDir: dir,
+		Workspace:  dir,
+		SessionID:  "test-session",
+		Agent:      "tester",
+	}, toolCall(t, "Question", map[string]interface{}{
+		"question": "Are you there?",
+	}))
+
+	if result.Step.Success == nil || *result.Step.Success {
+		t.Fatalf("expected failure (timeout), got %#v", result)
+	}
+	if !strings.Contains(result.Message, "timed out") {
+		t.Fatalf("expected timeout message, got %q", result.Message)
+	}
+
+	// question.json should have been cleaned up on timeout too
+	metaDir := MetadataDir(dir, "test-session")
+	if _, err := os.Stat(filepath.Join(metaDir, "question.json")); !os.IsNotExist(err) {
+		t.Fatal("question.json should be removed after timeout")
+	}
+}
+
+func TestNativeQuestionNonInteractiveWritesQuestionFile(t *testing.T) {
+	dir := t.TempDir()
+	metaDir := MetadataDir(dir, "test-session")
+
+	orig := questionPollTimeout
+	questionPollTimeout = 200 * time.Millisecond
+	defer func() { questionPollTimeout = orig }()
+
+	// Run in background so we can inspect the question file while it's waiting.
+	type result struct{ exec toolExecution }
+	ch := make(chan result, 1)
+	go func() {
+		ch <- result{nativeQuestion(nativeToolContext{
+			SessionDir: dir,
+			Workspace:  dir,
+			SessionID:  "test-session",
+			Agent:      "checker",
+		}, toolCall(t, "Question", map[string]interface{}{
+			"question": "What is the target environment?",
+		}))}
+	}()
+
+	// Give it a moment to write the file, then check its contents.
+	time.Sleep(50 * time.Millisecond)
+	data, err := os.ReadFile(filepath.Join(metaDir, "question.json"))
+	if err != nil {
+		t.Fatalf("question.json not written: %v", err)
+	}
+	var q struct {
+		Question  string `json:"question"`
+		SessionID string `json:"session_id"`
+		Agent     string `json:"agent"`
+	}
+	if err := json.Unmarshal(data, &q); err != nil {
+		t.Fatalf("question.json parse error: %v", err)
+	}
+	if q.Question != "What is the target environment?" {
+		t.Fatalf("question = %q", q.Question)
+	}
+	if q.SessionID != "test-session" {
+		t.Fatalf("session_id = %q", q.SessionID)
+	}
+	if q.Agent != "checker" {
+		t.Fatalf("agent = %q", q.Agent)
+	}
+	<-ch // wait for goroutine to finish
 }
 
 func toolCall(t *testing.T, name string, args map[string]interface{}) ToolCall {

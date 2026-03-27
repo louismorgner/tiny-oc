@@ -204,7 +204,7 @@ func TestEnsureSystemPromptInjectsSkillCatalog(t *testing.T) {
 
 	// No skills yet — system prompt alone.
 	state := &State{SessionDir: sessionDir}
-	if err := ensureSystemPrompt(state); err != nil {
+	if err := ensureSystemPrompt(state, nil); err != nil {
 		t.Fatal(err)
 	}
 	if len(state.Messages) != 1 || state.Messages[0].Role != "system" {
@@ -224,7 +224,7 @@ func TestEnsureSystemPromptInjectsSkillCatalog(t *testing.T) {
 	}
 
 	state2 := &State{SessionDir: sessionDir}
-	if err := ensureSystemPrompt(state2); err != nil {
+	if err := ensureSystemPrompt(state2, nil); err != nil {
 		t.Fatal(err)
 	}
 	content := state2.Messages[0].Content
@@ -248,11 +248,37 @@ func TestEnsureSystemPromptInjectsSkillCatalog(t *testing.T) {
 		t.Fatal(err)
 	}
 	state3 := &State{SessionDir: sessionDir3}
-	if err := ensureSystemPrompt(state3); err != nil {
+	if err := ensureSystemPrompt(state3, nil); err != nil {
 		t.Fatal(err)
 	}
 	if len(state3.Messages) != 1 || !strings.Contains(state3.Messages[0].Content, "available_skills") {
 		t.Errorf("expected skill-only system prompt, got %+v", state3.Messages)
+	}
+}
+
+func TestEnsureSystemPromptInjectsTodoWriteNotes(t *testing.T) {
+	sessionDir := t.TempDir()
+	nativeDir := filepath.Join(sessionDir, ".toc-native")
+
+	if err := os.MkdirAll(nativeDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(nativeDir, "system-prompt.md"), []byte("You are an agent.\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	state := &State{SessionDir: sessionDir}
+	cfg := &SessionConfig{
+		RuntimeConfig: SessionRuntimeOptions{
+			EnabledTools: []string{"Read", "TodoWrite"},
+		},
+	}
+	if err := ensureSystemPrompt(state, cfg); err != nil {
+		t.Fatal(err)
+	}
+	content := state.Messages[0].Content
+	if !strings.Contains(content, "TodoWrite tool") {
+		t.Fatalf("expected TodoWrite runtime notes in system prompt, got %q", content)
 	}
 }
 

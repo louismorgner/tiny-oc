@@ -31,6 +31,10 @@ func TestPrintOutput_WithMetaIncludesNativeState(t *testing.T) {
 		ResumeCount:     1,
 		CompactionCount: 2,
 		LastError:       "cancelled by parent",
+		Todos: []runtime.TodoItem{
+			{Content: "Finish migration", Status: "in_progress", Priority: "high"},
+			{Content: "Run tests", Status: "pending", Priority: "medium"},
+		},
 		Usage: runtime.TokenUsageSnapshot{
 			InputTokens:  10,
 			OutputTokens: 5,
@@ -45,7 +49,7 @@ func TestPrintOutput_WithMetaIncludesNativeState(t *testing.T) {
 		}
 	})
 
-	for _, want := range []string{"Session:", "Runtime:", "Model:", "Resumes:", "Compactions:", "Tokens:", "Last error:", "partial output"} {
+	for _, want := range []string{"Session:", "Runtime:", "Model:", "Resumes:", "Compactions:", "Tokens:", "Last error:", "Todos:", "Finish migration", "Run tests", "partial output"} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("expected %q in output: %q", want, output)
 		}

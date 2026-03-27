@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 
 	"github.com/tiny-oc/toc/internal/agent"
 	"github.com/tiny-oc/toc/internal/integration"
@@ -34,6 +35,7 @@ type SessionConfig struct {
 	Agent                  string                `json:"agent"`
 	Runtime                string                `json:"runtime"`
 	Model                  string                `json:"model"`
+	SmallModel             string                `json:"small_model,omitempty"`
 	AllowCustomNativeModel bool                  `json:"allow_custom_native_model,omitempty"`
 	Description            string                `json:"description,omitempty"`
 	Context                []string              `json:"context,omitempty"`
@@ -65,6 +67,7 @@ func ResolveSessionConfig(cfg *agent.AgentConfig, opts ...ResolveOptions) *Sessi
 		Agent:                  cfg.Name,
 		Runtime:                cfg.Runtime,
 		Model:                  cfg.Model,
+		SmallModel:             cfg.SmallModel,
 		AllowCustomNativeModel: cfg.AllowCustomNativeModel,
 		Description:            cfg.Description,
 		Context:                append([]string(nil), cfg.Context...),
@@ -103,6 +106,11 @@ func ValidateSessionConfig(cfg *SessionConfig) error {
 	}
 	if err := runtimeinfo.ValidateModelSelection(cfg.Runtime, cfg.Model, cfg.AllowCustomNativeModel); err != nil {
 		return err
+	}
+	if strings.TrimSpace(cfg.SmallModel) != "" {
+		if err := runtimeinfo.ValidateModelSelection(cfg.Runtime, cfg.SmallModel, cfg.AllowCustomNativeModel); err != nil {
+			return fmt.Errorf("invalid small_model: %w", err)
+		}
 	}
 	for name, grants := range cfg.Permissions.Integrations {
 		def, err := integration.LoadFromRegistry(name)

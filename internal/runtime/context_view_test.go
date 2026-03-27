@@ -149,6 +149,72 @@ func TestBuildContextView_InjectsWorkingSet(t *testing.T) {
 	}
 }
 
+func TestTodoSummary(t *testing.T) {
+	summary := todoSummary([]TodoItem{
+		{Content: "Implement todo persistence", Status: "in_progress", Priority: "high"},
+		{Content: "Add tests", Status: "pending", Priority: "medium"},
+	})
+	if !strings.Contains(summary, "[toc-todos]") {
+		t.Fatal("todo summary should include toc-todos header")
+	}
+	if !strings.Contains(summary, "in_progress [high] Implement todo persistence") {
+		t.Fatalf("todo summary missing first todo: %q", summary)
+	}
+	if !strings.Contains(summary, "pending [medium] Add tests") {
+		t.Fatalf("todo summary missing second todo: %q", summary)
+	}
+}
+
+func TestBuildContextView_InjectsTodosBeforeWorkingSet(t *testing.T) {
+	state := &State{
+		Messages: []Message{
+			{Role: "system", Content: "system prompt"},
+			{Role: "user", Content: "hello"},
+		},
+		Todos: []TodoItem{
+			{Content: "Implement TodoWrite", Status: "in_progress", Priority: "high"},
+		},
+		WorkingSet: &WorkingSet{
+			FilesEdited: []string{"main.go"},
+		},
+	}
+
+	view := BuildContextView(state)
+	if len(view) != 4 {
+		t.Fatalf("len(view) = %d, want 4", len(view))
+	}
+	if !strings.Contains(view[1].Content, "[toc-todos]") {
+		t.Fatalf("expected todo injection at view[1], got %q", view[1].Content)
+	}
+	if !strings.Contains(view[2].Content, "[toc-working-set]") {
+		t.Fatalf("expected working set injection at view[2], got %q", view[2].Content)
+	}
+}
+
+func TestBuildContextView_SkipsNilTodos(t *testing.T) {
+	state := &State{
+		Messages: []Message{
+			{Role: "system", Content: "system prompt"},
+			{Role: "user", Content: "hello"},
+		},
+		Todos: nil,
+		WorkingSet: &WorkingSet{
+			FilesEdited: []string{"main.go"},
+		},
+	}
+
+	view := BuildContextView(state)
+	if len(view) != 3 {
+		t.Fatalf("len(view) = %d, want 3", len(view))
+	}
+	if strings.Contains(view[1].Content, "[toc-todos]") {
+		t.Fatalf("did not expect todo injection at view[1], got %q", view[1].Content)
+	}
+	if !strings.Contains(view[1].Content, "[toc-working-set]") {
+		t.Fatalf("expected working set injection at view[1], got %q", view[1].Content)
+	}
+}
+
 func TestBuildContextView_NoWorkingSet(t *testing.T) {
 	state := &State{
 		Messages: []Message{

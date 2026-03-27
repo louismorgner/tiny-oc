@@ -55,93 +55,98 @@ var runtimeWatchCmd = &cobra.Command{
 		jsonFlag, _ := cmd.Flags().GetBool("json")
 		verbose, _ := cmd.Flags().GetBool("verbose")
 
-		// If session is already completed, replay all steps and exit
-		status := s.ResolvedStatus()
-		if status == "completed" || status == session.StatusCompletedOK || status == session.StatusCompletedError || status == session.StatusCancelled {
-			return watchCompleted(s, jsonFlag, verbose, status)
-		}
-
-		provider, err := runtime.Get(s.RuntimeName())
-		if err != nil {
-			return err
-		}
-
-		// Resolve the runtime log path — use an existing file if available,
-		// otherwise construct the expected path so the tailer can poll for it.
-		logPath := provider.SessionLogPath(s)
-		if logPath == "" {
-			logPath = provider.ExpectedSessionLogPath(s)
-		}
-		isNativeEventLog := logPath != "" && logPath == runtime.EventLogPath(s)
-
-		// Set up signal handling
-		ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-		defer cancel()
-
-		if provider.SessionLogPath(s) == "" {
-			ui.Info("Waiting for session %s to start...", shortID(s.ID))
-		} else {
-			fmt.Println()
-			fmt.Printf("  %s  %s\n", ui.BoldCyan(s.Agent), ui.Dim(shortID(s.ID)))
-			fmt.Printf("  %s\n", ui.Dim("watching..."))
-			fmt.Println(ui.TurnSeparator())
-		}
-		fmt.Println()
-
-		events, err := tail.Tail(ctx, tail.Options{
-			LogPath:       logPath,
-			WorkspacePath: s.WorkspacePath,
-			Provider:      provider,
-		})
-		if err != nil {
-			return err
-		}
-
-		skippedCached := 0
-		cachedCount := runtime.EventCount(s)
-
-		for event := range events {
-			if event.Finished {
-				_, _ = runtime.EnsureEventLog(s)
-				fmt.Println()
-				printRuntimeWatchSummary(s)
-				if currentStatus := s.ResolvedStatus(); currentStatus == session.StatusCancelled {
-					ui.Warn("Session cancelled")
-				} else if event.ExitCode == "0" {
-					ui.Success("Session completed")
-				} else {
-					ui.Error("Session failed (exit code %s)", event.ExitCode)
-				}
-				return nil
-			}
-
-			if skippedCached < cachedCount {
-				skippedCached++
-				continue
-			}
-
-			if !isNativeEventLog {
-				_ = runtime.AppendEvent(s, event.Event)
-			}
-
-			// Skip thinking unless verbose
-			if !jsonFlag && !verbose && event.Step.Type == "thinking" {
-				continue
-			}
-
-			if jsonFlag {
-				data, _ := json.Marshal(event.Step)
-				fmt.Println(string(data))
-			} else {
-				printStep(event.Step, printOpts{FullContent: verbose})
-			}
-		}
-
-		// Context was cancelled (Ctrl+C)
-		fmt.Println()
-		ui.Info("Stopped watching")
-		return nil
+		return runWatch(s, jsonFlag, verbose)
 	},
+}
+
+// runWatch is the shared watch implementation used by both `toc watch` and `toc runtime watch`.
+func runWatch(s *session.Session, jsonFlag, verbose bool) error {
+	// If session is already completed, replay all steps and exit
+	status := s.ResolvedStatus()
+	if status == "completed" || status == session.StatusCompletedOK || status == session.StatusCompletedError || status == session.StatusCancelled {
+		return watchCompleted(s, jsonFlag, verbose, status)
+	}
+
+	provider, err := runtime.Get(s.RuntimeName())
+	if err != nil {
+		return err
+	}
+
+	// Resolve the runtime log path — use an existing file if available,
+	// otherwise construct the expected path so the tailer can poll for it.
+	logPath := provider.SessionLogPath(s)
+	if logPath == "" {
+		logPath = provider.ExpectedSessionLogPath(s)
+	}
+	isNativeEventLog := logPath != "" && logPath == runtime.EventLogPath(s)
+
+	// Set up signal handling
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer cancel()
+
+	if provider.SessionLogPath(s) == "" {
+		ui.Info("Waiting for session %s to start...", shortID(s.ID))
+	} else {
+		fmt.Println()
+		fmt.Printf("  %s  %s\n", ui.BoldCyan(s.Agent), ui.Dim(shortID(s.ID)))
+		fmt.Printf("  %s\n", ui.Dim("watching..."))
+		fmt.Println(ui.TurnSeparator())
+	}
+	fmt.Println()
+
+	events, err := tail.Tail(ctx, tail.Options{
+		LogPath:       logPath,
+		WorkspacePath: s.WorkspacePath,
+		Provider:      provider,
+	})
+	if err != nil {
+		return err
+	}
+
+	skippedCached := 0
+	cachedCount := runtime.EventCount(s)
+
+	for event := range events {
+		if event.Finished {
+			_, _ = runtime.EnsureEventLog(s)
+			fmt.Println()
+			printRuntimeWatchSummary(s)
+			if currentStatus := s.ResolvedStatus(); currentStatus == session.StatusCancelled {
+				ui.Warn("Session cancelled")
+			} else if event.ExitCode == "0" {
+				ui.Success("Session completed")
+			} else {
+				ui.Error("Session failed (exit code %s)", event.ExitCode)
+			}
+			return nil
+		}
+
+		if skippedCached < cachedCount {
+			skippedCached++
+			continue
+		}
+
+		if !isNativeEventLog {
+			_ = runtime.AppendEvent(s, event.Event)
+		}
+
+		// Skip thinking unless verbose
+		if !jsonFlag && !verbose && event.Step.Type == "thinking" {
+			continue
+		}
+
+		if jsonFlag {
+			data, _ := json.Marshal(event.Step)
+			fmt.Println(string(data))
+		} else {
+			printStep(event.Step, printOpts{FullContent: verbose})
+		}
+	}
+
+	// Context was cancelled (Ctrl+C)
+	fmt.Println()
+	ui.Info("Stopped watching")
+	return nil
 }
 
 func watchCompleted(s *session.Session, jsonFlag, verbose bool, status string) error {

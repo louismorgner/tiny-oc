@@ -342,6 +342,59 @@ func TestWriteDebugBundleIncludesExpectedEntries(t *testing.T) {
 	}
 }
 
+func TestResolveDebugSessionPrefixMatch(t *testing.T) {
+	workspace := t.TempDir()
+	withWorkingDir(t, workspace)
+
+	fullID := "a46c28d5-1234-5678-9abc-def012345678"
+	writeSessionsFile(t, workspace, []session.Session{
+		{ID: fullID, Agent: "test-agent", CreatedAt: time.Now(), WorkspacePath: t.TempDir()},
+		{ID: "b99f0000-aaaa-bbbb-cccc-dddddddddddd", Agent: "other-agent", CreatedAt: time.Now(), WorkspacePath: t.TempDir()},
+	})
+
+	// Exact match
+	s, err := resolveDebugSession([]string{fullID}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.ID != fullID {
+		t.Fatalf("expected %q, got %q", fullID, s.ID)
+	}
+
+	// Prefix match
+	s, err = resolveDebugSession([]string{"a46c28d5"}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.ID != fullID {
+		t.Fatalf("expected %q, got %q", fullID, s.ID)
+	}
+
+	// No match
+	_, err = resolveDebugSession([]string{"ffffffff"}, false)
+	if err == nil {
+		t.Fatal("expected error for non-matching prefix")
+	}
+}
+
+func TestResolveDebugSessionAmbiguousPrefix(t *testing.T) {
+	workspace := t.TempDir()
+	withWorkingDir(t, workspace)
+
+	writeSessionsFile(t, workspace, []session.Session{
+		{ID: "aaa11111-1111-1111-1111-111111111111", Agent: "a", CreatedAt: time.Now(), WorkspacePath: t.TempDir()},
+		{ID: "aaa22222-2222-2222-2222-222222222222", Agent: "b", CreatedAt: time.Now(), WorkspacePath: t.TempDir()},
+	})
+
+	_, err := resolveDebugSession([]string{"aaa"}, false)
+	if err == nil {
+		t.Fatal("expected error for ambiguous prefix")
+	}
+	if !strings.Contains(err.Error(), "ambiguous") {
+		t.Fatalf("expected ambiguous error, got: %s", err)
+	}
+}
+
 func TestMostRecentDebugSessionUsesMetadataDirMtime(t *testing.T) {
 	workspace := t.TempDir()
 	withWorkingDir(t, workspace)

@@ -350,6 +350,36 @@ func FindByIDPrefix(prefix string) (*Session, error) {
 	return match, nil
 }
 
+// FindByIDOrPrefix tries an exact ID match first, then falls back to prefix
+// matching. This avoids loading sessions twice and surfaces disambiguation
+// errors from FindByIDPrefix directly to the caller.
+func FindByIDOrPrefix(idOrPrefix string) (*Session, error) {
+	sf, err := Load()
+	if err != nil {
+		return nil, err
+	}
+	// Exact match first.
+	for _, s := range sf.Sessions {
+		if s.ID == idOrPrefix {
+			return &s, nil
+		}
+	}
+	// Prefix match.
+	var match *Session
+	for i, s := range sf.Sessions {
+		if len(s.ID) >= len(idOrPrefix) && s.ID[:len(idOrPrefix)] == idOrPrefix {
+			if match != nil {
+				return nil, fmt.Errorf("ambiguous session prefix '%s': matches multiple sessions", idOrPrefix)
+			}
+			match = &sf.Sessions[i]
+		}
+	}
+	if match == nil {
+		return nil, fmt.Errorf("session '%s' not found", idOrPrefix)
+	}
+	return match, nil
+}
+
 // FindByIDPrefixInWorkspace finds a session by ID prefix in a specific workspace.
 func FindByIDPrefixInWorkspace(workspace, prefix string) (*Session, error) {
 	path := workspace + "/.toc/sessions.yaml"

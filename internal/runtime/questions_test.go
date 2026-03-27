@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -119,5 +120,17 @@ func TestInspectPendingQuestionReturnsParseError(t *testing.T) {
 	}
 	if info == nil || info.Error == "" {
 		t.Fatalf("expected parse error state, got %#v", info)
+	}
+}
+
+func TestSubmitPendingQuestionAnswerWithoutQuestionReturnsError(t *testing.T) {
+	sess := &session.Session{
+		ID:          "child-question",
+		MetadataDir: t.TempDir(),
+	}
+
+	err := SubmitPendingQuestionAnswer(sess, "yes")
+	if !errors.Is(err, ErrNoPendingQuestion) {
+		t.Fatalf("expected ErrNoPendingQuestion, got %v", err)
 	}
 }

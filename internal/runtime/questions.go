@@ -128,10 +128,13 @@ func submitPendingQuestionAnswerToDir(metaDir, answer string) error {
 	if err != nil {
 		return err
 	}
+	if info == nil {
+		return ErrNoPendingQuestion
+	}
 	if info.Error != "" {
 		return fmt.Errorf("%s", info.Error)
 	}
-	if info == nil || info.Question == nil {
+	if info.Question == nil {
 		return ErrNoPendingQuestion
 	}
 

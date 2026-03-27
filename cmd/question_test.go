@@ -228,6 +228,9 @@ func TestShowPendingQuestionDisplaysCorruptMetadata(t *testing.T) {
 	if !strings.Contains(output, "Question error:") || !strings.Contains(output, "failed to parse question.json") {
 		t.Fatalf("expected corrupt metadata in output: %q", output)
 	}
+	if !strings.Contains(output, "Inspect with:") || strings.Contains(output, "Answer with:") {
+		t.Fatalf("expected inspect guidance instead of answer guidance: %q", output)
+	}
 }
 
 func writeWorkspaceConfig(t *testing.T, workspace string) {

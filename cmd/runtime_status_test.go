@@ -194,4 +194,7 @@ func TestShowSubAgentStatusDisplaysPendingQuestionError(t *testing.T) {
 	if !strings.Contains(output, "Question error:") || !strings.Contains(output, "failed to parse question.json") {
 		t.Fatalf("expected pending question error in output: %q", output)
 	}
+	if !strings.Contains(output, "Inspect: toc debug child-question") || strings.Contains(output, "Answer: toc answer child-question") {
+		t.Fatalf("expected inspect guidance instead of answer guidance: %q", output)
+	}
 }

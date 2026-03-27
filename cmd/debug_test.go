@@ -355,6 +355,9 @@ func TestBuildDebugReportIncludesPendingQuestionError(t *testing.T) {
 	if !strings.Contains(output, "pending_question_error: failed to parse question.json") {
 		t.Fatalf("expected pending question error in output: %q", output)
 	}
+	if !strings.Contains(output, "inspect_with: toc debug child-question") || strings.Contains(output, "answer_with: toc answer child-question") {
+		t.Fatalf("expected inspect guidance instead of answer guidance: %q", output)
+	}
 }
 
 func TestReadDebugArtifactLimitsContent(t *testing.T) {

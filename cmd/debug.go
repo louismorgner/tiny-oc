@@ -966,8 +966,10 @@ func printDebugReport(report *debugReport, full bool) {
 	if report.State.AnswerPending {
 		fmt.Printf("    answer_pending: true\n")
 	}
-	if report.State.PendingQuestion != nil || report.State.PendingQuestionError != "" {
+	if report.State.PendingQuestion != nil {
 		fmt.Printf("    answer_with: toc answer %s --text \"...\"\n", report.Session.ID)
+	} else if report.State.PendingQuestionError != "" {
+		fmt.Printf("    inspect_with: toc debug %s\n", report.Session.ID)
 	}
 	if report.State.PendingTurnLabel != "" && report.State.PendingTurn != nil {
 		fmt.Printf("    pending_turn: %s\n", report.State.PendingTurnLabel)

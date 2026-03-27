@@ -228,7 +228,11 @@ func showPendingQuestion(sessionID string, jsonFlag bool) error {
 		fmt.Printf("  %s %s\n", ui.Bold("Answer status:"), ui.Dim("answer submitted, waiting for session to consume it"))
 	}
 	fmt.Println()
-	ui.Info("Answer with: %s", ui.Bold(fmt.Sprintf("toc answer %s --text \"...\"", sess.ID)))
+	if row.PendingQuestionError != "" {
+		ui.Info("Inspect with: %s", ui.Bold(fmt.Sprintf("toc debug %s", sess.ID)))
+	} else {
+		ui.Info("Answer with: %s", ui.Bold(fmt.Sprintf("toc answer %s --text \"...\"", sess.ID)))
+	}
 	fmt.Println()
 	return nil
 }

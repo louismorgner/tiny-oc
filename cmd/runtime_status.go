@@ -255,7 +255,11 @@ func showSubAgentStatus(ctx *runtime.Context, sessionID string) error {
 		fmt.Println()
 	default:
 		if pendingQuestionInfo != nil {
-			ui.Info("Answer: %s", ui.Bold(fmt.Sprintf("toc answer %s --text \"...\"", sessionID)))
+			if pendingQuestionInfo.Error != "" {
+				ui.Info("Inspect: %s", ui.Bold(fmt.Sprintf("toc debug %s", sessionID)))
+			} else {
+				ui.Info("Answer: %s", ui.Bold(fmt.Sprintf("toc answer %s --text \"...\"", sessionID)))
+			}
 			fmt.Println()
 		}
 	}

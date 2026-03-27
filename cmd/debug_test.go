@@ -15,6 +15,7 @@ import (
 	"github.com/tiny-oc/toc/internal/runtime"
 	"github.com/tiny-oc/toc/internal/runtimeinfo"
 	"github.com/tiny-oc/toc/internal/session"
+	"github.com/tiny-oc/toc/internal/usage"
 	"gopkg.in/yaml.v3"
 )
 
@@ -81,15 +82,158 @@ func TestBuildDebugReportIncludesCrashArtifacts(t *testing.T) {
 		t.Fatalf("stderr artifact = %#v", report.Stderr)
 	}
 
+	// Verify diagnosis is populated for crash case
+	if report.Diagnosis.Verdict == "" {
+		t.Fatal("expected non-empty diagnosis verdict")
+	}
+	if !strings.Contains(report.Diagnosis.Verdict, "PANICKED") {
+		t.Fatalf("expected PANICKED verdict, got %q", report.Diagnosis.Verdict)
+	}
+
 	out := captureStdout(t, func() {
 		printDebugReport(report, false)
 	})
-	for _, want := range []string{"Exit reason:", "Timeline", "stderr.log", "panic captured"} {
+	for _, want := range []string{"Exit reason:", "Timeline", "stderr.log", "panic captured", "Diagnosis:"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("expected %q in output: %q", want, out)
 		}
 	}
 }
+
+func TestDiagnosisDeadProcessActiveStatus(t *testing.T) {
+	report := &debugReport{
+		Session: debugSessionInfo{
+			ID:     "test-dead",
+			Agent:  "impl",
+			Status: "active",
+		},
+		Process: debugProcessInfo{
+			PID:   intPtr(99999),
+			Alive: false,
+		},
+		State: debugStateInfo{
+			RuntimeStatus: "running",
+		},
+		Timeline: debugTimelineInfo{
+			LastToolCall: "Bash",
+		},
+		Usage: debugUsageInfo{
+			InputTokens: 250000,
+			TotalTokens: 260000,
+		},
+	}
+	d := buildDiagnosis(report, nil, nil)
+	if !strings.Contains(d.Verdict, "CRASHED") {
+		t.Fatalf("expected CRASHED verdict, got %q", d.Verdict)
+	}
+	foundTokenEvidence := false
+	foundBashEvidence := false
+	for _, ev := range d.Evidence {
+		if strings.Contains(ev, "high token") {
+			foundTokenEvidence = true
+		}
+		if strings.Contains(ev, "Bash") {
+			foundBashEvidence = true
+		}
+	}
+	if !foundTokenEvidence {
+		t.Fatalf("expected high token evidence, got %v", d.Evidence)
+	}
+	if !foundBashEvidence {
+		t.Fatalf("expected Bash evidence, got %v", d.Evidence)
+	}
+}
+
+func TestDiagnosisCompletedSession(t *testing.T) {
+	report := &debugReport{
+		Session: debugSessionInfo{Status: "completed"},
+		Process: debugProcessInfo{},
+	}
+	d := buildDiagnosis(report, nil, nil)
+	if !strings.Contains(d.Verdict, "COMPLETED") {
+		t.Fatalf("expected COMPLETED verdict, got %q", d.Verdict)
+	}
+}
+
+func TestDiagnosisFailedWithAPIError(t *testing.T) {
+	report := &debugReport{
+		Session: debugSessionInfo{Status: "failed"},
+		State: debugStateInfo{
+			LastError: "OpenRouter server error after 3 attempts",
+		},
+	}
+	d := buildDiagnosis(report, nil, nil)
+	if !strings.Contains(d.Verdict, "FAILED") {
+		t.Fatalf("expected FAILED verdict, got %q", d.Verdict)
+	}
+	foundAPISuggestion := false
+	for _, s := range d.Suggestions {
+		if strings.Contains(s, "OpenRouter") {
+			foundAPISuggestion = true
+		}
+	}
+	if !foundAPISuggestion {
+		t.Fatalf("expected OpenRouter suggestion, got %v", d.Suggestions)
+	}
+}
+
+func TestToolTimingsInTimeline(t *testing.T) {
+	events := []runtime.Event{
+		{Timestamp: time.Now().UTC(), Step: runtime.Step{Type: "tool", Tool: "Read", DurationMS: 5}},
+		{Timestamp: time.Now().UTC(), Step: runtime.Step{Type: "tool", Tool: "Bash", DurationMS: 15000, TimedOut: true, Success: boolPtrTest(false)}},
+		{Timestamp: time.Now().UTC(), Step: runtime.Step{Type: "text", Content: "I'll now write the file"}},
+		{Timestamp: time.Now().UTC(), Step: runtime.Step{Type: "tool", Tool: "Write", DurationMS: 3}},
+	}
+	info := debugTimelineDetails(nil, events, 50, false)
+	if len(info.RecentToolTimings) != 3 {
+		t.Fatalf("expected 3 tool timings, got %d", len(info.RecentToolTimings))
+	}
+	if info.RecentToolTimings[1].Tool != "Bash" || !info.RecentToolTimings[1].TimedOut {
+		t.Fatalf("expected Bash timeout, got %+v", info.RecentToolTimings[1])
+	}
+	if info.LastAssistantMsg != "I'll now write the file" {
+		t.Fatalf("expected last assistant msg, got %q", info.LastAssistantMsg)
+	}
+}
+
+func TestExitSignalDecoding(t *testing.T) {
+	workDir := t.TempDir()
+	sess := &session.Session{
+		ID:            "sig-test",
+		Agent:         "agent",
+		WorkspacePath: workDir,
+	}
+	// Write exit code 137 = 128 + 9 (SIGKILL)
+	if err := os.WriteFile(filepath.Join(workDir, "toc-exit-code.txt"), []byte("137"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	info := debugProcessDetails(sess, "active")
+	if info.ExitSignal != "SIGKILL" {
+		t.Fatalf("expected SIGKILL, got %q", info.ExitSignal)
+	}
+	if info.ExitCode == nil || *info.ExitCode != 137 {
+		t.Fatalf("expected exit code 137, got %v", info.ExitCode)
+	}
+}
+
+func TestEstimateCostUSD(t *testing.T) {
+	tokens := usage.TokenUsage{
+		InputTokens:  1_000_000,
+		OutputTokens: 100_000,
+	}
+	cost := estimateCostUSD("openai/gpt-4o-mini", tokens)
+	if cost < 0.01 || cost > 10 {
+		t.Fatalf("unexpected cost: %f", cost)
+	}
+	// Unknown model should return 0
+	cost = estimateCostUSD("unknown/model", tokens)
+	if cost != 0 {
+		t.Fatalf("expected 0 for unknown model, got %f", cost)
+	}
+}
+
+func intPtr(v int) *int { return &v }
+func boolPtrTest(v bool) *bool { return &v }
 
 func TestShowSubAgentStatusHintsDebugOnFailure(t *testing.T) {
 	color.NoColor = true

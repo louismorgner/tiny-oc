@@ -554,6 +554,7 @@ type PermissionManifest struct {
 	SessionID    string                                  `json:"session_id"`
 	Agent        string                                  `json:"agent"`
 	Filesystem   agent.FilesystemPermissions             `json:"filesystem,omitempty"`
+	Network      agent.NetworkPermissions                `json:"network,omitempty"`
 	Integrations map[string]agent.IntegrationPermissions `json:"integrations"`
 	SubAgents    map[string]agent.PermissionLevel        `json:"sub_agents,omitempty"`
 }

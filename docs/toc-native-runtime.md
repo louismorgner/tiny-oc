@@ -235,12 +235,24 @@ The native runtime currently exposes these first-class tools:
 - `Glob`
 - `Grep`
 - `Bash`
+- `WebFetch`
 - `Skill`
 - `TodoWrite`
 - `Question`
 - `SubAgent`
 
 Tool handlers live mostly in [`internal/runtime/native_tools.go`](/Users/louismorgner/conductor/workspaces/tiny-oc/auckland/internal/runtime/native_tools.go) and [`internal/runtime/native_tool_subagent.go`](/Users/louismorgner/conductor/workspaces/tiny-oc/auckland/internal/runtime/native_tool_subagent.go).
+
+`WebFetch` is the first native tool that reads public web content directly instead of going through the integration gateway. It intentionally stays narrow:
+
+- public HTTP/HTTPS URLs only
+- no JavaScript execution
+- HTML converted into Markdown for model consumption
+- authenticated integrations still handled outside the native tool loop
+
+That distinction matters because "view this URL" and "act through an authenticated product integration" are different contracts even if they both touch the network.
+
+The implementation also favors generic page viewing over article extraction. That keeps docs, changelogs, and reference pages readable without forcing everything through an article-reader heuristic. If we later need a dedicated reader mode, it should be an explicit option layered on top rather than the default fetch path.
 
 ### Why the tool descriptions are long
 

@@ -30,9 +30,15 @@ type FilesystemPermissions struct {
 	Execute PermissionLevel `yaml:"execute,omitempty"`
 }
 
+// NetworkPermissions controls outbound network tools.
+type NetworkPermissions struct {
+	Web PermissionLevel `yaml:"web,omitempty"`
+}
+
 // Permissions is the unified permission spec for an agent.
 type Permissions struct {
 	Filesystem   FilesystemPermissions             `yaml:"filesystem,omitempty"`
+	Network      NetworkPermissions                `yaml:"network,omitempty"`
 	Integrations map[string]IntegrationPermissions `yaml:"integrations,omitempty"`
 	SubAgents    map[string]PermissionLevel        `yaml:"sub-agents,omitempty"`
 }
@@ -61,6 +67,9 @@ func (cfg *AgentConfig) EffectivePermissions() Permissions {
 			Write:   PermOn,
 			Execute: PermOn,
 		},
+		Network: NetworkPermissions{
+			Web: PermOff,
+		},
 		Integrations: make(map[string]IntegrationPermissions),
 		SubAgents:    make(map[string]PermissionLevel),
 	}
@@ -74,6 +83,9 @@ func (cfg *AgentConfig) EffectivePermissions() Permissions {
 		}
 		if cfg.Perms.Filesystem.Execute != "" {
 			p.Filesystem.Execute = cfg.Perms.Filesystem.Execute
+		}
+		if cfg.Perms.Network.Web != "" {
+			p.Network.Web = cfg.Perms.Network.Web
 		}
 		for k, v := range cfg.Perms.Integrations {
 			p.Integrations[k] = append(IntegrationPermissions(nil), v...)
@@ -168,6 +180,7 @@ func (cfg *AgentConfig) Validate() []string {
 			{"filesystem.read", cfg.Perms.Filesystem.Read},
 			{"filesystem.write", cfg.Perms.Filesystem.Write},
 			{"filesystem.execute", cfg.Perms.Filesystem.Execute},
+			{"network.web", cfg.Perms.Network.Web},
 		} {
 			if pair.level != "" && !validPermissionLevel(pair.level) {
 				problems = append(problems, fmt.Sprintf("invalid permission level for %s: %s (expected on, ask, or off)", pair.name, pair.level))

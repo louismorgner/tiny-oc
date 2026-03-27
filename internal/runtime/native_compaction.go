@@ -631,6 +631,8 @@ func extractToolCallKey(toolName, argsJSON string) string {
 		key, _ = args["pattern"].(string)
 	case "Glob":
 		key, _ = args["pattern"].(string)
+	case "WebFetch":
+		key, _ = args["url"].(string)
 	case "Skill":
 		key, _ = args["skill"].(string)
 	case "SubAgent":

@@ -18,6 +18,9 @@ func TestEffectivePermissions_Defaults(t *testing.T) {
 	if perms.Filesystem.Execute != PermOn {
 		t.Errorf("expected default execute=on, got %s", perms.Filesystem.Execute)
 	}
+	if perms.Network.Web != PermOff {
+		t.Errorf("expected default network.web=off, got %s", perms.Network.Web)
+	}
 }
 
 func TestEffectivePermissions_ExplicitBlock(t *testing.T) {
@@ -28,6 +31,9 @@ func TestEffectivePermissions_ExplicitBlock(t *testing.T) {
 				Read:    PermOn,
 				Write:   PermAsk,
 				Execute: PermOff,
+			},
+			Network: NetworkPermissions{
+				Web: PermOn,
 			},
 		},
 	}
@@ -41,6 +47,9 @@ func TestEffectivePermissions_ExplicitBlock(t *testing.T) {
 	}
 	if perms.Filesystem.Execute != PermOff {
 		t.Errorf("expected execute=off, got %s", perms.Filesystem.Execute)
+	}
+	if perms.Network.Web != PermOn {
+		t.Errorf("expected network.web=on, got %s", perms.Network.Web)
 	}
 }
 

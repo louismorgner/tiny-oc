@@ -207,9 +207,7 @@ type streamToolCallDelta struct {
 	} `json:"function"`
 }
 
-func newNativeLLMClientFromEnv(workspaceRoot, model string) (*openRouterClient, error) {
-	_ = model
-
+func newNativeLLMClientFromEnv(workspaceRoot string) (*openRouterClient, error) {
 	apiKey := strings.TrimSpace(os.Getenv("OPENROUTER_API_KEY"))
 	if apiKey == "" {
 		// Fall back to stored key in workspace secrets.

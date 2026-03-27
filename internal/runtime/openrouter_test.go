@@ -7,7 +7,7 @@ func TestNewNativeLLMClientFromEnv_PrefersTOCNativeBaseURL(t *testing.T) {
 	t.Setenv("TOC_NATIVE_BASE_URL", "http://localhost:8000")
 	t.Setenv("OPENROUTER_BASE_URL", "http://localhost:9000")
 
-	client, err := newNativeLLMClientFromEnv(t.TempDir(), "openai/gpt-4o-mini")
+	client, err := newNativeLLMClientFromEnv(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}

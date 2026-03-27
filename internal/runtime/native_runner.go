@@ -68,7 +68,7 @@ func RunNativeSession(opts NativeRunOptions, stdin io.Reader, stdout io.Writer) 
 	}
 	profile := runtimeinfo.ResolveNativeProfile(state.Model)
 
-	client, err := newNativeLLMClientFromEnv(opts.Workspace, state.Model)
+	client, err := newNativeLLMClientFromEnv(opts.Workspace)
 	if err != nil {
 		return err
 	}

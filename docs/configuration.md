@@ -21,6 +21,7 @@ runtime: claude-code
 name: pr-reviewer
 description: Reviews pull requests for code quality
 model: sonnet
+small_model: haiku
 context:
   - context/*.md
   - docs/
@@ -46,6 +47,7 @@ permissions:
 | `name` | string | yes | — | Lowercase alphanumeric with hyphens (e.g. `pr-reviewer`). Must match `^[a-z0-9][a-z0-9-]*$` |
 | `description` | string | no | — | Shown in `toc agent list` and shell tab completion |
 | `model` | string | yes | — | Declarative model preference for the selected runtime. For `claude-code`: `sonnet`, `opus`, or `haiku`. For `toc-native`, use an OpenRouter model ID such as `openai/gpt-4o-mini` |
+| `small_model` | string | no | — | Optional secondary model preference for lightweight work. In `toc-native`, structured compaction uses this model when set, otherwise it falls back to `model` |
 | `allow_custom_native_model` | bool | no | `false` | For `toc-native`, allow a model outside the supported beta profile set. Use only as an explicit override for experimental models |
 | `context` | list | no | — | Glob patterns for snapshot sync between the parent snapshot and spawned sessions (see below) |
 | `skills` | list | no | — | Skill names (local) or Git URLs (remote) |
@@ -86,6 +88,7 @@ If you want to experiment with a model outside that supported set, you must opt 
 ```yaml
 runtime: toc-native
 model: some/provider-model
+small_model: some/provider-small-model
 allow_custom_native_model: true
 ```
 

@@ -1,6 +1,9 @@
 package runtime
 
 import (
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -38,6 +41,103 @@ func TestCompactMessagesStructured_PreservesSystemAndRecentTail(t *testing.T) {
 	}
 	if compacted[2].Content != "second request" || compacted[3].Content != "second answer" {
 		t.Fatalf("unexpected preserved tail: %#v", compacted[2:])
+	}
+}
+
+func TestResolveCompactionModel(t *testing.T) {
+	state := &State{Model: "openai/gpt-4o"}
+
+	if got := resolveCompactionModel(state, nil); got != "openai/gpt-4o" {
+		t.Fatalf("resolveCompactionModel(nil cfg) = %q", got)
+	}
+	if got := resolveCompactionModel(state, &SessionConfig{Model: "openai/gpt-4o-mini"}); got != "openai/gpt-4o-mini" {
+		t.Fatalf("resolveCompactionModel(primary fallback) = %q", got)
+	}
+	if got := resolveCompactionModel(state, &SessionConfig{
+		Model:      "openai/gpt-4o-mini",
+		SmallModel: "anthropic/claude-sonnet-4",
+	}); got != "anthropic/claude-sonnet-4" {
+		t.Fatalf("resolveCompactionModel(small model) = %q", got)
+	}
+}
+
+func TestMaybeManageContext_UsesSmallModelForCompaction(t *testing.T) {
+	sess := &session.Session{
+		ID:          "sess-small-model",
+		Runtime:     runtimeinfo.NativeRuntime,
+		MetadataDir: t.TempDir(),
+	}
+
+	state := &State{
+		Runtime:   runtimeinfo.NativeRuntime,
+		SessionID: sess.ID,
+		Model:     "openai/gpt-4o",
+		Messages: []Message{
+			{Role: "system", Content: "system prompt"},
+			{Role: "user", Content: strings.Repeat("a", 2500)},
+			{Role: "assistant", Content: strings.Repeat("b", 2500)},
+			{Role: "tool", Name: "Read", Content: strings.Repeat("c", 2500)},
+			{Role: "user", Content: "keep"},
+			{Role: "assistant", Content: "recent"},
+		},
+	}
+	cfg := &SessionConfig{
+		Model:      "openai/gpt-4o",
+		SmallModel: "openai/gpt-4o-mini",
+		RuntimeConfig: SessionRuntimeOptions{
+			CompactionKeepRecent: 2,
+		},
+	}
+	profile := runtimeinfo.NativeModelProfile{
+		ContextWindow:   1800,
+		MaxOutputTokens: 512,
+		ReservedBuffer:  256,
+	}
+
+	var gotModel string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req chatRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		gotModel = req.Model
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(w).Encode(map[string]interface{}{
+			"id":    "resp-compaction",
+			"model": req.Model,
+			"choices": []map[string]interface{}{
+				{
+					"message": map[string]interface{}{
+						"role":    "assistant",
+						"content": `{"goal":"keep context","completed_work":["summarized earlier work"],"next_steps":["continue from recent messages"]}`,
+					},
+					"finish_reason": "stop",
+				},
+			},
+		}); err != nil {
+			t.Fatalf("encode response: %v", err)
+		}
+	}))
+	defer server.Close()
+
+	client := &openRouterClient{
+		baseURL:    server.URL,
+		apiKey:     "test-key",
+		httpClient: server.Client(),
+	}
+
+	changed, err := maybeManageContext(state, sess, cfg, profile, client)
+	if err != nil {
+		t.Fatalf("maybeManageContext() error = %v", err)
+	}
+	if !changed {
+		t.Fatal("expected context compaction to change state")
+	}
+	if gotModel != cfg.SmallModel {
+		t.Fatalf("compaction model = %q, want %q", gotModel, cfg.SmallModel)
+	}
+	if len(state.Messages) < 2 || !isContinuationArtifact(state.Messages[1]) {
+		t.Fatalf("expected continuation artifact after compaction, got %#v", state.Messages)
 	}
 }
 
@@ -92,7 +192,7 @@ func TestBudgetFail_EmergencyCompaction(t *testing.T) {
 		},
 	}
 
-	changed, err := manageContextWithBudget(state, sess, 2, 6000, profile, nil)
+	changed, err := manageContextWithBudget(state, sess, nil, 2, 6000, profile, nil)
 
 	// Emergency compaction should have fired. If it managed to compact below
 	// the fail threshold, changed=true and no error. If still over, we get an error.
@@ -209,9 +309,9 @@ func TestAgeToolResults_PreservesRecentMessages(t *testing.T) {
 	largeContent := strings.Repeat("x", 100*1024)
 	messages := []Message{
 		{Role: "system", Content: "system prompt"},
-		{Role: "tool", Name: "Read", Content: largeContent},  // old — should be aged
+		{Role: "tool", Name: "Read", Content: largeContent}, // old — should be aged
 		{Role: "user", Content: "middle"},
-		{Role: "tool", Name: "Read", Content: largeContent},  // recent — should be preserved
+		{Role: "tool", Name: "Read", Content: largeContent}, // recent — should be preserved
 		{Role: "assistant", Content: "reply"},
 	}
 
@@ -269,7 +369,7 @@ func TestContextBudgeter_Evaluate(t *testing.T) {
 		want   BudgetDecision
 	}{
 		{"low usage", budget / 2, BudgetContinue},
-		{"below prune", budget * 3 / 4 - 1, BudgetContinue},
+		{"below prune", budget*3/4 - 1, BudgetContinue},
 		{"at prune threshold", budget * 3 / 4, BudgetPrune},
 		{"between prune and compact", budget * 4 / 5, BudgetPrune},
 		{"at compact threshold", budget * 9 / 10, BudgetCompact},
@@ -489,7 +589,7 @@ func TestManageContextWithBudget_PrunesBeforeCompaction(t *testing.T) {
 		ReservedBuffer:  4096,
 	}
 
-	changed, err := manageContextWithBudget(state, sess, 2, 6000, profile, nil)
+	changed, err := manageContextWithBudget(state, sess, nil, 2, 6000, profile, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -536,7 +636,7 @@ func TestManageContextWithBudget_CompactsWhenNeeded(t *testing.T) {
 		},
 	}
 
-	changed, err := manageContextWithBudget(state, sess, 2, 6000, profile, nil)
+	changed, err := manageContextWithBudget(state, sess, nil, 2, 6000, profile, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -754,4 +854,3 @@ func TestTranscriptSurvivesCompaction(t *testing.T) {
 		t.Error("Transcript should still have original messages")
 	}
 }
-

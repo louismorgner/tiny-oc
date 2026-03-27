@@ -248,6 +248,32 @@ Output: A short summary confirming the updated todo list.`,
 				"required": []string{"todos"},
 			},
 			Handler: nativeTodoWrite,
+	},
+	{
+		Name: "Question",
+			Description: `Ask the user a clarifying question and wait for their response.
+
+Use this tool when the task is ambiguous and you need information from the user before proceeding. The agent loop pauses, the question is shown to the user, and their answer is returned as the tool result.
+
+Parameters:
+- question (required): The question to ask the user. Be specific and concise.
+
+Output: The user's verbatim response as a string.
+
+This tool only works in interactive (TTY) sessions. In detached or non-interactive sessions it returns an error — do not call it from background sub-agents.
+
+Anti-patterns:
+- Do NOT ask multiple questions in one call — ask one focused question at a time.
+- Do NOT use this tool for questions you can answer yourself by reading files or running commands.
+- Do NOT call this tool in detached sessions or sub-agents — it will fail.`,
+			Parameters: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"question": map[string]interface{}{"type": "string"},
+				},
+				"required": []string{"question"},
+			},
+			Handler: nativeQuestion,
 		},
 		{
 			Name: "SubAgent",

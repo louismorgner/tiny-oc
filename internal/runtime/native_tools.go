@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -16,6 +17,7 @@ import (
 
 	"github.com/tiny-oc/toc/internal/integration"
 	tocsync "github.com/tiny-oc/toc/internal/sync"
+	"github.com/tiny-oc/toc/internal/ui"
 )
 
 const maxToolOutputBytes = 64 * 1024
@@ -415,6 +417,37 @@ func nativeTodoWrite(ctx nativeToolContext, call ToolCall) toolExecution {
 		Type:    "tool",
 		Tool:    "TodoWrite",
 		Content: message,
+		Success: boolPtr(true),
+	})
+}
+
+func nativeQuestion(_ nativeToolContext, call ToolCall) toolExecution {
+	var args struct {
+		Question string `json:"question"`
+	}
+	if err := decodeToolArgs(call.Function.Arguments, &args); err != nil {
+		return toolFailure("Question", "", "", err)
+	}
+	if strings.TrimSpace(args.Question) == "" {
+		return toolFailure("Question", "", "", fmt.Errorf("question is required"))
+	}
+
+	if !ui.IsTTY(os.Stdin) {
+		return toolFailure("Question", "", "", fmt.Errorf("clarification not available in non-interactive mode"))
+	}
+
+	fmt.Fprintf(os.Stdout, "\n%s\n> ", args.Question)
+	reader := bufio.NewReader(os.Stdin)
+	answer, err := reader.ReadString('\n')
+	if err != nil {
+		return toolFailure("Question", "", "", fmt.Errorf("failed to read answer: %w", err))
+	}
+	answer = strings.TrimRight(answer, "\r\n")
+
+	return toolSuccess("Question", "", answer, Step{
+		Type:    "tool",
+		Tool:    "Question",
+		Content: args.Question,
 		Success: boolPtr(true),
 	})
 }

@@ -31,7 +31,8 @@ type SpawnResult struct {
 
 // SpawnOptions contains optional parameters for SpawnSession.
 type SpawnOptions struct {
-	Prompt string // If set, run non-interactively with this prompt
+	Prompt        string // If set, run non-interactively with this prompt
+	MaxIterations int    // CLI override for max tool iterations; 0 means use default
 }
 
 func SpawnSession(cfg *agent.AgentConfig, opts ...SpawnOptions) (*SpawnResult, error) {
@@ -39,7 +40,9 @@ func SpawnSession(cfg *agent.AgentConfig, opts ...SpawnOptions) (*SpawnResult, e
 	if len(opts) > 0 {
 		spawnOpts = opts[0]
 	}
-	sessionCfg := runtime.ResolveSessionConfig(cfg)
+	sessionCfg := runtime.ResolveSessionConfig(cfg, runtime.ResolveOptions{
+		MaxIterationsOverride: spawnOpts.MaxIterations,
+	})
 	if err := runtime.ValidateSessionConfig(sessionCfg); err != nil {
 		return nil, err
 	}
@@ -222,12 +225,15 @@ type SubSpawnOpts struct {
 	ParentSessionID string
 	Prompt          string
 	WorkspaceDir    string // absolute path to the toc workspace
+	MaxIterations   int    // CLI override for max tool iterations; 0 means use default
 }
 
 // SpawnSubSession spawns a non-interactive sub-agent session in the background.
 // Output is captured to toc-output.txt in the session workspace.
 func SpawnSubSession(cfg *agent.AgentConfig, opts SubSpawnOpts) (*SpawnResult, error) {
-	sessionCfg := runtime.ResolveSessionConfig(cfg)
+	sessionCfg := runtime.ResolveSessionConfig(cfg, runtime.ResolveOptions{
+		MaxIterationsOverride: opts.MaxIterations,
+	})
 	if err := runtime.ValidateSessionConfig(sessionCfg); err != nil {
 		return nil, err
 	}

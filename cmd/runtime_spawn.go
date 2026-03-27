@@ -14,10 +14,12 @@ import (
 
 var runtimeSpawnPrompt string
 var runtimeSpawnResume string
+var runtimeSpawnMaxIterations int
 
 func init() {
 	runtimeSpawnCmd.Flags().StringVarP(&runtimeSpawnPrompt, "prompt", "p", "", "Task prompt for the sub-agent")
 	runtimeSpawnCmd.Flags().StringVar(&runtimeSpawnResume, "resume", "", "Resume a failed or cancelled sub-agent session by ID")
+	runtimeSpawnCmd.Flags().IntVar(&runtimeSpawnMaxIterations, "max-iterations", 0, "Override max tool iterations for the sub-agent (0 = use agent/env/default)")
 	runtimeCmd.AddCommand(runtimeSpawnCmd)
 }
 
@@ -75,6 +77,7 @@ var runtimeSpawnCmd = &cobra.Command{
 			ParentSessionID: ctx.SessionID,
 			Prompt:          runtimeSpawnPrompt,
 			WorkspaceDir:    ctx.Workspace,
+			MaxIterations:   runtimeSpawnMaxIterations,
 		})
 		if err != nil {
 			return err

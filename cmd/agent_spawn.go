@@ -11,13 +11,15 @@ import (
 )
 
 var (
-	resumeSessionID string
-	spawnPrompt     string
+	resumeSessionID    string
+	spawnPrompt        string
+	spawnMaxIterations int
 )
 
 func init() {
 	agentSpawnCmd.Flags().StringVar(&resumeSessionID, "resume", "", "Resume an existing session by ID")
 	agentSpawnCmd.Flags().StringVarP(&spawnPrompt, "prompt", "p", "", "Run a single prompt non-interactively and exit")
+	agentSpawnCmd.Flags().IntVar(&spawnMaxIterations, "max-iterations", 0, "Override max tool iterations for this session (0 = use agent/env/default)")
 	agentSpawnCmd.RegisterFlagCompletionFunc("resume", completeSessionIDs)
 	agentCmd.AddCommand(agentSpawnCmd)
 }
@@ -61,7 +63,7 @@ var agentSpawnCmd = &cobra.Command{
 			return err
 		}
 
-		result, err := spawn.SpawnSession(cfg, spawn.SpawnOptions{Prompt: spawnPrompt})
+		result, err := spawn.SpawnSession(cfg, spawn.SpawnOptions{Prompt: spawnPrompt, MaxIterations: spawnMaxIterations})
 		if result != nil {
 			details := map[string]interface{}{
 				"agent":      agentName,

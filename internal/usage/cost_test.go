@@ -17,9 +17,13 @@ func TestEstimateCostKnownModel(t *testing.T) {
 		t.Fatalf("expected positive cost, got %f", cost)
 	}
 	// gpt-5.4: input=$2.50/M, output=$15/M, cache_read=$0.25/M, cache_write=$2.50/M
-	// 1M * 2.50/M + 100k * 15/M + 500k * 0.25/M + 50k * 2.50/M
-	// = 2.50 + 1.50 + 0.125 + 0.125 = 4.25
-	expected := 4.25
+	// InputTokens (1M) already includes CacheRead (500k) and CacheCreate (50k).
+	// non-cached: (1M - 500k - 50k) * 2.50/M = 1.125
+	// output: 100k * 15/M = 1.50
+	// cache_read: 500k * 0.25/M = 0.125
+	// cache_write: 50k * 2.50/M = 0.125
+	// total = 2.875
+	expected := 2.875
 	if math.Abs(cost-expected) > 0.001 {
 		t.Fatalf("cost = %f, expected %f", cost, expected)
 	}

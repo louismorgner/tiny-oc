@@ -50,7 +50,11 @@ func EstimateCost(model string, tokens TokenUsage) float64 {
 	if !ok {
 		return 0
 	}
-	cost := float64(tokens.InputTokens) * pricing.InputPerToken
+	// InputTokens already includes CacheRead and CacheCreate as subsets
+	// (OpenAI/OpenRouter report prompt_tokens inclusive of cached tokens).
+	// Charge only the non-cached portion at the full input rate.
+	nonCached := tokens.InputTokens - tokens.CacheRead - tokens.CacheCreate
+	cost := float64(nonCached) * pricing.InputPerToken
 	cost += float64(tokens.OutputTokens) * pricing.OutputPerToken
 	cost += float64(tokens.CacheRead) * pricing.CacheReadPerToken
 	cost += float64(tokens.CacheCreate) * pricing.CacheWritePerToken

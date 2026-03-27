@@ -221,12 +221,12 @@ func TestEstimateCostUSD(t *testing.T) {
 		InputTokens:  1_000_000,
 		OutputTokens: 100_000,
 	}
-	cost := estimateCostUSD("openai/gpt-4o-mini", tokens)
+	cost := usage.EstimateCost("openai/gpt-4o-mini", tokens)
 	if cost < 0.01 || cost > 10 {
 		t.Fatalf("unexpected cost: %f", cost)
 	}
 	// Unknown model should return 0
-	cost = estimateCostUSD("unknown/model", tokens)
+	cost = usage.EstimateCost("unknown/model", tokens)
 	if cost != 0 {
 		t.Fatalf("expected 0 for unknown model, got %f", cost)
 	}

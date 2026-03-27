@@ -980,9 +980,9 @@ func printDebugReport(report *debugReport, full bool) {
 	fmt.Printf("  %s\n", ui.Bold("Usage (cumulative)"))
 	fmt.Printf("    input=%d output=%d cache_read=%d cache_create=%d total=%d\n", report.Usage.InputTokens, report.Usage.OutputTokens, report.Usage.CacheRead, report.Usage.CacheCreate, report.Usage.TotalTokens)
 	if report.Usage.CacheRead > 0 || report.Usage.CacheCreate > 0 {
-		totalInput := report.Usage.InputTokens + report.Usage.CacheRead + report.Usage.CacheCreate
-		if totalInput > 0 {
-			pct := float64(report.Usage.CacheRead) / float64(totalInput) * 100
+		// InputTokens already includes CacheRead and CacheCreate as subsets.
+		if report.Usage.InputTokens > 0 {
+			pct := float64(report.Usage.CacheRead) / float64(report.Usage.InputTokens) * 100
 			fmt.Printf("    cache_hit_rate: %.1f%%\n", pct)
 		}
 	}

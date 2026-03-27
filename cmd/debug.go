@@ -136,19 +136,21 @@ type debugSessionInfo struct {
 }
 
 type debugStateInfo struct {
-	RuntimeStatus    string                         `json:"runtime_status,omitempty"`
-	Model            string                         `json:"model,omitempty"`
-	LastError        string                         `json:"last_error,omitempty"`
-	PendingQuestion  *iruntime.PendingQuestion      `json:"pending_question,omitempty"`
-	PendingTurn      *iruntime.TurnCheckpoint       `json:"pending_turn,omitempty"`
-	PendingTurnLabel string                         `json:"pending_turn_label,omitempty"`
-	RecoveryCount    int                            `json:"recovery_count,omitempty"`
-	ResumeCount      int                            `json:"resume_count,omitempty"`
-	CompactionCount  int                            `json:"compaction_count,omitempty"`
-	CrashInfo        *iruntime.CrashInfo            `json:"crash_info,omitempty"`
-	ContextDiag      *iruntime.ContextDiagnostics   `json:"context_diagnostics,omitempty"`
-	WorkingSet       *iruntime.WorkingSet           `json:"working_set,omitempty"`
-	Continuation     *iruntime.ContinuationArtifact `json:"continuation,omitempty"`
+	RuntimeStatus        string                         `json:"runtime_status,omitempty"`
+	Model                string                         `json:"model,omitempty"`
+	LastError            string                         `json:"last_error,omitempty"`
+	PendingQuestion      *iruntime.PendingQuestion      `json:"pending_question,omitempty"`
+	PendingQuestionError string                         `json:"pending_question_error,omitempty"`
+	AnswerPending        bool                           `json:"answer_pending,omitempty"`
+	PendingTurn          *iruntime.TurnCheckpoint       `json:"pending_turn,omitempty"`
+	PendingTurnLabel     string                         `json:"pending_turn_label,omitempty"`
+	RecoveryCount        int                            `json:"recovery_count,omitempty"`
+	ResumeCount          int                            `json:"resume_count,omitempty"`
+	CompactionCount      int                            `json:"compaction_count,omitempty"`
+	CrashInfo            *iruntime.CrashInfo            `json:"crash_info,omitempty"`
+	ContextDiag          *iruntime.ContextDiagnostics   `json:"context_diagnostics,omitempty"`
+	WorkingSet           *iruntime.WorkingSet           `json:"working_set,omitempty"`
+	Continuation         *iruntime.ContinuationArtifact `json:"continuation,omitempty"`
 }
 
 type debugTimelineInfo struct {
@@ -414,8 +416,12 @@ func buildDebugReport(s *session.Session, eventLimit int, full bool) (*debugRepo
 			}
 		}
 	}
-	if pendingQuestion, err := iruntime.LoadPendingQuestion(s); err == nil && pendingQuestion != nil {
-		report.State.PendingQuestion = pendingQuestion
+	if pendingQuestion, err := iruntime.InspectPendingQuestion(s); err == nil && pendingQuestion != nil {
+		report.State.PendingQuestion = pendingQuestion.Question
+		report.State.PendingQuestionError = pendingQuestion.Error
+		report.State.AnswerPending = pendingQuestion.AnswerPending
+	} else if err != nil {
+		return nil, err
 	}
 
 	report.Timeline = debugTimelineDetails(state, events, eventLimit, full)
@@ -665,7 +671,7 @@ func buildDiagnosis(report *debugReport, state *iruntime.State, events []iruntim
 	highTokens := report.Usage.InputTokens > 200000
 	lastTool := report.Timeline.LastToolCall
 	hasError := report.State.LastError != ""
-	hasPendingQuestion := report.State.PendingQuestion != nil
+	hasPendingQuestion := report.State.PendingQuestion != nil || report.State.PendingQuestionError != ""
 
 	// Case 1: Process dead but status says active — the core zombie detection
 	if processDead && (status == "active" || status == "running") {
@@ -753,12 +759,25 @@ func buildDiagnosis(report *debugReport, state *iruntime.State, events []iruntim
 
 	// Case 5: Waiting on operator input
 	if hasPendingQuestion {
-		d.Verdict = "WAITING FOR ANSWER — operator input required"
+		if report.State.PendingQuestionError != "" {
+			d.Verdict = "PENDING QUESTION METADATA ERROR — session blocked"
+		} else {
+			d.Verdict = "WAITING FOR ANSWER — operator input required"
+		}
 		d.Confidence = "high"
-		evidence = append(evidence, "session posted a pending Question tool request")
-		evidence = append(evidence, "question: "+report.State.PendingQuestion.Question)
+		if report.State.PendingQuestionError != "" {
+			evidence = append(evidence, "pending question metadata is invalid")
+			evidence = append(evidence, "error: "+report.State.PendingQuestionError)
+			d.Suggestions = append(d.Suggestions, "Inspect session metadata with: toc debug "+report.Session.ID)
+		} else {
+			evidence = append(evidence, "session posted a pending Question tool request")
+			evidence = append(evidence, "question: "+report.State.PendingQuestion.Question)
+			d.Suggestions = append(d.Suggestions, "Answer with: toc answer "+report.Session.ID[:8]+" --text \"...\"")
+		}
+		if report.State.AnswerPending {
+			evidence = append(evidence, "an answer has been submitted but not yet consumed")
+		}
 		d.Evidence = evidence
-		d.Suggestions = append(d.Suggestions, "Answer with: toc answer "+report.Session.ID[:8]+" --text \"...\"")
 		return d
 	}
 
@@ -935,11 +954,19 @@ func printDebugReport(report *debugReport, full bool) {
 	if report.State.LastError != "" {
 		fmt.Printf("    last_error: %s\n", report.State.LastError)
 	}
+	if report.State.PendingQuestionError != "" {
+		fmt.Printf("    pending_question_error: %s\n", report.State.PendingQuestionError)
+	}
 	if report.State.PendingQuestion != nil {
 		fmt.Printf("    pending_question: %s\n", report.State.PendingQuestion.Question)
 		if !report.State.PendingQuestion.Timestamp.IsZero() {
 			fmt.Printf("    pending_since: %s\n", report.State.PendingQuestion.Timestamp.Format(time.RFC3339))
 		}
+	}
+	if report.State.AnswerPending {
+		fmt.Printf("    answer_pending: true\n")
+	}
+	if report.State.PendingQuestion != nil || report.State.PendingQuestionError != "" {
 		fmt.Printf("    answer_with: toc answer %s --text \"...\"\n", report.Session.ID)
 	}
 	if report.State.PendingTurnLabel != "" && report.State.PendingTurn != nil {

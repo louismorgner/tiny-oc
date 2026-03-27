@@ -212,8 +212,18 @@ func subAgentStatus(ctx nativeToolContext, sessionID string) toolExecution {
 				"agent":      s.Agent,
 				"status":     s.ResolvedStatus(),
 			}
-			if pendingQuestion, err := LoadPendingQuestion(&s); err == nil && pendingQuestion != nil {
-				entry["pending_question"] = pendingQuestion
+			if pendingQuestion, err := InspectPendingQuestion(&s); err == nil && pendingQuestion != nil {
+				if pendingQuestion.Question != nil {
+					entry["pending_question"] = pendingQuestion.Question
+				}
+				if pendingQuestion.Error != "" {
+					entry["pending_question_error"] = pendingQuestion.Error
+				}
+				if pendingQuestion.AnswerPending {
+					entry["answer_pending"] = true
+				}
+			} else if err != nil {
+				return toolFailure("SubAgent", "", "", err)
 			}
 			if s.Name != "" {
 				entry["name"] = s.Name
@@ -261,8 +271,18 @@ func subAgentStatus(ctx nativeToolContext, sessionID string) toolExecution {
 		}
 		result["prompt"] = p
 	}
-	if pendingQuestion, err := LoadPendingQuestion(s); err == nil && pendingQuestion != nil {
-		result["pending_question"] = pendingQuestion
+	if pendingQuestion, err := InspectPendingQuestion(s); err == nil && pendingQuestion != nil {
+		if pendingQuestion.Question != nil {
+			result["pending_question"] = pendingQuestion.Question
+		}
+		if pendingQuestion.Error != "" {
+			result["pending_question_error"] = pendingQuestion.Error
+		}
+		if pendingQuestion.AnswerPending {
+			result["answer_pending"] = true
+		}
+	} else if err != nil {
+		return toolFailure("SubAgent", "", "", err)
 	}
 	if exitCode, err := s.ReadExitCode(); err == nil {
 		result["exit_code"] = exitCode

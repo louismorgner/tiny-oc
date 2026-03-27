@@ -317,6 +317,46 @@ func TestBuildDebugReportIncludesPendingQuestion(t *testing.T) {
 	}
 }
 
+func TestBuildDebugReportIncludesPendingQuestionError(t *testing.T) {
+	workspace := t.TempDir()
+	withWorkingDir(t, workspace)
+
+	metadataDir := filepath.Join(workspace, ".toc", "sessions", "child-question")
+	if err := os.MkdirAll(metadataDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	sess := &session.Session{
+		ID:            "child-question",
+		Agent:         "native-agent",
+		Runtime:       runtimeinfo.NativeRuntime,
+		MetadataDir:   metadataDir,
+		CreatedAt:     time.Now(),
+		WorkspacePath: t.TempDir(),
+		Status:        session.StatusActive,
+	}
+	if err := os.WriteFile(filepath.Join(metadataDir, "question.json"), []byte(`{"question":`), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	report, err := buildDebugReport(sess, 10, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.State.PendingQuestionError == "" {
+		t.Fatal("expected pending question parse error in debug report")
+	}
+	if report.Diagnosis.Verdict != "PENDING QUESTION METADATA ERROR — session blocked" {
+		t.Fatalf("unexpected verdict: %q", report.Diagnosis.Verdict)
+	}
+
+	output := captureStdout(t, func() {
+		printDebugReport(report, false)
+	})
+	if !strings.Contains(output, "pending_question_error: failed to parse question.json") {
+		t.Fatalf("expected pending question error in output: %q", output)
+	}
+}
+
 func TestReadDebugArtifactLimitsContent(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "stderr.log")
 	content := strings.Repeat("a", 140*1024)

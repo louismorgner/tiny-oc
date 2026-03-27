@@ -29,11 +29,13 @@ func init() {
 }
 
 type pendingQuestionRow struct {
-	ID              string                   `json:"id"`
-	Name            string                   `json:"name,omitempty"`
-	Agent           string                   `json:"agent"`
-	Status          string                   `json:"status"`
-	PendingQuestion *runtime.PendingQuestion `json:"pending_question,omitempty"`
+	ID                   string                   `json:"id"`
+	Name                 string                   `json:"name,omitempty"`
+	Agent                string                   `json:"agent"`
+	Status               string                   `json:"status"`
+	PendingQuestion      *runtime.PendingQuestion `json:"pending_question,omitempty"`
+	AnswerPending        bool                     `json:"answer_pending,omitempty"`
+	PendingQuestionError string                   `json:"pending_question_error,omitempty"`
 }
 
 var questionCmd = &cobra.Command{
@@ -109,21 +111,34 @@ func listPendingQuestions(jsonFlag bool) error {
 
 	var rows []pendingQuestionRow
 	for _, sess := range sf.Sessions {
-		question, err := runtime.LoadPendingQuestion(&sess)
-		if err != nil || question == nil {
+		info, err := runtime.InspectPendingQuestion(&sess)
+		if err != nil {
+			return err
+		}
+		if info == nil {
 			continue
 		}
 		rows = append(rows, pendingQuestionRow{
-			ID:              sess.ID,
-			Name:            sess.Name,
-			Agent:           sess.Agent,
-			Status:          sess.ResolvedStatus(),
-			PendingQuestion: question,
+			ID:                   sess.ID,
+			Name:                 sess.Name,
+			Agent:                sess.Agent,
+			Status:               sess.ResolvedStatus(),
+			PendingQuestion:      info.Question,
+			AnswerPending:        info.AnswerPending,
+			PendingQuestionError: info.Error,
 		})
 	}
 
 	sort.Slice(rows, func(i, j int) bool {
-		return rows[i].PendingQuestion.Timestamp.After(rows[j].PendingQuestion.Timestamp)
+		left := time.Time{}
+		if rows[i].PendingQuestion != nil {
+			left = rows[i].PendingQuestion.Timestamp
+		}
+		right := time.Time{}
+		if rows[j].PendingQuestion != nil {
+			right = rows[j].PendingQuestion.Timestamp
+		}
+		return left.After(right)
 	})
 
 	if jsonFlag {
@@ -144,11 +159,21 @@ func listPendingQuestions(jsonFlag bool) error {
 	fmt.Printf("  %-10s %-16s %-8s %-8s %s\n", ui.Bold("SESSION"), ui.Bold("AGENT"), ui.Bold("STATUS"), ui.Bold("ASKED"), ui.Bold("QUESTION"))
 	fmt.Printf("  %-10s %-16s %-8s %-8s %s\n", ui.Dim("──────────"), ui.Dim("────────────────"), ui.Dim("────────"), ui.Dim("────────"), ui.Dim("────────────────────────────────────────"))
 	for _, row := range rows {
-		question := row.PendingQuestion.Question
+		question := row.PendingQuestionError
+		if row.PendingQuestion != nil {
+			question = row.PendingQuestion.Question
+		}
+		if row.AnswerPending {
+			question = "[answered] " + question
+		}
 		if len(question) > 52 {
 			question = question[:49] + "..."
 		}
-		fmt.Printf("  %-10s %-16s %-8s %-8s %s\n", ui.Dim(row.ID[:8]), ui.Cyan(row.Agent), ui.Dim(row.Status), ui.Dim(formatQuestionAge(row.PendingQuestion.Timestamp)), ui.Dim(question))
+		asked := "unknown"
+		if row.PendingQuestion != nil {
+			asked = formatQuestionAge(row.PendingQuestion.Timestamp)
+		}
+		fmt.Printf("  %-10s %-16s %-8s %-8s %s\n", ui.Dim(row.ID[:8]), ui.Cyan(row.Agent), ui.Dim(row.Status), ui.Dim(asked), ui.Dim(question))
 	}
 	fmt.Println()
 	return nil
@@ -160,20 +185,22 @@ func showPendingQuestion(sessionID string, jsonFlag bool) error {
 		return err
 	}
 
-	question, err := runtime.LoadPendingQuestion(sess)
+	info, err := runtime.InspectPendingQuestion(sess)
 	if err != nil {
 		return err
 	}
-	if question == nil {
+	if info == nil {
 		return fmt.Errorf("session '%s' has no pending question", sess.ID)
 	}
 
 	row := pendingQuestionRow{
-		ID:              sess.ID,
-		Name:            sess.Name,
-		Agent:           sess.Agent,
-		Status:          sess.ResolvedStatus(),
-		PendingQuestion: question,
+		ID:                   sess.ID,
+		Name:                 sess.Name,
+		Agent:                sess.Agent,
+		Status:               sess.ResolvedStatus(),
+		PendingQuestion:      info.Question,
+		AnswerPending:        info.AnswerPending,
+		PendingQuestionError: info.Error,
 	}
 
 	if jsonFlag {
@@ -189,10 +216,17 @@ func showPendingQuestion(sessionID string, jsonFlag bool) error {
 	fmt.Printf("  %s %s\n", ui.Bold("Session:"), ui.Cyan(sess.ID))
 	fmt.Printf("  %s %s\n", ui.Bold("Agent:"), ui.Cyan(sess.Agent))
 	fmt.Printf("  %s %s\n", ui.Bold("Status:"), ui.Dim(sess.ResolvedStatus()))
-	if !question.Timestamp.IsZero() {
-		fmt.Printf("  %s %s\n", ui.Bold("Asked:"), ui.Dim(question.Timestamp.Format(time.RFC3339)))
+	if row.PendingQuestionError != "" {
+		fmt.Printf("  %s %s\n", ui.Bold("Question error:"), ui.Dim(row.PendingQuestionError))
+	} else if row.PendingQuestion != nil && !row.PendingQuestion.Timestamp.IsZero() {
+		fmt.Printf("  %s %s\n", ui.Bold("Asked:"), ui.Dim(row.PendingQuestion.Timestamp.Format(time.RFC3339)))
 	}
-	fmt.Printf("  %s %s\n", ui.Bold("Question:"), ui.Dim(question.Question))
+	if row.PendingQuestion != nil {
+		fmt.Printf("  %s %s\n", ui.Bold("Question:"), ui.Dim(row.PendingQuestion.Question))
+	}
+	if row.AnswerPending {
+		fmt.Printf("  %s %s\n", ui.Bold("Answer status:"), ui.Dim("answer submitted, waiting for session to consume it"))
+	}
 	fmt.Println()
 	ui.Info("Answer with: %s", ui.Bold(fmt.Sprintf("toc answer %s --text \"...\"", sess.ID)))
 	fmt.Println()

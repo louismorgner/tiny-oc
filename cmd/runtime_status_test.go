@@ -148,3 +148,50 @@ func TestShowSubAgentStatusDisplaysPendingQuestion(t *testing.T) {
 		}
 	}
 }
+
+func TestShowSubAgentStatusDisplaysPendingQuestionError(t *testing.T) {
+	color.NoColor = true
+	defer func() { color.NoColor = false }()
+
+	workspace := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(workspace, ".toc"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	metadataDir := filepath.Join(workspace, ".toc", "sessions", "child-question")
+	sessions := session.SessionsFile{
+		Sessions: []session.Session{
+			{
+				ID:              "child-question",
+				Agent:           "native-agent",
+				Runtime:         runtimeinfo.NativeRuntime,
+				MetadataDir:     metadataDir,
+				CreatedAt:       time.Now(),
+				WorkspacePath:   t.TempDir(),
+				Status:          session.StatusActive,
+				ParentSessionID: "parent-status",
+			},
+		},
+	}
+	data, err := yaml.Marshal(&sessions)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(workspace, ".toc", "sessions.yaml"), data, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(metadataDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(metadataDir, "question.json"), []byte(`{"question":`), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	output := captureStdout(t, func() {
+		if err := showSubAgentStatus(&runtime.Context{Workspace: workspace, SessionID: "parent-status"}, "child-question"); err != nil {
+			t.Fatal(err)
+		}
+	})
+	if !strings.Contains(output, "Question error:") || !strings.Contains(output, "failed to parse question.json") {
+		t.Fatalf("expected pending question error in output: %q", output)
+	}
+}

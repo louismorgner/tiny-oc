@@ -32,8 +32,8 @@ func TestLoadPendingQuestionAndSubmitAnswer(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := os.Stat(filepath.Join(metaDir, "question.json")); !os.IsNotExist(err) {
-		t.Fatalf("question.json should be removed, got err=%v", err)
+	if _, err := os.Stat(filepath.Join(metaDir, "question.json")); err != nil {
+		t.Fatalf("question.json should remain until the runtime consumes the answer, got err=%v", err)
 	}
 	data, err := os.ReadFile(filepath.Join(metaDir, "answer.json"))
 	if err != nil {
@@ -41,6 +41,13 @@ func TestLoadPendingQuestionAndSubmitAnswer(t *testing.T) {
 	}
 	if string(data) == "" {
 		t.Fatal("answer.json should not be empty")
+	}
+	info, err := InspectPendingQuestion(sess)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info == nil || !info.AnswerPending {
+		t.Fatalf("expected answer_pending state, got %#v", info)
 	}
 }
 
@@ -92,5 +99,25 @@ func TestSubmitPendingQuestionAnswerResumesWaitingSession(t *testing.T) {
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("nativeQuestion did not resume after answer submission")
+	}
+}
+
+func TestInspectPendingQuestionReturnsParseError(t *testing.T) {
+	metaDir := t.TempDir()
+	sess := &session.Session{
+		ID:          "child-question",
+		MetadataDir: metaDir,
+	}
+
+	if err := os.WriteFile(filepath.Join(metaDir, "question.json"), []byte(`{"question":`), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	info, err := InspectPendingQuestion(sess)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info == nil || info.Error == "" {
+		t.Fatalf("expected parse error state, got %#v", info)
 	}
 }

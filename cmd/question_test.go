@@ -52,7 +52,7 @@ func TestShowPendingQuestionDisplaysAnswerHint(t *testing.T) {
 	}
 }
 
-func TestAnswerCommandWritesAnswerAndClearsQuestion(t *testing.T) {
+func TestAnswerCommandWritesAnswerAndKeepsQuestionUntilConsumed(t *testing.T) {
 	color.NoColor = true
 	defer func() { color.NoColor = false }()
 
@@ -91,8 +91,8 @@ func TestAnswerCommandWritesAnswerAndClearsQuestion(t *testing.T) {
 		t.Fatalf("expected success output: %q", output)
 	}
 
-	if _, err := os.Stat(filepath.Join(metadataDir, "question.json")); !os.IsNotExist(err) {
-		t.Fatalf("question.json should be removed, got err=%v", err)
+	if _, err := os.Stat(filepath.Join(metadataDir, "question.json")); err != nil {
+		t.Fatalf("question.json should remain until the runtime consumes the answer, got err=%v", err)
 	}
 	answerData, err := os.ReadFile(filepath.Join(metadataDir, "answer.json"))
 	if err != nil {
@@ -155,6 +155,78 @@ func TestListPendingQuestionsShowsWorkspaceQuestions(t *testing.T) {
 		if !strings.Contains(output, want) {
 			t.Fatalf("expected %q in output: %q", want, output)
 		}
+	}
+}
+
+func TestListPendingQuestionsShowsCorruptMetadata(t *testing.T) {
+	color.NoColor = true
+	defer func() { color.NoColor = false }()
+
+	workspace := t.TempDir()
+	withWorkingDir(t, workspace)
+	writeWorkspaceConfig(t, workspace)
+
+	writeSessionsFile(t, workspace, []session.Session{
+		{
+			ID:            "child-bad",
+			Agent:         "implementer",
+			MetadataDir:   filepath.Join(workspace, ".toc", "sessions", "child-bad"),
+			CreatedAt:     time.Now(),
+			WorkspacePath: t.TempDir(),
+			Status:        session.StatusActive,
+		},
+	})
+	metaDir := runtime.MetadataDir(workspace, "child-bad")
+	if err := os.MkdirAll(metaDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(metaDir, "question.json"), []byte(`{"question":`), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	output := captureStdout(t, func() {
+		if err := listPendingQuestions(false); err != nil {
+			t.Fatal(err)
+		}
+	})
+	if !strings.Contains(output, "failed to parse question.json") {
+		t.Fatalf("expected parse error in output: %q", output)
+	}
+}
+
+func TestShowPendingQuestionDisplaysCorruptMetadata(t *testing.T) {
+	color.NoColor = true
+	defer func() { color.NoColor = false }()
+
+	workspace := t.TempDir()
+	withWorkingDir(t, workspace)
+	writeWorkspaceConfig(t, workspace)
+
+	metadataDir := filepath.Join(workspace, ".toc", "sessions", "child-question")
+	writeSessionsFile(t, workspace, []session.Session{
+		{
+			ID:            "child-question",
+			Agent:         "implementer",
+			MetadataDir:   metadataDir,
+			CreatedAt:     time.Now(),
+			WorkspacePath: t.TempDir(),
+			Status:        session.StatusActive,
+		},
+	})
+	if err := os.MkdirAll(metadataDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(metadataDir, "question.json"), []byte(`{"question":`), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	output := captureStdout(t, func() {
+		if err := showPendingQuestion("child-question", false); err != nil {
+			t.Fatal(err)
+		}
+	})
+	if !strings.Contains(output, "Question error:") || !strings.Contains(output, "failed to parse question.json") {
+		t.Fatalf("expected corrupt metadata in output: %q", output)
 	}
 }
 

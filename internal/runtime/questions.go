@@ -21,6 +21,12 @@ type PendingQuestion struct {
 	Agent     string    `json:"agent"`
 }
 
+type PendingQuestionInfo struct {
+	Question      *PendingQuestion `json:"question,omitempty"`
+	AnswerPending bool             `json:"answer_pending,omitempty"`
+	Error         string           `json:"error,omitempty"`
+}
+
 type questionAnswer struct {
 	Answer    string    `json:"answer"`
 	Timestamp time.Time `json:"timestamp"`
@@ -38,16 +44,48 @@ func LoadPendingQuestion(sess *session.Session) (*PendingQuestion, error) {
 	if sess == nil {
 		return nil, nil
 	}
-	return loadPendingQuestionFromDir(sess.MetadataDirPath())
+	info, err := InspectPendingQuestion(sess)
+	if err != nil || info == nil {
+		return nil, err
+	}
+	if info.Error != "" {
+		return nil, fmt.Errorf("%s", info.Error)
+	}
+	return info.Question, nil
 }
 
 func LoadPendingQuestionInWorkspace(workspace, sessionID string) (*PendingQuestion, error) {
-	return loadPendingQuestionFromDir(MetadataDir(workspace, sessionID))
+	info, err := InspectPendingQuestionInWorkspace(workspace, sessionID)
+	if err != nil || info == nil {
+		return nil, err
+	}
+	if info.Error != "" {
+		return nil, fmt.Errorf("%s", info.Error)
+	}
+	return info.Question, nil
 }
 
-func loadPendingQuestionFromDir(metaDir string) (*PendingQuestion, error) {
+func InspectPendingQuestion(sess *session.Session) (*PendingQuestionInfo, error) {
+	if sess == nil {
+		return nil, nil
+	}
+	return inspectPendingQuestionFromDir(sess.MetadataDirPath())
+}
+
+func InspectPendingQuestionInWorkspace(workspace, sessionID string) (*PendingQuestionInfo, error) {
+	return inspectPendingQuestionFromDir(MetadataDir(workspace, sessionID))
+}
+
+func inspectPendingQuestionFromDir(metaDir string) (*PendingQuestionInfo, error) {
 	if strings.TrimSpace(metaDir) == "" {
 		return nil, nil
+	}
+
+	info := &PendingQuestionInfo{}
+	if _, err := os.Stat(pendingAnswerPath(metaDir)); err == nil {
+		info.AnswerPending = true
+	} else if err != nil && !os.IsNotExist(err) {
+		return nil, err
 	}
 
 	data, err := os.ReadFile(pendingQuestionPath(metaDir))
@@ -57,12 +95,13 @@ func loadPendingQuestionFromDir(metaDir string) (*PendingQuestion, error) {
 		}
 		return nil, err
 	}
-
 	var question PendingQuestion
 	if err := json.Unmarshal(data, &question); err != nil {
-		return nil, err
+		info.Error = fmt.Sprintf("failed to parse question.json: %v", err)
+		return info, nil
 	}
-	return &question, nil
+	info.Question = &question
+	return info, nil
 }
 
 func SubmitPendingQuestionAnswer(sess *session.Session, answer string) error {
@@ -85,11 +124,14 @@ func submitPendingQuestionAnswerToDir(metaDir, answer string) error {
 		return ErrNoPendingQuestion
 	}
 
-	question, err := loadPendingQuestionFromDir(metaDir)
+	info, err := inspectPendingQuestionFromDir(metaDir)
 	if err != nil {
 		return err
 	}
-	if question == nil {
+	if info.Error != "" {
+		return fmt.Errorf("%s", info.Error)
+	}
+	if info == nil || info.Question == nil {
 		return ErrNoPendingQuestion
 	}
 
@@ -112,9 +154,6 @@ func submitPendingQuestionAnswerToDir(metaDir, answer string) error {
 	}
 	if err := os.Rename(tmpPath, answerPath); err != nil {
 		_ = os.Remove(tmpPath)
-		return err
-	}
-	if err := os.Remove(pendingQuestionPath(metaDir)); err != nil && !os.IsNotExist(err) {
 		return err
 	}
 	return nil

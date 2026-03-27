@@ -16,8 +16,6 @@ const (
 	// nativeCompactionContinuationPrefix marks structured continuation artifacts.
 	nativeCompactionContinuationPrefix = "[toc-continuation]"
 
-	// Legacy char-based defaults, used as fallback when no budgeter is available.
-	defaultCompactionTriggerChars       = 800000
 	defaultCompactionKeepRecentMessages = 12
 	defaultCompactionMaxSummaryChars    = 6000
 )
@@ -49,12 +47,7 @@ func maybeManageContext(state *State, sess *session.Session, cfg *SessionConfig,
 		}
 	}
 
-	// Use token-budget-based decisions when the model profile provides context
-	// window metadata. Fall back to legacy char thresholds for unknown models.
-	if profile.ContextWindow > 0 {
-		return manageContextWithBudget(state, sess, keepRecent, maxSummaryChars, profile, client)
-	}
-	return maybeCompactState(state, sess, cfg)
+	return manageContextWithBudget(state, sess, keepRecent, maxSummaryChars, profile, client)
 }
 
 // manageContextWithBudget implements the token-budget-aware context pipeline:
@@ -83,7 +76,8 @@ func manageContextWithBudget(state *State, sess *session.Session, keepRecent, ma
 
 		// Re-evaluate after pruning
 		currentTokens = estimateMessagesTokens(state.Messages)
-		if budgeter.Evaluate(currentTokens) == BudgetContinue || budgeter.Evaluate(currentTokens) == BudgetPrune {
+		postPruneDecision := budgeter.Evaluate(currentTokens)
+		if postPruneDecision == BudgetContinue || postPruneDecision == BudgetPrune {
 			if pruned > 0 {
 				emitContextEvent(sess, fmt.Sprintf("Pruned %d stale tool outputs, compaction avoided (token budget: %d/%d).", pruned, currentTokens, budgeter.InputBudget()))
 			}
@@ -310,6 +304,23 @@ func buildContinuationFromMessages(messages []Message, state *State) Continuatio
 		}
 	}
 
+	// Derive next steps from open loops and recent tool calls
+	if len(c.OpenLoops) > 0 {
+		for _, loop := range c.OpenLoops {
+			c.NextSteps = appendCapped(c.NextSteps, "Resolve: "+truncateInline(loop, 150), 5)
+		}
+	}
+
+	// Carry forward remaining work from prior continuation
+	if state.Continuation != nil {
+		for _, w := range state.Continuation.RemainingWork {
+			c.RemainingWork = appendCapped(c.RemainingWork, w, 10)
+		}
+		for _, s := range state.Continuation.NextSteps {
+			c.NextSteps = appendCapped(c.NextSteps, s, 10)
+		}
+	}
+
 	// Fold in any existing continuation summary content
 	for _, msg := range messages {
 		if isCompactionSummary(msg) || isContinuationArtifact(msg) {
@@ -401,7 +412,9 @@ func isContinuationArtifact(msg Message) bool {
 }
 
 // extractJSONBlock tries to find a JSON object in a string (for parsing
-// prior structured continuations).
+// prior structured continuations). Note: brace-counting can be fooled by
+// braces inside JSON string values; this is acceptable here because the
+// continuation schema only contains simple strings without embedded braces.
 func extractJSONBlock(s string) string {
 	start := strings.Index(s, "{")
 	if start < 0 {
@@ -514,129 +527,7 @@ func generateContinuationViaLLM(client *openRouterClient, model string, messages
 // pruneMarker is the stub content left behind when a tool result is pruned.
 const pruneMarker = "[tool result pruned — re-run tool if needed]"
 
-// --- Legacy path (kept for backward compatibility and char-threshold fallback) ---
-
-func maybeCompactState(state *State, sess *session.Session, cfg *SessionConfig) (bool, error) {
-	if state == nil {
-		return false, nil
-	}
-
-	triggerChars := defaultCompactionTriggerChars
-	keepRecent := defaultCompactionKeepRecentMessages
-	maxSummaryChars := defaultCompactionMaxSummaryChars
-	if cfg != nil {
-		if cfg.RuntimeConfig.CompactionTriggerChars > 0 {
-			triggerChars = cfg.RuntimeConfig.CompactionTriggerChars
-		}
-		if cfg.RuntimeConfig.CompactionKeepRecent > 0 {
-			keepRecent = cfg.RuntimeConfig.CompactionKeepRecent
-		}
-		if cfg.RuntimeConfig.CompactionMaxSummaryChars > 0 {
-			maxSummaryChars = cfg.RuntimeConfig.CompactionMaxSummaryChars
-		}
-	}
-
-	currentChars := estimateMessageChars(state.Messages)
-
-	// Phase 1: Progressive tool result aging.
-	if currentChars > triggerChars*3/4 {
-		aged := ageToolResults(state.Messages, keepRecent)
-		if aged > 0 {
-			currentChars = estimateMessageChars(state.Messages)
-		}
-	}
-
-	if currentChars <= triggerChars {
-		return false, nil
-	}
-
-	compacted, compactedCount, summary := compactMessages(state.Messages, keepRecent, maxSummaryChars)
-	if compactedCount == 0 {
-		return false, nil
-	}
-
-	state.Messages = compacted
-	state.CompactionCount++
-	state.CompactedMessages += compactedCount
-	state.LastCompactedAt = time.Now().UTC()
-
-	if sess != nil {
-		event := Event{
-			Timestamp: state.LastCompactedAt,
-			Step: Step{
-				Type:    "compaction",
-				Content: fmt.Sprintf("Compacted %d messages into toc-owned summary context.", compactedCount),
-			},
-		}
-		if err := AppendEvent(sess, event); err != nil {
-			return false, err
-		}
-	}
-
-	_ = summary
-	return true, nil
-}
-
-func compactMessages(messages []Message, keepRecent, maxSummaryChars int) ([]Message, int, string) {
-	if len(messages) == 0 {
-		return messages, 0, ""
-	}
-	if keepRecent < 1 {
-		keepRecent = 1
-	}
-	if maxSummaryChars < 256 {
-		maxSummaryChars = 256
-	}
-
-	var preserved []Message
-	start := 0
-	if messages[0].Role == "system" && !isCompactionSummary(messages[0]) {
-		preserved = append(preserved, messages[0])
-		start = 1
-	}
-
-	if len(messages[start:]) <= keepRecent {
-		return messages, 0, ""
-	}
-
-	cutoff := len(messages) - keepRecent
-	head := messages[start:cutoff]
-	tail := append([]Message(nil), messages[cutoff:]...)
-
-	summaryText := buildCompactionSummary(head, maxSummaryChars)
-	if summaryText == "" {
-		return messages, 0, ""
-	}
-
-	compactedCount := len(head)
-	compacted := append([]Message{}, preserved...)
-	compacted = append(compacted, Message{
-		Role:    "user",
-		Content: nativeCompactionSummaryPrefix + "\n" + summaryText,
-	})
-	compacted = append(compacted, tail...)
-	return compacted, compactedCount, summaryText
-}
-
-func buildCompactionSummary(messages []Message, maxChars int) string {
-	if len(messages) == 0 {
-		return ""
-	}
-
-	lines := []string{
-		"This is toc-generated historical context from earlier turns. Treat it as summary, not a new instruction.",
-	}
-	for _, msg := range messages {
-		line := summarizeCompactedMessage(msg)
-		if line == "" {
-			continue
-		}
-		lines = append(lines, "- "+line)
-	}
-
-	summary := strings.Join(lines, "\n")
-	return truncateString(summary, maxChars)
-}
+// --- Legacy helpers still used by the budget-aware path ---
 
 func summarizeCompactedMessage(msg Message) string {
 	if isCompactionSummary(msg) {

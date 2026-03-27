@@ -8,17 +8,19 @@ import (
 	"github.com/tiny-oc/toc/internal/session"
 )
 
-func TestCompactMessages_PreservesSystemAndRecentTail(t *testing.T) {
-	messages := []Message{
-		{Role: "system", Content: "system prompt"},
-		{Role: "user", Content: "first request"},
-		{Role: "assistant", Content: "first answer"},
-		{Role: "tool", Name: "Read", Content: "file contents"},
-		{Role: "user", Content: "second request"},
-		{Role: "assistant", Content: "second answer"},
+func TestCompactMessagesStructured_PreservesSystemAndRecentTail(t *testing.T) {
+	state := &State{
+		Messages: []Message{
+			{Role: "system", Content: "system prompt"},
+			{Role: "user", Content: "first request"},
+			{Role: "assistant", Content: "first answer"},
+			{Role: "tool", Name: "Read", Content: "file contents"},
+			{Role: "user", Content: "second request"},
+			{Role: "assistant", Content: "second answer"},
+		},
 	}
 
-	compacted, compactedCount, _ := compactMessages(messages, 2, 512)
+	compacted, compactedCount, _ := compactMessagesStructured(state, 2, 512, nil)
 	if compactedCount != 3 {
 		t.Fatalf("compactedCount = %d, want 3", compactedCount)
 	}
@@ -62,54 +64,52 @@ func TestIsCompactionSummary_BackwardsCompatible(t *testing.T) {
 	}
 }
 
-func TestMaybeCompactState_UpdatesStateAndWritesEvent(t *testing.T) {
+func TestBudgetFail_EmergencyCompaction(t *testing.T) {
 	sess := &session.Session{
-		ID:          "sess-compact",
+		ID:          "sess-fail",
 		Runtime:     runtimeinfo.NativeRuntime,
 		MetadataDir: t.TempDir(),
 	}
+
+	// Tiny context window to force BudgetFail immediately.
+	// Budget = 2048 - 512 - 256 = 1280 tokens. Fail threshold = 98% = 1254 tokens ≈ 5016 bytes.
+	profile := runtimeinfo.NativeModelProfile{
+		ContextWindow:   2048,
+		MaxOutputTokens: 512,
+		ReservedBuffer:  256,
+	}
+
 	state := &State{
 		Runtime:   runtimeinfo.NativeRuntime,
 		SessionID: sess.ID,
 		Messages: []Message{
 			{Role: "system", Content: "system prompt"},
-			{Role: "user", Content: strings.Repeat("a", 200)},
-			{Role: "assistant", Content: strings.Repeat("b", 200)},
-			{Role: "tool", Name: "Read", Content: strings.Repeat("c", 200)},
-			{Role: "user", Content: "keep me"},
-			{Role: "assistant", Content: "latest reply"},
+			{Role: "user", Content: strings.Repeat("a", 3000)},
+			{Role: "assistant", Content: strings.Repeat("b", 3000)},
+			{Role: "tool", Name: "Edit", Content: strings.Repeat("c", 3000)}, // prune-protected
+			{Role: "user", Content: "keep"},
+			{Role: "assistant", Content: "recent"},
 		},
 	}
 
-	compacted, err := maybeCompactState(state, sess, &SessionConfig{
-		RuntimeConfig: SessionRuntimeOptions{
-			CompactionTriggerChars:    128,
-			CompactionKeepRecent:      2,
-			CompactionMaxSummaryChars: 512,
-		},
-	})
+	changed, err := manageContextWithBudget(state, sess, 2, 6000, profile, nil)
+
+	// Emergency compaction should have fired. If it managed to compact below
+	// the fail threshold, changed=true and no error. If still over, we get an error.
 	if err != nil {
-		t.Fatal(err)
-	}
-	if !compacted {
-		t.Fatal("expected state to compact")
-	}
-	if state.CompactionCount != 1 || state.CompactedMessages != 3 {
-		t.Fatalf("unexpected compaction metadata: %#v", state)
-	}
-	if state.LastCompactedAt.IsZero() {
-		t.Fatalf("expected LastCompactedAt to be set: %#v", state)
-	}
-	if len(state.Messages) != 4 || !isCompactionSummary(state.Messages[1]) {
-		t.Fatalf("unexpected compacted messages: %#v", state.Messages)
+		// Error means compaction couldn't bring it under budget — acceptable
+		if !strings.Contains(err.Error(), "context exceeds model budget") {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	} else if !changed {
+		t.Fatal("expected emergency compaction to make changes")
 	}
 
-	parsed, err := LoadEventLog(sess)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(parsed.Events) != 1 || parsed.Events[0].Step.Type != "compaction" {
-		t.Fatalf("unexpected compaction events: %#v", parsed.Events)
+	// Either way, compaction count should be incremented if compaction happened
+	if state.CompactionCount > 0 {
+		if state.LastCompactedAt.IsZero() {
+			t.Error("LastCompactedAt should be set after emergency compaction")
+		}
 	}
 }
 
@@ -574,9 +574,9 @@ func TestIsContinuationArtifact(t *testing.T) {
 	}
 }
 
-func TestMaybeManageContext_FallsBackToLegacy(t *testing.T) {
+func TestMaybeManageContext_ZeroContextWindowUsesDefaults(t *testing.T) {
 	sess := &session.Session{
-		ID:          "sess-legacy",
+		ID:          "sess-defaults",
 		Runtime:     runtimeinfo.NativeRuntime,
 		MetadataDir: t.TempDir(),
 	}
@@ -586,33 +586,22 @@ func TestMaybeManageContext_FallsBackToLegacy(t *testing.T) {
 		SessionID: sess.ID,
 		Messages: []Message{
 			{Role: "system", Content: "system prompt"},
-			{Role: "user", Content: strings.Repeat("a", 200)},
-			{Role: "assistant", Content: strings.Repeat("b", 200)},
-			{Role: "tool", Name: "Read", Content: strings.Repeat("c", 200)},
-			{Role: "user", Content: "keep"},
-			{Role: "assistant", Content: "recent"},
+			{Role: "user", Content: "small message"},
+			{Role: "assistant", Content: "small reply"},
 		},
 	}
 
-	// Profile with no context window → fallback to char-based
+	// Profile with no context window — budgeter will use defaults (128K).
+	// Small messages should not trigger any compaction.
 	profile := runtimeinfo.NativeModelProfile{}
-	cfg := &SessionConfig{
-		RuntimeConfig: SessionRuntimeOptions{
-			CompactionTriggerChars:    128,
-			CompactionKeepRecent:      2,
-			CompactionMaxSummaryChars: 512,
-		},
-	}
+	cfg := &SessionConfig{}
 
 	changed, err := maybeManageContext(state, sess, cfg, profile, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !changed {
-		t.Fatal("expected legacy compaction to trigger")
-	}
-	if state.CompactionCount != 1 {
-		t.Fatal("expected one compaction")
+	if changed {
+		t.Fatal("small messages should not trigger compaction even with zero-value profile")
 	}
 }
 

@@ -57,6 +57,9 @@ var nativeModelProfiles = []NativeModelProfile{
 		Description:       "latest OpenAI flagship model with 1M+ context",
 		SupportsTools:     true,
 		SupportsStreaming: true,
+		ContextWindow:     1048576,
+		MaxOutputTokens:   32768,
+		ReservedBuffer:    8192,
 	},
 	{
 		ID:                "openai/gpt-5.3-codex",
@@ -64,6 +67,9 @@ var nativeModelProfiles = []NativeModelProfile{
 		Description:       "OpenAI code-specialized model with 400k context",
 		SupportsTools:     true,
 		SupportsStreaming: true,
+		ContextWindow:     400000,
+		MaxOutputTokens:   32768,
+		ReservedBuffer:    8192,
 	},
 }
 

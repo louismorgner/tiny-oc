@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -190,6 +191,124 @@ func TestNativeBashRejectsEmptyCommand(t *testing.T) {
 	}
 	if !strings.Contains(result.Message, "command is required") {
 		t.Fatalf("unexpected empty command message: %q", result.Message)
+	}
+}
+
+func TestNativeReadCatNFormat(t *testing.T) {
+	dir := t.TempDir()
+	content := "line one\nline two\nline three\n"
+	if err := os.WriteFile(filepath.Join(dir, "test.txt"), []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	result := nativeRead(nativeToolContext{SessionDir: dir, Agent: "tester"}, toolCall(t, "Read", map[string]interface{}{
+		"file_path": "test.txt",
+	}))
+	if result.Step.Success == nil || !*result.Step.Success {
+		t.Fatalf("read failed: %#v", result)
+	}
+	// Output should be in cat -n format with 6-char right-aligned line numbers
+	if !strings.Contains(result.Message, "     1\tline one") {
+		t.Fatalf("expected cat -n format, got %q", result.Message)
+	}
+	if !strings.Contains(result.Message, "     2\tline two") {
+		t.Fatalf("expected line 2 in cat -n format, got %q", result.Message)
+	}
+	if !strings.Contains(result.Message, "     3\tline three") {
+		t.Fatalf("expected line 3 in cat -n format, got %q", result.Message)
+	}
+	// Trailing newline in file must not produce a phantom empty line 4.
+	if strings.Contains(result.Message, "     4\t") {
+		t.Fatalf("trailing newline produced phantom empty line: %q", result.Message)
+	}
+}
+
+func TestNativeReadOffsetAndLimit(t *testing.T) {
+	dir := t.TempDir()
+	var lines []string
+	for i := 1; i <= 100; i++ {
+		lines = append(lines, fmt.Sprintf("line %d", i))
+	}
+	content := strings.Join(lines, "\n") + "\n"
+	if err := os.WriteFile(filepath.Join(dir, "big.txt"), []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Read from offset 50, limit 5
+	result := nativeRead(nativeToolContext{SessionDir: dir, Agent: "tester"}, toolCall(t, "Read", map[string]interface{}{
+		"file_path": "big.txt",
+		"offset":    50,
+		"limit":     5,
+	}))
+	if result.Step.Success == nil || !*result.Step.Success {
+		t.Fatalf("read failed: %#v", result)
+	}
+	if !strings.Contains(result.Message, "    50\tline 50") {
+		t.Fatalf("expected line 50, got %q", result.Message)
+	}
+	if !strings.Contains(result.Message, "    54\tline 54") {
+		t.Fatalf("expected line 54, got %q", result.Message)
+	}
+	if strings.Contains(result.Message, "    55\t") {
+		t.Fatalf("should not contain line 55, got %q", result.Message)
+	}
+	if strings.Contains(result.Message, "    49\t") {
+		t.Fatalf("should not contain line 49, got %q", result.Message)
+	}
+	if result.Step.Lines != 5 {
+		t.Fatalf("expected 5 lines, got %d", result.Step.Lines)
+	}
+}
+
+func TestNativeReadDefaultLimitCapsAt2000(t *testing.T) {
+	dir := t.TempDir()
+	var lines []string
+	for i := 1; i <= 2500; i++ {
+		lines = append(lines, fmt.Sprintf("line %d", i))
+	}
+	content := strings.Join(lines, "\n") + "\n"
+	if err := os.WriteFile(filepath.Join(dir, "huge.txt"), []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	result := nativeRead(nativeToolContext{SessionDir: dir, Agent: "tester"}, toolCall(t, "Read", map[string]interface{}{
+		"file_path": "huge.txt",
+	}))
+	if result.Step.Success == nil || !*result.Step.Success {
+		t.Fatalf("read failed: %#v", result)
+	}
+	// Should cap at 2000 lines (line 1 through 2000)
+	if !strings.Contains(result.Message, "  2000\tline 2000") {
+		t.Fatalf("expected line 2000, got tail: %q", result.Message[len(result.Message)-100:])
+	}
+	if strings.Contains(result.Message, "  2001\tline 2001") {
+		t.Fatalf("should not contain line 2001")
+	}
+	if result.Step.Lines != 2000 {
+		t.Fatalf("expected 2000 lines, got %d", result.Step.Lines)
+	}
+}
+
+func TestFormatCatN(t *testing.T) {
+	lines := []string{"alpha", "beta", "gamma", "delta"}
+
+	got := formatCatN(lines, 2, 3)
+	want := "     2\tbeta\n     3\tgamma\n"
+	if got != want {
+		t.Fatalf("formatCatN(2,3) = %q, want %q", got, want)
+	}
+
+	// Out of range
+	got = formatCatN(lines, 10, 20)
+	if got != "" {
+		t.Fatalf("formatCatN(10,20) = %q, want empty", got)
+	}
+
+	// endLine beyond length
+	got = formatCatN(lines, 3, 100)
+	want = "     3\tgamma\n     4\tdelta\n"
+	if got != want {
+		t.Fatalf("formatCatN(3,100) = %q, want %q", got, want)
 	}
 }
 

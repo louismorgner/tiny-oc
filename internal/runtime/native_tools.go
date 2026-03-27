@@ -35,14 +35,18 @@ type toolExecution struct {
 	Step    Step
 }
 
+// defaultReadLimit is the maximum number of lines returned when the caller
+// does not specify a limit.  Matches Claude Code's default of 2000 lines.
+const defaultReadLimit = 2000
+
 func nativeRead(ctx nativeToolContext, call ToolCall) toolExecution {
 	if err := ValidateFilesystemPermission(ctx.Manifest, "read", ctx.Agent); err != nil {
 		return toolFailure("Read", "", "", err)
 	}
 	var args struct {
-		FilePath  string `json:"file_path"`
-		StartLine int    `json:"start_line"`
-		EndLine   int    `json:"end_line"`
+		FilePath string `json:"file_path"`
+		Offset   int    `json:"offset"` // 1-based line number to start reading from
+		Limit    int    `json:"limit"`  // number of lines to read (default: 2000)
 	}
 	if err := decodeToolArgs(call.Function.Arguments, &args); err != nil {
 		return toolFailure("Read", "", "", err)
@@ -56,20 +60,40 @@ func nativeRead(ctx nativeToolContext, call ToolCall) toolExecution {
 		return toolFailure("Read", args.FilePath, "", err)
 	}
 
-	text := string(data)
-	if args.StartLine > 0 || args.EndLine > 0 {
-		text = sliceLines(text, args.StartLine, args.EndLine)
+	content := string(data)
+	content = strings.TrimRight(content, "\n")
+	allLines := strings.Split(content, "\n")
+
+	// Determine the line range to return.
+	startLine := 1
+	if args.Offset > 0 {
+		startLine = args.Offset
 	}
+	limit := defaultReadLimit
+	if args.Limit > 0 {
+		limit = args.Limit
+	}
+	endLine := startLine + limit - 1
+	if endLine > len(allLines) {
+		endLine = len(allLines)
+	}
+	if startLine > len(allLines) {
+		startLine = len(allLines) + 1
+	}
+
+	// Format output in cat -n style: line numbers with content.
+	text := formatCatN(allLines, startLine, endLine)
+
 	text = truncateToolOutput("Read", text)
-	lines := 0
-	if text != "" {
-		lines = strings.Count(text, "\n") + 1
+	lineCount := 0
+	if startLine <= len(allLines) {
+		lineCount = endLine - startLine + 1
 	}
 	return toolSuccess("Read", args.FilePath, text, Step{
 		Type:    "tool",
 		Tool:    "Read",
 		Path:    args.FilePath,
-		Lines:   lines,
+		Lines:   lineCount,
 		Success: boolPtr(true),
 	})
 }
@@ -478,26 +502,25 @@ func joinToolMessage(output, suffix string) string {
 	return strings.TrimSpace(output) + "\n" + suffix
 }
 
-func sliceLines(text string, startLine, endLine int) string {
-	lines := strings.Split(text, "\n")
-	start := 1
-	if startLine > 0 {
-		start = startLine
-	}
-	end := len(lines)
-	if endLine > 0 && endLine < end {
-		end = endLine
-	}
-	if start < 1 {
-		start = 1
-	}
-	if start > len(lines) {
+// formatCatN formats lines in cat -n style (line numbers with tab-separated content).
+// startLine and endLine are 1-based inclusive.  The format matches Claude Code's
+// Read tool output so models can reference line numbers when using Edit.
+func formatCatN(allLines []string, startLine, endLine int) string {
+	if startLine > len(allLines) || startLine > endLine {
 		return ""
 	}
-	if end < start {
-		return ""
+	if endLine > len(allLines) {
+		endLine = len(allLines)
 	}
-	return strings.Join(lines[start-1:end], "\n")
+
+	// Determine width for line number column (match cat -n: 6-char right-aligned).
+	width := 6
+
+	var buf bytes.Buffer
+	for i := startLine; i <= endLine; i++ {
+		fmt.Fprintf(&buf, "%*d\t%s\n", width, i, allLines[i-1])
+	}
+	return buf.String()
 }
 
 func truncateString(s string, limit int) string {

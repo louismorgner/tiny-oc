@@ -15,26 +15,30 @@ func nativeToolRegistry() []NativeToolSpec {
 	return []NativeToolSpec{
 		{
 			Name: "Read",
-			Description: `Read a file from the session workspace and return its contents.
+			Description: `Read a file from the session workspace and return its contents with line numbers.
 
 Use this tool instead of running cat, head, or tail via Bash. Use Read whenever you need to inspect file contents before making changes. You MUST Read a file before using Edit on it.
 
+Results are returned in cat -n format with line numbers starting at 1. The format is: line_number + tab + content. When using Edit after reading, match the file content exactly — do NOT include the line number prefix in old_string or new_string.
+
 Parameters:
 - file_path (required): Path to the file. Can be relative (resolved against the session workspace root) or absolute (must be within the workspace). Paths that escape the workspace are rejected.
-- start_line / end_line (optional): 1-based line range to read a subset of the file. Omit both to read the entire file. Useful for large files when you know which section you need.
+- offset (optional): The 1-based line number to start reading from. Defaults to the beginning of the file. Use this with limit to read specific sections of large files.
+- limit (optional): The number of lines to read. Defaults to 2000 lines. Only provide if the file is too large to read at once or you need a specific range.
 
-Output: The raw file contents (or the requested line range). Output is truncated at 64KB if the file is larger. The tool returns an error if the file does not exist or the path escapes the workspace.
+Output: File contents in cat -n format (line numbers with content). By default, reads up to 2000 lines. Output is further truncated if it exceeds the tool output budget. The tool returns an error if the file does not exist or the path escapes the workspace.
 
 Anti-patterns:
 - Do NOT use Bash with cat/head/tail/sed to read files — use this tool instead.
-- Do NOT read entire large files when you only need a specific section — use start_line/end_line.
-- Do NOT attempt to read directories — use Glob to list files or Bash with ls.`,
+- Do NOT read entire large files when you only need a specific section — use offset/limit.
+- Do NOT attempt to read directories — use Glob to list files or Bash with ls.
+- Do NOT include line number prefixes from the output in Edit old_string/new_string.`,
 			Parameters: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
-					"file_path":  map[string]interface{}{"type": "string"},
-					"start_line": map[string]interface{}{"type": "integer"},
-					"end_line":   map[string]interface{}{"type": "integer"},
+					"file_path": map[string]interface{}{"type": "string"},
+					"offset":    map[string]interface{}{"type": "integer", "description": "The 1-based line number to start reading from"},
+					"limit":     map[string]interface{}{"type": "integer", "description": "The number of lines to read (default: 2000)"},
 				},
 				"required": []string{"file_path"},
 			},
@@ -141,7 +145,7 @@ Output: Matching lines with file paths and line numbers in the format "path:line
 Anti-patterns:
 - Do NOT use Bash to run grep or rg — use this tool instead.
 - Do NOT use Grep to find files by name — use Glob for that.
-- For searching a single known file, consider using Read with start_line/end_line if you know the approximate location.`,
+- For searching a single known file, consider using Read with offset/limit if you know the approximate location.`,
 			Parameters: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{

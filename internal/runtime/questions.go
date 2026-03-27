@@ -13,6 +13,7 @@ import (
 )
 
 var ErrNoPendingQuestion = errors.New("no pending question")
+var ErrAnswerPending = errors.New("answer already pending")
 
 type PendingQuestion struct {
 	Question  string    `json:"question"`
@@ -136,6 +137,9 @@ func submitPendingQuestionAnswerToDir(metaDir, answer string) error {
 	}
 	if info.Question == nil {
 		return ErrNoPendingQuestion
+	}
+	if info.AnswerPending {
+		return ErrAnswerPending
 	}
 
 	payload, err := json.Marshal(questionAnswer{

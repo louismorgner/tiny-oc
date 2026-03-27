@@ -198,3 +198,53 @@ func TestShowSubAgentStatusDisplaysPendingQuestionError(t *testing.T) {
 		t.Fatalf("expected inspect guidance instead of answer guidance: %q", output)
 	}
 }
+
+func TestShowSubAgentStatusHidesAnswerGuidanceWhenAnswerAlreadyPending(t *testing.T) {
+	color.NoColor = true
+	defer func() { color.NoColor = false }()
+
+	workspace := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(workspace, ".toc"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	metadataDir := filepath.Join(workspace, ".toc", "sessions", "child-question")
+	sessions := session.SessionsFile{
+		Sessions: []session.Session{
+			{
+				ID:              "child-question",
+				Agent:           "native-agent",
+				Runtime:         runtimeinfo.NativeRuntime,
+				MetadataDir:     metadataDir,
+				CreatedAt:       time.Now(),
+				WorkspacePath:   t.TempDir(),
+				Status:          session.StatusActive,
+				ParentSessionID: "parent-status",
+			},
+		},
+	}
+	data, err := yaml.Marshal(&sessions)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(workspace, ".toc", "sessions.yaml"), data, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(metadataDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(metadataDir, "question.json"), []byte(`{"question":"Need approval to deploy?","timestamp":"2026-03-27T12:00:00Z","session_id":"child-question","agent":"native-agent"}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(metadataDir, "answer.json"), []byte(`{"answer":"yes","timestamp":"2026-03-27T12:01:00Z"}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	output := captureStdout(t, func() {
+		if err := showSubAgentStatus(&runtime.Context{Workspace: workspace, SessionID: "parent-status"}, "child-question"); err != nil {
+			t.Fatal(err)
+		}
+	})
+	if !strings.Contains(output, "Answer status:") || !strings.Contains(output, "Track: toc debug child-question") || strings.Contains(output, "Answer: toc answer child-question") {
+		t.Fatalf("expected tracking guidance instead of answer guidance: %q", output)
+	}
+}

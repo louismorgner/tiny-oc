@@ -134,3 +134,23 @@ func TestSubmitPendingQuestionAnswerWithoutQuestionReturnsError(t *testing.T) {
 		t.Fatalf("expected ErrNoPendingQuestion, got %v", err)
 	}
 }
+
+func TestSubmitPendingQuestionAnswerRejectsDuplicateAnswer(t *testing.T) {
+	metaDir := t.TempDir()
+	sess := &session.Session{
+		ID:          "child-question",
+		MetadataDir: metaDir,
+	}
+
+	if err := os.WriteFile(filepath.Join(metaDir, "question.json"), []byte(`{"question":"Ship to staging?","timestamp":"2026-03-27T12:00:00Z","session_id":"child-question","agent":"implementer"}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(metaDir, "answer.json"), []byte(`{"answer":"yes","timestamp":"2026-03-27T12:01:00Z"}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	err := SubmitPendingQuestionAnswer(sess, "no")
+	if !errors.Is(err, ErrAnswerPending) {
+		t.Fatalf("expected ErrAnswerPending, got %v", err)
+	}
+}

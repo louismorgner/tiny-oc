@@ -360,6 +360,46 @@ func TestBuildDebugReportIncludesPendingQuestionError(t *testing.T) {
 	}
 }
 
+func TestBuildDebugReportHidesAnswerGuidanceWhenAnswerAlreadyPending(t *testing.T) {
+	workspace := t.TempDir()
+	withWorkingDir(t, workspace)
+
+	metadataDir := filepath.Join(workspace, ".toc", "sessions", "child-question")
+	if err := os.MkdirAll(metadataDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	sess := &session.Session{
+		ID:            "child-question",
+		Agent:         "native-agent",
+		Runtime:       runtimeinfo.NativeRuntime,
+		MetadataDir:   metadataDir,
+		CreatedAt:     time.Now(),
+		WorkspacePath: t.TempDir(),
+		Status:        session.StatusActive,
+	}
+	if err := os.WriteFile(filepath.Join(metadataDir, "question.json"), []byte(`{"question":"Ship the patch?","timestamp":"2026-03-27T12:00:00Z","session_id":"child-question","agent":"native-agent"}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(metadataDir, "answer.json"), []byte(`{"answer":"yes","timestamp":"2026-03-27T12:01:00Z"}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	report, err := buildDebugReport(sess, 10, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !report.State.AnswerPending {
+		t.Fatal("expected answer_pending state in debug report")
+	}
+
+	output := captureStdout(t, func() {
+		printDebugReport(report, false)
+	})
+	if !strings.Contains(output, "answer_pending: true") || !strings.Contains(output, "inspect_with: toc debug child-question") || strings.Contains(output, "answer_with: toc answer child-question") {
+		t.Fatalf("expected inspect guidance instead of answer guidance: %q", output)
+	}
+}
+
 func TestReadDebugArtifactLimitsContent(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "stderr.log")
 	content := strings.Repeat("a", 140*1024)

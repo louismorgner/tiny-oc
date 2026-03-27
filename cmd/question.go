@@ -76,6 +76,9 @@ var answerCmd = &cobra.Command{
 			if errors.Is(err, runtime.ErrNoPendingQuestion) {
 				return fmt.Errorf("session '%s' has no pending question", sess.ID)
 			}
+			if errors.Is(err, runtime.ErrAnswerPending) {
+				return fmt.Errorf("session '%s' already has an answer pending consumption", sess.ID)
+			}
 			return err
 		}
 
@@ -230,6 +233,8 @@ func showPendingQuestion(sessionID string, jsonFlag bool) error {
 	fmt.Println()
 	if row.PendingQuestionError != "" {
 		ui.Info("Inspect with: %s", ui.Bold(fmt.Sprintf("toc debug %s", sess.ID)))
+	} else if row.AnswerPending {
+		ui.Info("Track with: %s", ui.Bold(fmt.Sprintf("toc debug %s", sess.ID)))
 	} else {
 		ui.Info("Answer with: %s", ui.Bold(fmt.Sprintf("toc answer %s --text \"...\"", sess.ID)))
 	}

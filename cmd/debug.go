@@ -769,13 +769,13 @@ func buildDiagnosis(report *debugReport, state *iruntime.State, events []iruntim
 			evidence = append(evidence, "pending question metadata is invalid")
 			evidence = append(evidence, "error: "+report.State.PendingQuestionError)
 			d.Suggestions = append(d.Suggestions, "Inspect session metadata with: toc debug "+report.Session.ID)
+		} else if report.State.AnswerPending {
+			evidence = append(evidence, "an answer has been submitted and is waiting to be consumed")
+			d.Suggestions = append(d.Suggestions, "Track session state with: toc debug "+report.Session.ID)
 		} else {
 			evidence = append(evidence, "session posted a pending Question tool request")
 			evidence = append(evidence, "question: "+report.State.PendingQuestion.Question)
 			d.Suggestions = append(d.Suggestions, "Answer with: toc answer "+report.Session.ID[:8]+" --text \"...\"")
-		}
-		if report.State.AnswerPending {
-			evidence = append(evidence, "an answer has been submitted but not yet consumed")
 		}
 		d.Evidence = evidence
 		return d
@@ -966,9 +966,9 @@ func printDebugReport(report *debugReport, full bool) {
 	if report.State.AnswerPending {
 		fmt.Printf("    answer_pending: true\n")
 	}
-	if report.State.PendingQuestion != nil {
+	if report.State.PendingQuestion != nil && !report.State.AnswerPending {
 		fmt.Printf("    answer_with: toc answer %s --text \"...\"\n", report.Session.ID)
-	} else if report.State.PendingQuestionError != "" {
+	} else if report.State.PendingQuestionError != "" || report.State.AnswerPending {
 		fmt.Printf("    inspect_with: toc debug %s\n", report.Session.ID)
 	}
 	if report.State.PendingTurnLabel != "" && report.State.PendingTurn != nil {

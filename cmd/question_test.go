@@ -233,6 +233,45 @@ func TestShowPendingQuestionDisplaysCorruptMetadata(t *testing.T) {
 	}
 }
 
+func TestShowPendingQuestionHidesAnswerGuidanceWhenAnswerAlreadyPending(t *testing.T) {
+	color.NoColor = true
+	defer func() { color.NoColor = false }()
+
+	workspace := t.TempDir()
+	withWorkingDir(t, workspace)
+	writeWorkspaceConfig(t, workspace)
+
+	metadataDir := filepath.Join(workspace, ".toc", "sessions", "child-question")
+	writeSessionsFile(t, workspace, []session.Session{
+		{
+			ID:            "child-question",
+			Agent:         "implementer",
+			MetadataDir:   metadataDir,
+			CreatedAt:     time.Now(),
+			WorkspacePath: t.TempDir(),
+			Status:        session.StatusActive,
+		},
+	})
+	if err := os.MkdirAll(metadataDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(metadataDir, "question.json"), []byte(`{"question":"Use the new endpoint?","timestamp":"2026-03-27T12:00:00Z","session_id":"child-question","agent":"implementer"}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(metadataDir, "answer.json"), []byte(`{"answer":"yes","timestamp":"2026-03-27T12:01:00Z"}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	output := captureStdout(t, func() {
+		if err := showPendingQuestion("child-question", false); err != nil {
+			t.Fatal(err)
+		}
+	})
+	if !strings.Contains(output, "Answer status:") || !strings.Contains(output, "Track with:") || strings.Contains(output, "Answer with:") {
+		t.Fatalf("expected tracking guidance instead of answer guidance: %q", output)
+	}
+}
+
 func writeWorkspaceConfig(t *testing.T, workspace string) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Join(workspace, ".toc"), 0755); err != nil {

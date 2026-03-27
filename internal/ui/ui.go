@@ -124,11 +124,16 @@ func MultiSelect(label string, options []SelectOption, preselected []string) ([]
 		huhOpts[i] = huh.NewOption(opt.Label, opt.Value)
 	}
 
+	height := len(options) + 3
+	if height > 15 {
+		height = 15
+	}
+
 	sel := huh.NewMultiSelect[string]().
 		Title(label).
 		Options(huhOpts...).
 		Value(&result).
-		Height(len(options) + 3)
+		Height(height)
 
 	if err := runField(sel); err != nil {
 		return nil, err

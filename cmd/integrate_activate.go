@@ -15,8 +15,12 @@ import (
 // permission grants into their oc-agent.yaml files.
 func promptActivateOnAgents(name string, def *integration.Definition) {
 	agents, err := agent.List()
-	if err != nil || len(agents) == 0 {
-		return // no agents configured, nothing to offer
+	if err != nil {
+		ui.Warn("Could not list agents: %s", err)
+		return
+	}
+	if len(agents) == 0 {
+		return
 	}
 
 	fmt.Println()
@@ -203,22 +207,24 @@ func selectFromActions(def *integration.Definition) []string {
 }
 
 // mergeGrants combines existing and new grants, deduplicating by capability.
+// New grants take precedence over existing ones for the same capability, so
+// re-activating with a different mode correctly updates the permission.
 func mergeGrants(existing, newGrants agent.IntegrationPermissions) agent.IntegrationPermissions {
 	seen := make(map[string]bool)
 	var merged agent.IntegrationPermissions
 
-	for _, g := range existing {
-		key := string(g.Mode) + ":" + g.Capability
-		if !seen[key] {
-			seen[key] = true
+	// New grants first so they take precedence
+	for _, g := range newGrants {
+		if !seen[g.Capability] {
+			seen[g.Capability] = true
 			merged = append(merged, g)
 		}
 	}
 
-	for _, g := range newGrants {
-		key := string(g.Mode) + ":" + g.Capability
-		if !seen[key] {
-			seen[key] = true
+	// Keep existing grants that aren't overridden
+	for _, g := range existing {
+		if !seen[g.Capability] {
+			seen[g.Capability] = true
 			merged = append(merged, g)
 		}
 	}

@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/tiny-oc/toc/internal/runtimeinfo"
 	"github.com/tiny-oc/toc/internal/session"
@@ -281,6 +282,224 @@ func TestRunNativeSession_DetachedToolLoop(t *testing.T) {
 	}
 }
 
+func TestRunNativeSession_ContinuesAfterSubAgentNotification(t *testing.T) {
+	workDir := t.TempDir()
+	metaWorkspace := t.TempDir()
+
+	if err := os.MkdirAll(filepath.Join(workDir, ".toc-native"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	agentDir := filepath.Join(metaWorkspace, ".toc", "agents", "native-parent")
+	if err := os.MkdirAll(agentDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(agentDir, "oc-agent.yaml"), []byte("runtime: toc-native\nname: native-parent\nmodel: openai/gpt-4o-mini\npermissions:\n  sub-agents:\n    cto: on\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(workDir, ".toc-native", "system-prompt.md"), []byte("You are an orchestrator.\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := SaveSessionConfigInWorkspace(metaWorkspace, "sess-native-parent", &SessionConfig{
+		Agent:   "native-parent",
+		Runtime: runtimeinfo.NativeRuntime,
+		Model:   "openai/gpt-4o-mini",
+		RuntimeConfig: SessionRuntimeOptions{
+			EnabledTools: NativeToolNames(),
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	callCount := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		callCount++
+
+		var req chatRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+
+		w.Header().Set("Content-Type", "text/event-stream")
+		switch callCount {
+		case 1:
+			writeSSEChunk(t, w, map[string]interface{}{
+				"id":    "resp-sub-1",
+				"model": req.Model,
+				"choices": []map[string]interface{}{
+					{
+						"index": 0,
+						"delta": map[string]interface{}{
+							"role":    "assistant",
+							"content": "",
+							"tool_calls": []map[string]interface{}{
+								{
+									"index": 0,
+									"id":    "call-sub-1",
+									"type":  "function",
+									"function": map[string]interface{}{
+										"name":      "SubAgent",
+										"arguments": `{"action":"spawn","agent":"cto","prompt":"Review the architecture and report back"}`,
+									},
+								},
+							},
+						},
+					},
+				},
+			})
+			writeSSEChunk(t, w, map[string]interface{}{
+				"id":    "resp-sub-1",
+				"model": req.Model,
+				"usage": map[string]interface{}{"prompt_tokens": 10, "completion_tokens": 4, "total_tokens": 14},
+				"choices": []map[string]interface{}{
+					{
+						"index":         0,
+						"delta":         map[string]interface{}{},
+						"finish_reason": "tool_calls",
+					},
+				},
+			})
+		case 2:
+			last := req.Messages[len(req.Messages)-1]
+			if last.Role != "tool" || last.ToolCallID != "call-sub-1" {
+				t.Fatalf("expected sub-agent tool result, got %#v", last)
+			}
+			writeSSEChunk(t, w, map[string]interface{}{
+				"id":    "resp-sub-2",
+				"model": req.Model,
+				"choices": []map[string]interface{}{
+					{
+						"index": 0,
+						"delta": map[string]interface{}{
+							"role":    "assistant",
+							"content": "Spawned cto and waiting for completion.",
+						},
+					},
+				},
+			})
+			writeSSEChunk(t, w, map[string]interface{}{
+				"id":    "resp-sub-2",
+				"model": req.Model,
+				"usage": map[string]interface{}{"prompt_tokens": 12, "completion_tokens": 5, "total_tokens": 17},
+				"choices": []map[string]interface{}{
+					{
+						"index":         0,
+						"delta":         map[string]interface{}{},
+						"finish_reason": "stop",
+					},
+				},
+			})
+		case 3:
+			last := req.Messages[len(req.Messages)-1]
+			if last.Role != "user" || !strings.Contains(last.Content, "Sub-agent completion update.") {
+				t.Fatalf("expected sub-agent completion notification, got %#v", last)
+			}
+			if !strings.Contains(last.Content, "Agent: cto") || !strings.Contains(last.Content, "child delivered result") {
+				t.Fatalf("unexpected completion prompt %q", last.Content)
+			}
+			writeSSEChunk(t, w, map[string]interface{}{
+				"id":    "resp-sub-3",
+				"model": req.Model,
+				"choices": []map[string]interface{}{
+					{
+						"index": 0,
+						"delta": map[string]interface{}{
+							"role":    "assistant",
+							"content": "Integrated child result.",
+						},
+					},
+				},
+			})
+			writeSSEChunk(t, w, map[string]interface{}{
+				"id":    "resp-sub-3",
+				"model": req.Model,
+				"usage": map[string]interface{}{"prompt_tokens": 14, "completion_tokens": 6, "total_tokens": 20},
+				"choices": []map[string]interface{}{
+					{
+						"index":         0,
+						"delta":         map[string]interface{}{},
+						"finish_reason": "stop",
+					},
+				},
+			})
+		default:
+			t.Fatalf("unexpected request count %d", callCount)
+		}
+
+		_, _ = w.Write([]byte("data: [DONE]\n\n"))
+	}))
+	defer server.Close()
+
+	t.Setenv("OPENROUTER_API_KEY", "test-key")
+	t.Setenv("OPENROUTER_BASE_URL", server.URL)
+
+	spawnFunc := func(agentName, prompt, workspace, parentSessionID string) (*SubAgentSpawnResult, error) {
+		childWorkDir := t.TempDir()
+		if err := session.AddInWorkspace(workspace, session.Session{
+			ID:              "child-native-1",
+			Agent:           agentName,
+			Runtime:         DefaultRuntime,
+			MetadataDir:     MetadataDir(workspace, "child-native-1"),
+			CreatedAt:       time.Now(),
+			WorkspacePath:   childWorkDir,
+			Status:          session.StatusActive,
+			ParentSessionID: parentSessionID,
+			Prompt:          prompt,
+		}); err != nil {
+			return nil, err
+		}
+
+		go func() {
+			time.Sleep(200 * time.Millisecond)
+			_ = os.WriteFile(filepath.Join(childWorkDir, "toc-exit-code.txt"), []byte("0\n"), 0644)
+			_ = os.WriteFile(filepath.Join(childWorkDir, "toc-output.txt"), []byte("child delivered result\n"), 0644)
+			_, _ = WriteSubAgentCompletionNotification(workspace, parentSessionID, SessionNotification{
+				SessionID: "child-native-1",
+				Agent:     agentName,
+				Status:    session.StatusCompletedOK,
+				ExitCode:  0,
+				Prompt:    prompt,
+				Output:    "child delivered result\n",
+			})
+		}()
+
+		return &SubAgentSpawnResult{SessionID: "child-native-1"}, nil
+	}
+
+	var stdout bytes.Buffer
+	err := RunNativeSession(NativeRunOptions{
+		Mode:      "detached",
+		Dir:       workDir,
+		SessionID: "sess-native-parent",
+		Agent:     "native-parent",
+		Workspace: metaWorkspace,
+		Model:     "openai/gpt-4o-mini",
+		Prompt:    "Delegate the architecture review and continue when the result is ready.",
+		SpawnFunc: spawnFunc,
+	}, bytes.NewBuffer(nil), &stdout)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if got := stdout.String(); got != "Spawned cto and waiting for completion.\nIntegrated child result.\n" {
+		t.Fatalf("stdout = %q", got)
+	}
+	if callCount != 3 {
+		t.Fatalf("expected 3 model calls, got %d", callCount)
+	}
+
+	state, err := LoadStateInWorkspace(metaWorkspace, "sess-native-parent")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.Status != "completed" {
+		t.Fatalf("state status = %q", state.Status)
+	}
+	last := state.Messages[len(state.Messages)-1]
+	if last.Role != "assistant" || last.Content != "Integrated child result." {
+		t.Fatalf("unexpected final message %#v", last)
+	}
+}
+
 func writeSSEChunk(t *testing.T, w http.ResponseWriter, payload map[string]interface{}) {
 	t.Helper()
 	data, err := json.Marshal(payload)
@@ -455,13 +674,13 @@ func TestRunNativeSession_RecoversInterruptedTurnOnResume(t *testing.T) {
 
 func TestAccumulateUsage(t *testing.T) {
 	tests := []struct {
-		name        string
-		state       *State
-		resp        *chatResponse
-		wantInput   int64
-		wantOutput  int64
-		wantCacheR  int64
-		wantCacheW  int64
+		name       string
+		state      *State
+		resp       *chatResponse
+		wantInput  int64
+		wantOutput int64
+		wantCacheR int64
+		wantCacheW int64
 	}{
 		{
 			name:  "nil state",

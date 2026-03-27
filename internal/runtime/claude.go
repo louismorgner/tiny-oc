@@ -99,7 +99,11 @@ func (claudeProvider) LaunchDetached(opts DetachedOptions) error {
 	}
 
 	scriptPath := filepath.Join(opts.Dir, "toc-run.sh")
-	if err := os.WriteFile(scriptPath, []byte(BuildClaudeDetachedScript(opts, promptPath)), 0755); err != nil {
+	helperExe, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(scriptPath, []byte(BuildClaudeDetachedScript(helperExe, opts, promptPath)), 0755); err != nil {
 		return err
 	}
 
@@ -117,7 +121,7 @@ func (claudeProvider) LaunchDetached(opts DetachedOptions) error {
 }
 
 // BuildClaudeDetachedScript builds the wrapper script for a detached Claude session.
-func BuildClaudeDetachedScript(opts DetachedOptions, promptPath string) string {
+func BuildClaudeDetachedScript(helperExecutable string, opts DetachedOptions, promptPath string) string {
 	args := "claude --dangerously-skip-permissions"
 	args += fmt.Sprintf(" -p \"$(cat %q)\"", promptPath)
 	if opts.Model != "" {
@@ -132,6 +136,11 @@ func BuildClaudeDetachedScript(opts DetachedOptions, promptPath string) string {
 	tmpOutputPath := opts.OutputPath + ".tmp"
 	pidPath := filepath.Join(opts.Dir, "toc-pid.txt")
 	exitCodePath := filepath.Join(opts.Dir, "toc-exit-code.txt")
+	notifyCommand := ""
+	if opts.ParentSessionID != "" {
+		notifyCommand = fmt.Sprintf("%q __notify-subagent-complete --workspace %q --parent-session-id %q --session-id %q --agent %q --prompt-file %q --output-file %q --exit-code-file %q >/dev/null 2>&1 || true\n",
+			helperExecutable, opts.Workspace, opts.ParentSessionID, opts.SessionID, opts.AgentName, promptPath, opts.OutputPath, exitCodePath)
+	}
 
 	return fmt.Sprintf(`#!/bin/sh
 echo $$ > %q
@@ -143,7 +152,8 @@ export TOC_SESSION_ID=%q
 TOC_EXIT=$?
 echo $TOC_EXIT > %q
 mv %q %q
-`, pidPath, opts.Dir, opts.Workspace, opts.AgentName, opts.SessionID, args, tmpOutputPath, exitCodePath, tmpOutputPath, opts.OutputPath)
+%s
+`, pidPath, opts.Dir, opts.Workspace, opts.AgentName, opts.SessionID, args, tmpOutputPath, exitCodePath, tmpOutputPath, opts.OutputPath, notifyCommand)
 }
 
 func (claudeProvider) ExpectedSessionLogPath(sess *session.Session) string {

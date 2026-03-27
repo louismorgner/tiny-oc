@@ -150,7 +150,11 @@ func (nativeProvider) LaunchDetached(opts DetachedOptions) error {
 	}
 
 	scriptPath := filepath.Join(opts.Dir, "toc-run.sh")
-	if err := os.WriteFile(scriptPath, []byte(BuildNativeDetachedScript(exe, opts, promptPath)), 0755); err != nil {
+	helperExe, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(scriptPath, []byte(BuildNativeDetachedScript(exe, helperExe, opts, promptPath)), 0755); err != nil {
 		return err
 	}
 
@@ -167,7 +171,7 @@ func (nativeProvider) LaunchDetached(opts DetachedOptions) error {
 	return cmd.Process.Release()
 }
 
-func BuildNativeDetachedScript(executable string, opts DetachedOptions, promptPath string) string {
+func BuildNativeDetachedScript(executable, helperExecutable string, opts DetachedOptions, promptPath string) string {
 	tmpOutputPath := opts.OutputPath + ".tmp"
 	pidPath := filepath.Join(opts.Dir, "toc-pid.txt")
 	exitCodePath := filepath.Join(opts.Dir, "toc-exit-code.txt")
@@ -191,6 +195,12 @@ func BuildNativeDetachedScript(executable string, opts DetachedOptions, promptPa
 		}
 	}
 
+	notifyCommand := ""
+	if opts.ParentSessionID != "" {
+		notifyCommand = fmt.Sprintf("%q __notify-subagent-complete --workspace %q --parent-session-id %q --session-id %q --agent %q --prompt-file %q --output-file %q --exit-code-file %q >/dev/null 2>&1 || true\n",
+			helperExecutable, opts.Workspace, opts.ParentSessionID, opts.SessionID, opts.AgentName, promptPath, opts.OutputPath, exitCodePath)
+	}
+
 	return fmt.Sprintf(`#!/bin/sh
 echo $$ > %q
 cd %q
@@ -201,7 +211,8 @@ export TOC_SESSION_ID=%q
 TOC_EXIT=$?
 echo $TOC_EXIT > %q
 mv %q %q
-`, pidPath, opts.Dir, opts.Workspace, opts.AgentName, opts.SessionID, openRouterExport, command, tmpOutputPath, exitCodePath, tmpOutputPath, opts.OutputPath)
+%s
+`, pidPath, opts.Dir, opts.Workspace, opts.AgentName, opts.SessionID, openRouterExport, command, tmpOutputPath, exitCodePath, tmpOutputPath, opts.OutputPath, notifyCommand)
 }
 
 func nativeExecutable() (string, error) {

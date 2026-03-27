@@ -87,10 +87,16 @@ func RunNativeSession(opts NativeRunOptions, stdin io.Reader, stdout io.Writer) 
 		if err != nil {
 			return err
 		}
+		if err := waitForSessionNotifications(client, state, toolSpecs, profile, toolCtx, stdout, opts.Mode == "detached"); err != nil {
+			return err
+		}
 		return finalizeNativeSession(client, state, sessionCfg, toolSpecs, profile, toolCtx, stdout, true)
 	}
 
 	if opts.Mode == "detached" {
+		if err := waitForSessionNotifications(client, state, toolSpecs, profile, toolCtx, stdout, true); err != nil {
+			return err
+		}
 		return finalizeNativeSession(client, state, sessionCfg, toolSpecs, profile, toolCtx, stdout, true)
 	}
 
@@ -114,6 +120,9 @@ func RunNativeSession(opts NativeRunOptions, stdin io.Reader, stdout io.Writer) 
 
 	reader := bufio.NewReader(stdin)
 	for {
+		if _, err := drainSessionNotifications(client, state, toolSpecs, profile, toolCtx, stdout, false); err != nil {
+			return err
+		}
 		if isTTY {
 			fmt.Fprint(stdout, ui.UserPromptPrefix(opts.Agent))
 		} else {
@@ -542,6 +551,75 @@ func runNativeLoop(client *openRouterClient, state *State, toolSpecs []NativeToo
 	}
 
 	return fmt.Errorf("native runtime exceeded max tool iterations")
+}
+
+func waitForSessionNotifications(client *openRouterClient, state *State, toolSpecs []NativeToolSpec, profile runtimeinfo.NativeModelProfile, toolCtx nativeToolContext, stdout io.Writer, detached bool) error {
+	for {
+		handled, err := drainSessionNotifications(client, state, toolSpecs, profile, toolCtx, stdout, detached)
+		if err != nil {
+			return err
+		}
+		if handled {
+			continue
+		}
+
+		active, err := HasActiveSubAgents(state.Workspace, state.SessionID)
+		if err != nil {
+			return err
+		}
+		if !active {
+			return nil
+		}
+
+		state.Status = "waiting"
+		if err := SaveStateInWorkspace(state.Workspace, state.SessionID, state); err != nil {
+			return err
+		}
+
+		notification, err := WaitForSessionNotification(state.Workspace, state.SessionID, 30*time.Second)
+		if err != nil {
+			return err
+		}
+		if notification == nil {
+			continue
+		}
+		if err := handleSessionNotification(client, state, toolSpecs, profile, toolCtx, stdout, detached, notification); err != nil {
+			return err
+		}
+	}
+}
+
+func drainSessionNotifications(client *openRouterClient, state *State, toolSpecs []NativeToolSpec, profile runtimeinfo.NativeModelProfile, toolCtx nativeToolContext, stdout io.Writer, detached bool) (bool, error) {
+	handled := false
+	for {
+		notification, err := PopSessionNotification(state.Workspace, state.SessionID)
+		if err != nil {
+			return handled, err
+		}
+		if notification == nil {
+			return handled, nil
+		}
+		if err := handleSessionNotification(client, state, toolSpecs, profile, toolCtx, stdout, detached, notification); err != nil {
+			return handled, err
+		}
+		handled = true
+	}
+}
+
+func handleSessionNotification(client *openRouterClient, state *State, toolSpecs []NativeToolSpec, profile runtimeinfo.NativeModelProfile, toolCtx nativeToolContext, stdout io.Writer, detached bool, notification *SessionNotification) error {
+	if notification == nil {
+		return nil
+	}
+
+	switch notification.Type {
+	case SessionNotificationTypeSubAgentDone:
+		if !detached {
+			fmt.Fprintf(stdout, "\n%s\n", ui.Dim(fmt.Sprintf("sub-agent %s finished, continuing...", notification.Agent)))
+		}
+		return runNativePrompt(client, state, toolSpecs, profile, SessionNotificationPrompt(*notification), toolCtx, stdout, detached)
+	default:
+		return nil
+	}
 }
 
 func finalizeNativeSession(client *openRouterClient, state *State, sessionCfg *SessionConfig, toolSpecs []NativeToolSpec, profile runtimeinfo.NativeModelProfile, toolCtx nativeToolContext, stdout io.Writer, detached bool) error {

@@ -57,7 +57,7 @@ func TestIntegrationsSummary(t *testing.T) {
 				Permissions: agent.Permissions{
 					Integrations: map[string]agent.IntegrationPermissions{
 						"exa":   {{Mode: agent.PermOn, Capability: "search"}, {Mode: agent.PermOn, Capability: "find_similar"}, {Mode: agent.PermOn, Capability: "contents"}},
-						"slack":  {{Mode: agent.PermOn, Capability: "post:#eng"}},
+						"slack": {{Mode: agent.PermOn, Capability: "post:#eng"}},
 					},
 				},
 			},
@@ -80,7 +80,7 @@ func TestBuildDetachedScript_PIDTracking(t *testing.T) {
 	promptPath := filepath.Join(dir, "toc-prompt.txt")
 	os.WriteFile(promptPath, []byte("test prompt"), 0644)
 
-	script := runtime.BuildClaudeDetachedScript(runtime.DetachedOptions{
+	script := runtime.BuildClaudeDetachedScript("toc", runtime.DetachedOptions{
 		Dir: dir, Workspace: "/workspace", AgentName: "agent",
 		SessionID: "session-123", OutputPath: filepath.Join(dir, "toc-output.txt"),
 	}, promptPath)
@@ -98,7 +98,7 @@ func TestBuildDetachedScript_ExitCodeCapture(t *testing.T) {
 	promptPath := filepath.Join(dir, "toc-prompt.txt")
 	os.WriteFile(promptPath, []byte("test"), 0644)
 
-	script := runtime.BuildClaudeDetachedScript(runtime.DetachedOptions{
+	script := runtime.BuildClaudeDetachedScript("toc", runtime.DetachedOptions{
 		Dir: dir, Workspace: "/ws", AgentName: "agent",
 		SessionID: "sess", OutputPath: filepath.Join(dir, "toc-output.txt"),
 	}, promptPath)
@@ -123,7 +123,7 @@ func TestBuildDetachedScript_EnvVars(t *testing.T) {
 	promptPath := filepath.Join(dir, "toc-prompt.txt")
 	os.WriteFile(promptPath, []byte("test"), 0644)
 
-	script := runtime.BuildClaudeDetachedScript(runtime.DetachedOptions{
+	script := runtime.BuildClaudeDetachedScript("toc", runtime.DetachedOptions{
 		Dir: dir, Model: "sonnet", Workspace: "/my/workspace",
 		AgentName: "test-agent", SessionID: "sess-456",
 		OutputPath: filepath.Join(dir, "toc-output.txt"),
@@ -145,7 +145,7 @@ func TestBuildDetachedScript_WithModel(t *testing.T) {
 	promptPath := filepath.Join(dir, "toc-prompt.txt")
 	os.WriteFile(promptPath, []byte("test"), 0644)
 
-	script := runtime.BuildClaudeDetachedScript(runtime.DetachedOptions{
+	script := runtime.BuildClaudeDetachedScript("toc", runtime.DetachedOptions{
 		Dir: dir, Model: "opus", Workspace: "/ws", AgentName: "agent",
 		SessionID: "sess", OutputPath: filepath.Join(dir, "toc-output.txt"),
 	}, promptPath)
@@ -160,7 +160,7 @@ func TestBuildDetachedScript_WithoutModel(t *testing.T) {
 	promptPath := filepath.Join(dir, "toc-prompt.txt")
 	os.WriteFile(promptPath, []byte("test"), 0644)
 
-	script := runtime.BuildClaudeDetachedScript(runtime.DetachedOptions{
+	script := runtime.BuildClaudeDetachedScript("toc", runtime.DetachedOptions{
 		Dir: dir, Workspace: "/ws", AgentName: "agent",
 		SessionID: "sess", OutputPath: filepath.Join(dir, "toc-output.txt"),
 	}, promptPath)
@@ -175,7 +175,7 @@ func TestBuildDetachedScript_Resume_UsesResumeFlag(t *testing.T) {
 	promptPath := filepath.Join(dir, "toc-prompt.txt")
 	os.WriteFile(promptPath, []byte("resume prompt"), 0644)
 
-	script := runtime.BuildClaudeDetachedScript(runtime.DetachedOptions{
+	script := runtime.BuildClaudeDetachedScript("toc", runtime.DetachedOptions{
 		Dir: dir, Workspace: "/ws", AgentName: "agent",
 		SessionID: "sess-789", OutputPath: filepath.Join(dir, "toc-output.txt"),
 		Resume: true,
@@ -203,7 +203,7 @@ func TestBuildDetachedScript_NoResume_NoResumeFlag(t *testing.T) {
 	promptPath := filepath.Join(dir, "toc-prompt.txt")
 	os.WriteFile(promptPath, []byte("test"), 0644)
 
-	script := runtime.BuildClaudeDetachedScript(runtime.DetachedOptions{
+	script := runtime.BuildClaudeDetachedScript("toc", runtime.DetachedOptions{
 		Dir: dir, Workspace: "/ws", AgentName: "agent",
 		SessionID: "sess", OutputPath: filepath.Join(dir, "toc-output.txt"),
 		Resume: false,
@@ -225,7 +225,7 @@ func TestBuildDetachedScript_SessionID(t *testing.T) {
 	promptPath := filepath.Join(dir, "toc-prompt.txt")
 	os.WriteFile(promptPath, []byte("test"), 0644)
 
-	script := runtime.BuildClaudeDetachedScript(runtime.DetachedOptions{
+	script := runtime.BuildClaudeDetachedScript("toc", runtime.DetachedOptions{
 		Dir: dir, Workspace: "/ws", AgentName: "agent",
 		SessionID: "abc-123", OutputPath: filepath.Join(dir, "toc-output.txt"),
 	}, promptPath)
@@ -241,7 +241,7 @@ func TestBuildDetachedScript_AtomicRename(t *testing.T) {
 	os.WriteFile(promptPath, []byte("test"), 0644)
 	outputPath := filepath.Join(dir, "toc-output.txt")
 
-	script := runtime.BuildClaudeDetachedScript(runtime.DetachedOptions{
+	script := runtime.BuildClaudeDetachedScript("toc", runtime.DetachedOptions{
 		Dir: dir, Workspace: "/ws", AgentName: "agent",
 		SessionID: "sess", OutputPath: outputPath,
 	}, promptPath)

@@ -5,6 +5,35 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] - 2026-03-27
+
+### Added
+
+- Question tool for the native runtime — agents can now prompt users for input mid-session (#137).
+- TodoWrite session tracking — native agents can create and manage task lists within sessions (#144, #147).
+- `small_model` support in toc-native compaction — use a cheaper model for context compaction (#145).
+- `TOC_NATIVE_BASE_URL` environment variable to configure the toc-native API endpoint (#143).
+- Claude Code default model alias support in toc-native (#146).
+
+## [0.5.2] - 2026-03-27
+
+### Added
+
+- Debug trace mode for toc-native runtime (#136).
+- Raised default max iterations to 126 with user prompt on limit (#126).
+- `--resume` instructions added to superfounder agent templates (#124).
+
+### Fixed
+
+- Log HTTP status, model, endpoint, and response body on OpenRouter errors (#125).
+
+## [0.5.1] - 2026-03-26
+
+### Added
+
+- `anthropic/claude-opus-4.6` added to toc-native model registry (#123).
+- Superfounder agent group: product-founder, cto, swe templates (#122).
+
 ## [0.5.0] - 2026-03-26
 
 ### Added
@@ -206,7 +235,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `toc completion` for bash, zsh, and fish with dynamic completion of agent names and session IDs.
 - `install.sh` for building and symlinking the binary to PATH.
 
-[unreleased]: https://github.com/louismorgner/tiny-oc/compare/v0.5.0...HEAD
+[unreleased]: https://github.com/louismorgner/tiny-oc/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/louismorgner/tiny-oc/compare/v0.5.2...v0.6.0
+[0.5.2]: https://github.com/louismorgner/tiny-oc/compare/v0.5.1...v0.5.2
+[0.5.1]: https://github.com/louismorgner/tiny-oc/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/louismorgner/tiny-oc/compare/v0.4.5...v0.5.0
 [0.4.5]: https://github.com/louismorgner/tiny-oc/compare/v0.4.4...v0.4.5
 [0.4.4]: https://github.com/louismorgner/tiny-oc/compare/v0.4.3...v0.4.4

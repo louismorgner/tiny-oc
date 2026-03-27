@@ -150,13 +150,13 @@ type debugStateInfo struct {
 }
 
 type debugTimelineInfo struct {
-	TotalEvents      int                    `json:"total_events"`
-	EventTypes       map[string]int         `json:"event_types,omitempty"`
-	LastToolCall     string                 `json:"last_tool_call,omitempty"`
-	LastErrorEvent   *iruntime.Event        `json:"last_error_event,omitempty"`
-	RecentEvents     []iruntime.Event       `json:"recent_events,omitempty"`
-	RecentToolTimings []debugToolTiming     `json:"recent_tool_timings,omitempty"`
-	LastAssistantMsg string                 `json:"last_assistant_msg,omitempty"`
+	TotalEvents       int               `json:"total_events"`
+	EventTypes        map[string]int    `json:"event_types,omitempty"`
+	LastToolCall      string            `json:"last_tool_call,omitempty"`
+	LastErrorEvent    *iruntime.Event   `json:"last_error_event,omitempty"`
+	RecentEvents      []iruntime.Event  `json:"recent_events,omitempty"`
+	RecentToolTimings []debugToolTiming `json:"recent_tool_timings,omitempty"`
+	LastAssistantMsg  string            `json:"last_assistant_msg,omitempty"`
 }
 
 type debugProcessInfo struct {
@@ -168,11 +168,11 @@ type debugProcessInfo struct {
 }
 
 type debugUsageInfo struct {
-	InputTokens  int64    `json:"input_tokens,omitempty"`
-	OutputTokens int64    `json:"output_tokens,omitempty"`
-	CacheRead    int64    `json:"cache_read,omitempty"`
-	CacheCreate  int64    `json:"cache_create,omitempty"`
-	TotalTokens  int64    `json:"total_tokens,omitempty"`
+	InputTokens     int64    `json:"input_tokens,omitempty"`
+	OutputTokens    int64    `json:"output_tokens,omitempty"`
+	CacheRead       int64    `json:"cache_read,omitempty"`
+	CacheCreate     int64    `json:"cache_create,omitempty"`
+	TotalTokens     int64    `json:"total_tokens,omitempty"`
 	CostUSD         *float64 `json:"cost_usd,omitempty"`
 	TokenTrajectory string   `json:"token_trajectory,omitempty"`
 
@@ -789,6 +789,8 @@ func debugMetadataArtifacts(s *session.Session) []debugBundleArtifact {
 		{Name: "state.json", Path: iruntime.StatePath(s)},
 		{Name: "events.jsonl", Path: iruntime.EventLogPath(s)},
 		{Name: "stderr.log", Path: iruntime.StderrLogPath(s)},
+		{Name: "inspect/http.jsonl", Path: iruntime.InspectCapturePath(s)},
+		{Name: "inspect/proxy.stderr.log", Path: iruntime.InspectProxyStderrPath(s)},
 		{Name: "toc-output.txt", Path: s.WorkspacePath + "/toc-output.txt"},
 		{Name: "toc-output.txt.tmp", Path: s.WorkspacePath + "/toc-output.txt.tmp"},
 	}

@@ -14,12 +14,14 @@ var (
 	resumeSessionID    string
 	spawnPrompt        string
 	spawnMaxIterations int
+	spawnInspect       bool
 )
 
 func init() {
 	agentSpawnCmd.Flags().StringVar(&resumeSessionID, "resume", "", "Resume an existing session by ID")
 	agentSpawnCmd.Flags().StringVarP(&spawnPrompt, "prompt", "p", "", "Run a single prompt non-interactively and exit")
 	agentSpawnCmd.Flags().IntVar(&spawnMaxIterations, "max-iterations", 0, "Override max tool iterations for this session (0 = use agent/env/default)")
+	agentSpawnCmd.Flags().BoolVar(&spawnInspect, "inspect", false, "Capture full upstream LLM request/response traffic for this session")
 	agentSpawnCmd.RegisterFlagCompletionFunc("resume", completeSessionIDs)
 	agentCmd.AddCommand(agentSpawnCmd)
 }
@@ -44,11 +46,12 @@ var agentSpawnCmd = &cobra.Command{
 			if s.Agent != agentName {
 				return fmt.Errorf("session '%s' belongs to agent '%s', not '%s'", resumeSessionID, s.Agent, agentName)
 			}
-			result, err := spawn.ResumeSession(s)
+			result, err := spawn.ResumeSession(s, spawn.ResumeOptions{Inspect: spawnInspect})
 			if result != nil {
 				details := map[string]interface{}{
 					"agent":      agentName,
 					"session_id": resumeSessionID,
+					"inspect":    spawnInspect,
 				}
 				if result.SyncedFiles > 0 {
 					details["files_synced"] = result.SyncedFiles
@@ -63,11 +66,16 @@ var agentSpawnCmd = &cobra.Command{
 			return err
 		}
 
-		result, err := spawn.SpawnSession(cfg, spawn.SpawnOptions{Prompt: spawnPrompt, MaxIterations: spawnMaxIterations})
+		result, err := spawn.SpawnSession(cfg, spawn.SpawnOptions{
+			Prompt:        spawnPrompt,
+			MaxIterations: spawnMaxIterations,
+			Inspect:       spawnInspect,
+		})
 		if result != nil {
 			details := map[string]interface{}{
 				"agent":      agentName,
 				"session_id": result.SessionID,
+				"inspect":    spawnInspect,
 			}
 			if result.SyncedFiles > 0 {
 				details["files_synced"] = result.SyncedFiles

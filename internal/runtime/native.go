@@ -111,6 +111,15 @@ func (nativeProvider) LaunchInteractive(opts LaunchOptions) error {
 		"TOC_SESSION_ID="+opts.SessionID,
 	)
 
+	if opts.Inspect {
+		inspector, err := startInspectorProcess(resolveNativeBaseURLFromEnv(), opts.Workspace, opts.SessionID)
+		if err != nil {
+			return fmt.Errorf("failed to start inspect proxy: %w", err)
+		}
+		defer inspector.Close()
+		cmd.Env = append(cmd.Env, "TOC_NATIVE_BASE_URL="+inspector.URL)
+	}
+
 	// Inject stored OpenRouter key if not already in the environment.
 	// Read from the workspace root, not CWD — the process may be running
 	// from a session temp dir that has no .toc/secrets.yaml.
@@ -150,7 +159,7 @@ func (nativeProvider) LaunchDetached(opts DetachedOptions) error {
 	}
 
 	scriptPath := filepath.Join(opts.Dir, "toc-run.sh")
-	helperExe, err := os.Executable()
+	helperExe, err := helperExecutable()
 	if err != nil {
 		return err
 	}
@@ -195,6 +204,11 @@ func BuildNativeDetachedScript(executable, helperExecutable string, opts Detache
 		}
 	}
 
+	inspectSetup := ""
+	if opts.Inspect {
+		inspectSetup = inspectShellSetup(helperExecutable, resolveNativeBaseURLFromEnv(), opts.Workspace, opts.SessionID, "TOC_NATIVE_BASE_URL")
+	}
+
 	notifyCommand := ""
 	if opts.ParentSessionID != "" {
 		notifyCommand = fmt.Sprintf("%q __notify-subagent-complete --workspace %q --parent-session-id %q --session-id %q --agent %q --prompt-file %q --output-file %q --exit-code-file %q >/dev/null 2>&1 || true\n",
@@ -207,12 +221,12 @@ cd %q
 export TOC_WORKSPACE=%q
 export TOC_AGENT=%q
 export TOC_SESSION_ID=%q
-%s%s < /dev/null > %q 2>&1
+%s%s%s < /dev/null > %q 2>&1
 TOC_EXIT=$?
 echo $TOC_EXIT > %q
 mv %q %q
 %s
-`, pidPath, opts.Dir, opts.Workspace, opts.AgentName, opts.SessionID, openRouterExport, command, tmpOutputPath, exitCodePath, tmpOutputPath, opts.OutputPath, notifyCommand)
+`, pidPath, opts.Dir, opts.Workspace, opts.AgentName, opts.SessionID, openRouterExport, inspectSetup, command, tmpOutputPath, exitCodePath, tmpOutputPath, opts.OutputPath, notifyCommand)
 }
 
 func nativeExecutable() (string, error) {

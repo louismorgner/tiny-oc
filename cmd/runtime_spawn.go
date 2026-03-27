@@ -15,11 +15,13 @@ import (
 var runtimeSpawnPrompt string
 var runtimeSpawnResume string
 var runtimeSpawnMaxIterations int
+var runtimeSpawnInspect bool
 
 func init() {
 	runtimeSpawnCmd.Flags().StringVarP(&runtimeSpawnPrompt, "prompt", "p", "", "Task prompt for the sub-agent")
 	runtimeSpawnCmd.Flags().StringVar(&runtimeSpawnResume, "resume", "", "Resume a failed or cancelled sub-agent session by ID")
 	runtimeSpawnCmd.Flags().IntVar(&runtimeSpawnMaxIterations, "max-iterations", 0, "Override max tool iterations for the sub-agent (0 = use agent/env/default)")
+	runtimeSpawnCmd.Flags().BoolVar(&runtimeSpawnInspect, "inspect", false, "Capture full upstream LLM request/response traffic for this sub-agent")
 	runtimeCmd.AddCommand(runtimeSpawnCmd)
 }
 
@@ -78,6 +80,7 @@ var runtimeSpawnCmd = &cobra.Command{
 			Prompt:          runtimeSpawnPrompt,
 			WorkspaceDir:    ctx.Workspace,
 			MaxIterations:   runtimeSpawnMaxIterations,
+			Inspect:         runtimeSpawnInspect,
 		})
 		if err != nil {
 			return err
@@ -89,11 +92,15 @@ var runtimeSpawnCmd = &cobra.Command{
 			"target_agent":   targetName,
 			"session_id":     result.SessionID,
 			"prompt":         runtimeSpawnPrompt,
+			"inspect":        runtimeSpawnInspect,
 		})
 
 		fmt.Println()
 		ui.Success("Sub-agent %s spawned", ui.Bold(targetName))
 		ui.Info("Session ID: %s", ui.Cyan(result.SessionID))
+		if result.InspectPath != "" && runtimeSpawnInspect {
+			ui.Info("Inspect:    %s", ui.Dim(result.InspectPath))
+		}
 		ui.Info("Check status: %s", ui.Bold(fmt.Sprintf("toc runtime status %s", result.SessionID)))
 		ui.Info("Read output:  %s", ui.Bold(fmt.Sprintf("toc runtime output %s", result.SessionID)))
 		fmt.Println()
@@ -121,6 +128,7 @@ func resumeSubAgent(ctx *runtime.Context, targetName, resumeID, prompt string) e
 		ParentSessionID: ctx.SessionID,
 		Prompt:          prompt,
 		WorkspaceDir:    ctx.Workspace,
+		Inspect:         runtimeSpawnInspect,
 	})
 	if err != nil {
 		return err
@@ -132,11 +140,15 @@ func resumeSubAgent(ctx *runtime.Context, targetName, resumeID, prompt string) e
 		"target_agent":   targetName,
 		"session_id":     result.SessionID,
 		"prompt":         prompt,
+		"inspect":        runtimeSpawnInspect,
 	})
 
 	fmt.Println()
 	ui.Success("Sub-agent %s resumed", ui.Bold(targetName))
 	ui.Info("Session ID: %s", ui.Cyan(result.SessionID))
+	if result.InspectPath != "" && runtimeSpawnInspect {
+		ui.Info("Inspect:    %s", ui.Dim(result.InspectPath))
+	}
 	ui.Info("Check status: %s", ui.Bold(fmt.Sprintf("toc runtime status %s", result.SessionID)))
 	ui.Info("Read output:  %s", ui.Bold(fmt.Sprintf("toc runtime output %s", result.SessionID)))
 	fmt.Println()

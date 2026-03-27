@@ -80,6 +80,15 @@ func (claudeProvider) LaunchInteractive(opts LaunchOptions) error {
 		"TOC_SESSION_ID="+opts.SessionID,
 	)
 
+	if opts.Inspect {
+		inspector, err := startInspectorProcess(resolveClaudeBaseURLFromEnv(), opts.Workspace, opts.SessionID)
+		if err != nil {
+			return fmt.Errorf("failed to start inspect proxy: %w", err)
+		}
+		defer inspector.Close()
+		cmd.Env = append(cmd.Env, "ANTHROPIC_BASE_URL="+inspector.URL)
+	}
+
 	if err := cmd.Run(); err != nil {
 		if _, ok := err.(*exec.ExitError); ok {
 			return nil
@@ -96,7 +105,7 @@ func (claudeProvider) LaunchDetached(opts DetachedOptions) error {
 	}
 
 	scriptPath := filepath.Join(opts.Dir, "toc-run.sh")
-	helperExe, err := os.Executable()
+	helperExe, err := helperExecutable()
 	if err != nil {
 		return err
 	}
@@ -145,6 +154,11 @@ func BuildClaudeDetachedScript(helperExecutable string, opts DetachedOptions, pr
 		args += fmt.Sprintf(" --session-id %s", opts.SessionID)
 	}
 
+	inspectSetup := ""
+	if opts.Inspect {
+		inspectSetup = inspectShellSetup(helperExecutable, resolveClaudeBaseURLFromEnv(), opts.Workspace, opts.SessionID, "ANTHROPIC_BASE_URL")
+	}
+
 	tmpOutputPath := opts.OutputPath + ".tmp"
 	pidPath := filepath.Join(opts.Dir, "toc-pid.txt")
 	exitCodePath := filepath.Join(opts.Dir, "toc-exit-code.txt")
@@ -160,12 +174,12 @@ cd %q
 export TOC_WORKSPACE=%q
 export TOC_AGENT=%q
 export TOC_SESSION_ID=%q
-%s < /dev/null > %q 2>&1
+%s%s < /dev/null > %q 2>&1
 TOC_EXIT=$?
 echo $TOC_EXIT > %q
 mv %q %q
 %s
-`, pidPath, opts.Dir, opts.Workspace, opts.AgentName, opts.SessionID, args, tmpOutputPath, exitCodePath, tmpOutputPath, opts.OutputPath, notifyCommand)
+`, pidPath, opts.Dir, opts.Workspace, opts.AgentName, opts.SessionID, inspectSetup, args, tmpOutputPath, exitCodePath, tmpOutputPath, opts.OutputPath, notifyCommand)
 }
 
 func (claudeProvider) ExpectedSessionLogPath(sess *session.Session) string {

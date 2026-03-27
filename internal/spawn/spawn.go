@@ -28,12 +28,18 @@ type SpawnResult struct {
 	SessionID    string
 	SyncedFiles  int
 	FailedSkills []string
+	InspectPath  string
 }
 
 // SpawnOptions contains optional parameters for SpawnSession.
 type SpawnOptions struct {
 	Prompt        string // If set, run non-interactively with this prompt
 	MaxIterations int    // CLI override for max tool iterations; 0 means use default
+	Inspect       bool
+}
+
+type ResumeOptions struct {
+	Inspect bool
 }
 
 func SpawnSession(cfg *agent.AgentConfig, opts ...SpawnOptions) (*SpawnResult, error) {
@@ -116,6 +122,9 @@ func SpawnSession(cfg *agent.AgentConfig, opts ...SpawnOptions) (*SpawnResult, e
 	ui.Info("Model: %s", ui.Bold(sessionCfg.Model))
 	ui.Info("Session: %s", ui.Cyan(sessionID))
 	ui.Info("Workspace: %s", ui.Dim(workDir))
+	if spawnOpts.Inspect {
+		ui.Info("Inspect: %s", ui.Dim(runtime.InspectCapturePathInWorkspace(workspace, sessionID)))
+	}
 	if len(sessionCfg.Skills) > 0 {
 		resolved := len(sessionCfg.Skills) - len(failedSkills)
 		ui.Info("Skills: %s", ui.Dim(fmt.Sprintf("%d/%d resolved", resolved, len(sessionCfg.Skills))))
@@ -135,7 +144,7 @@ func SpawnSession(cfg *agent.AgentConfig, opts ...SpawnOptions) (*SpawnResult, e
 	if err := provider.LaunchInteractive(runtime.LaunchOptions{
 		Dir: workDir, Model: sessionCfg.Model, SessionID: sessionID,
 		AgentName: sessionCfg.Agent, Workspace: workspace,
-		Prompt: spawnOpts.Prompt,
+		Prompt: spawnOpts.Prompt, Inspect: spawnOpts.Inspect,
 	}); err != nil {
 		_ = session.UpdateStatus(sessionID, session.StatusCompletedError)
 		return nil, fmt.Errorf("failed to launch runtime session: %w", err)
@@ -151,10 +160,19 @@ func SpawnSession(cfg *agent.AgentConfig, opts ...SpawnOptions) (*SpawnResult, e
 	printFailedSkills(failedSkills)
 	printResumeCommand(sessionCfg.Agent, sessionID)
 
-	return &SpawnResult{SessionID: sessionID, SyncedFiles: syncedFiles, FailedSkills: failedSkills}, nil
+	return &SpawnResult{
+		SessionID:    sessionID,
+		SyncedFiles:  syncedFiles,
+		FailedSkills: failedSkills,
+		InspectPath:  runtime.InspectCapturePathInWorkspace(workspace, sessionID),
+	}, nil
 }
 
-func ResumeSession(s *session.Session) (*SpawnResult, error) {
+func ResumeSession(s *session.Session, opts ...ResumeOptions) (*SpawnResult, error) {
+	var resumeOpts ResumeOptions
+	if len(opts) > 0 {
+		resumeOpts = opts[0]
+	}
 	if _, err := os.Stat(s.WorkspacePath); os.IsNotExist(err) {
 		return nil, fmt.Errorf("session workspace no longer exists: %s", s.WorkspacePath)
 	}
@@ -193,6 +211,9 @@ func ResumeSession(s *session.Session) (*SpawnResult, error) {
 	ui.Info("Resuming agent: %s", ui.Bold(s.Agent))
 	ui.Info("Session: %s", ui.Cyan(s.ID))
 	ui.Info("Workspace: %s", ui.Dim(s.WorkspacePath))
+	if resumeOpts.Inspect {
+		ui.Info("Inspect: %s", ui.Dim(runtime.InspectCapturePathInWorkspace(workspace, s.ID)))
+	}
 	if len(sessionCfg.Skills) > 0 {
 		resolved := len(sessionCfg.Skills) - len(failedSkills)
 		ui.Info("Skills: %s", ui.Dim(fmt.Sprintf("%d/%d resolved", resolved, len(sessionCfg.Skills))))
@@ -203,7 +224,7 @@ func ResumeSession(s *session.Session) (*SpawnResult, error) {
 	_ = session.UpdateStatus(s.ID, session.StatusActive)
 	if err := provider.LaunchInteractive(runtime.LaunchOptions{
 		Dir: s.WorkspacePath, Model: sessionCfg.Model, SessionID: s.ID,
-		AgentName: s.Agent, Workspace: workspace, Resume: true,
+		AgentName: s.Agent, Workspace: workspace, Resume: true, Inspect: resumeOpts.Inspect,
 	}); err != nil {
 		_ = session.UpdateStatus(s.ID, session.StatusCompletedError)
 		return nil, fmt.Errorf("failed to resume runtime session: %w", err)
@@ -218,7 +239,12 @@ func ResumeSession(s *session.Session) (*SpawnResult, error) {
 	printFailedSkills(failedSkills)
 	printResumeCommand(s.Agent, s.ID)
 
-	return &SpawnResult{SessionID: s.ID, SyncedFiles: syncedFiles, FailedSkills: failedSkills}, nil
+	return &SpawnResult{
+		SessionID:    s.ID,
+		SyncedFiles:  syncedFiles,
+		FailedSkills: failedSkills,
+		InspectPath:  runtime.InspectCapturePathInWorkspace(workspace, s.ID),
+	}, nil
 }
 
 // SubSpawnOpts contains options for spawning a sub-agent session.
@@ -227,6 +253,7 @@ type SubSpawnOpts struct {
 	Prompt          string
 	WorkspaceDir    string // absolute path to the toc workspace
 	MaxIterations   int    // CLI override for max tool iterations; 0 means use default
+	Inspect         bool
 }
 
 // SpawnSubSession spawns a non-interactive sub-agent session in the background.
@@ -308,11 +335,16 @@ func SpawnSubSession(cfg *agent.AgentConfig, opts SubSpawnOpts) (*SpawnResult, e
 		Dir: workDir, Model: sessionCfg.Model, Prompt: opts.Prompt,
 		Workspace: opts.WorkspaceDir, AgentName: sessionCfg.Agent,
 		SessionID: sessionID, ParentSessionID: opts.ParentSessionID, OutputPath: outputPath,
+		Inspect: opts.Inspect,
 	}); err != nil {
 		return nil, fmt.Errorf("failed to launch sub-agent: %w", err)
 	}
 
-	return &SpawnResult{SessionID: sessionID, FailedSkills: failedSkills}, nil
+	return &SpawnResult{
+		SessionID:    sessionID,
+		FailedSkills: failedSkills,
+		InspectPath:  runtime.InspectCapturePathInWorkspace(opts.WorkspaceDir, sessionID),
+	}, nil
 }
 
 // SubResumeOpts contains options for resuming a sub-agent session.
@@ -320,6 +352,7 @@ type SubResumeOpts struct {
 	ParentSessionID string
 	Prompt          string // optional additional context for the resumed session
 	WorkspaceDir    string
+	Inspect         bool
 }
 
 // ResumeSubSession resumes a failed, zombie, or cancelled sub-agent session.
@@ -381,12 +414,16 @@ func ResumeSubSession(s *session.Session, opts SubResumeOpts) (*SpawnResult, err
 	if err := provider.LaunchDetached(runtime.DetachedOptions{
 		Dir: s.WorkspacePath, Model: sessionCfg.Model, Prompt: resumePrompt,
 		Workspace: opts.WorkspaceDir, AgentName: s.Agent, SessionID: s.ID,
-		ParentSessionID: s.ParentSessionID, OutputPath: outputPath, Resume: true,
+		ParentSessionID: s.ParentSessionID, OutputPath: outputPath, Resume: true, Inspect: opts.Inspect,
 	}); err != nil {
 		return nil, fmt.Errorf("failed to launch resumed sub-agent: %w", err)
 	}
 
-	return &SpawnResult{SessionID: s.ID, FailedSkills: failedSkills}, nil
+	return &SpawnResult{
+		SessionID:    s.ID,
+		FailedSkills: failedSkills,
+		InspectPath:  runtime.InspectCapturePathInWorkspace(opts.WorkspaceDir, s.ID),
+	}, nil
 }
 
 func runPostSessionSync(provider runtime.Provider, workDir, agentDir string, patterns []string) int {

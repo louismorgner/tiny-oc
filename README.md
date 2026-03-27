@@ -67,6 +67,7 @@ When you run `toc agent spawn`, it:
 - [Getting started](docs/getting-started.md) — install, create your first agent, spawn a session
 - [Configuration reference](docs/configuration.md) — all config fields, snapshot sync patterns, audit log format
 - [Runtimes](docs/runtimes.md) — provider abstraction, Claude Code vs toc-native, hooks, model profiles
+- [Pushing toc-native](docs/toc-native-improvement-loop.md) — use inspect mode to compare runtimes and tighten the native loop
 - [Skills guide](docs/skills.md) — create, install, and attach reusable capabilities
 - [Integrations](docs/integrations.md) — API gateway, credential storage, permissions, built-in integrations
 - [Architecture](docs/architecture.md) — project structure and design decisions
@@ -81,6 +82,7 @@ When you run `toc agent spawn`, it:
 | `toc agent list` | List all configured agents |
 | `toc agent spawn <name>` | Spawn a new agent session |
 | `toc agent spawn <name> --resume <id>` | Resume an existing session |
+| `toc agent spawn <name> --inspect` | Capture full upstream API traffic for a session |
 | `toc agent remove <name>` | Remove an agent and its sessions |
 | `toc agent skills <name>` | Manage skills for an agent |
 | `toc skill create` | Create a new local skill |
@@ -95,6 +97,8 @@ When you run `toc agent spawn`, it:
 | `toc integrate test <name>` | Test an integration connection |
 | `toc integrate remove <name>` | Remove an integration |
 | `toc audit` | View the audit log |
+| `toc inspect [session-id]` | Inspect captured upstream API traffic for a session |
+| `toc inspect compare <a> <b>` | Compare captured API traffic across two sessions |
 | `toc config set <key> <value>` | Set workspace config or secrets |
 | `toc completion <shell>` | Generate shell completion script |
 
@@ -104,12 +108,27 @@ When you run `toc agent spawn`, it:
 |---|---|
 | `toc runtime list` | List agents available to spawn as sub-agents |
 | `toc runtime spawn <name> -p "..."` | Spawn a sub-agent in the background |
+| `toc runtime spawn <name> -p "..." --inspect` | Spawn a sub-agent with API traffic capture |
 | `toc runtime status [session-id]` | Check status of sub-agent sessions |
 | `toc runtime output <session-id>` | Read the output of a completed sub-agent |
 | `toc runtime invoke <integration> <action>` | Call an external API through the gateway |
 | `toc runtime watch <session-id>` | Live-tail a sub-agent's session |
 | `toc runtime replay <session-id>` | Replay session steps, tokens, and errors |
 | `toc runtime cancel <session-id>` | Cancel a running sub-agent |
+
+### API inspection
+
+Use `--inspect` on `toc agent spawn` or `toc runtime spawn` to route the session through a toc-managed local reverse proxy and capture full upstream HTTP request/response traffic.
+
+Capture files are written to `.toc/sessions/<session-id>/inspect/http.jsonl`.
+
+```bash
+toc agent spawn reviewer --prompt "summarize the repo" --inspect
+toc runtime spawn worker --prompt "fix the failing test" --inspect
+toc inspect --last
+toc inspect <session-id> --call 2 --body
+toc inspect compare <claude-session> <native-session>
+```
 
 ## Roadmap
 

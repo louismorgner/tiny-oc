@@ -3,6 +3,8 @@ package e2e
 import (
 	"encoding/json"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -271,6 +273,108 @@ func TestSmoke_AgentSpawnAndComplete(t *testing.T) {
 	}
 	if !strings.Contains(string(sessData), "worker") {
 		t.Errorf("expected session record for worker, got: %s", sessData)
+	}
+}
+
+func TestSmoke_AgentSpawnInspectCapturesClaudeTraffic(t *testing.T) {
+	dir := newWorkspace(t)
+	initWorkspace(t, dir, "test-ws")
+	createAgent(t, dir, "worker", "sonnet", nil)
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/messages" {
+			t.Fatalf("unexpected path %s", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"msg_123","type":"message","role":"assistant","content":[{"type":"text","text":"ok"}]}`))
+	}))
+	defer upstream.Close()
+
+	out := runTocWithEnv(t, dir, []string{
+		"ANTHROPIC_BASE_URL=" + upstream.URL,
+		"MOCK_CLAUDE_API_PING=1",
+	}, "agent", "spawn", "worker", "--prompt", "inspect this", "--inspect")
+
+	sessionID := extractSessionID(out)
+	if sessionID == "" {
+		t.Fatalf("could not extract session id from output: %s", out)
+	}
+
+	capturePath := filepath.Join(dir, ".toc", "sessions", sessionID, "inspect", "http.jsonl")
+	data, err := os.ReadFile(capturePath)
+	if err != nil {
+		t.Fatalf("expected inspect capture at %s: %v", capturePath, err)
+	}
+	text := string(data)
+	if !strings.Contains(text, `/v1/messages`) {
+		t.Fatalf("inspect capture missing request path: %s", text)
+	}
+	if !strings.Contains(text, upstream.URL+"/v1/messages") {
+		t.Fatalf("inspect capture missing upstream URL: %s", text)
+	}
+
+	inspectOut := runToc(t, dir, "inspect", sessionID, "--json")
+	var inspectPayload map[string]interface{}
+	if err := json.Unmarshal([]byte(inspectOut), &inspectPayload); err != nil {
+		t.Fatalf("failed to parse inspect JSON: %v\nraw: %s", err, inspectOut)
+	}
+	summary, _ := inspectPayload["summary"].(map[string]interface{})
+	if got := int(summary["call_count"].(float64)); got != 1 {
+		t.Fatalf("expected call_count=1, got %v", summary["call_count"])
+	}
+}
+
+func TestSmoke_AgentSpawnInspectCapturesNativeTraffic(t *testing.T) {
+	dir := newWorkspace(t)
+	initWorkspace(t, dir, "test-ws")
+
+	agentDir := filepath.Join(dir, ".toc", "agents", "native-worker")
+	if err := os.MkdirAll(agentDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	cfg := `runtime: toc-native
+name: native-worker
+model: openai/gpt-4o-mini
+`
+	if err := os.WriteFile(filepath.Join(agentDir, "oc-agent.yaml"), []byte(cfg), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(agentDir, "agent.md"), []byte("# native-worker\nYou are a test native agent.\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/chat/completions" {
+			t.Fatalf("unexpected path %s", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte("data: {\"id\":\"resp-1\",\"model\":\"openai/gpt-4o-mini\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"native ok\"}}]}\n\n"))
+		_, _ = w.Write([]byte("data: {\"id\":\"resp-1\",\"model\":\"openai/gpt-4o-mini\",\"usage\":{\"prompt_tokens\":9,\"completion_tokens\":3,\"total_tokens\":12},\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n"))
+		_, _ = w.Write([]byte("data: [DONE]\n\n"))
+	}))
+	defer upstream.Close()
+
+	out := runTocWithEnv(t, dir, []string{
+		"OPENROUTER_API_KEY=test-key",
+		"OPENROUTER_BASE_URL=" + upstream.URL,
+	}, "agent", "spawn", "native-worker", "--prompt", "inspect native", "--inspect")
+
+	sessionID := extractSessionID(out)
+	if sessionID == "" {
+		t.Fatalf("could not extract session id from output: %s", out)
+	}
+
+	capturePath := filepath.Join(dir, ".toc", "sessions", sessionID, "inspect", "http.jsonl")
+	data, err := os.ReadFile(capturePath)
+	if err != nil {
+		t.Fatalf("expected inspect capture at %s: %v", capturePath, err)
+	}
+	text := string(data)
+	if !strings.Contains(text, `/chat/completions`) {
+		t.Fatalf("inspect capture missing chat path: %s", text)
+	}
+	if !strings.Contains(text, upstream.URL+"/chat/completions") {
+		t.Fatalf("inspect capture missing upstream URL: %s", text)
 	}
 }
 
@@ -632,7 +736,7 @@ skills:
 // extractSessionID pulls the session ID from toc runtime spawn output.
 func extractSessionID(output string) string {
 	for _, line := range strings.Split(output, "\n") {
-		if strings.Contains(line, "Session ID:") {
+		if strings.Contains(line, "Session ID:") || strings.Contains(line, "Session:") {
 			parts := strings.Fields(line)
 			if len(parts) > 0 {
 				return parts[len(parts)-1]

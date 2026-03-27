@@ -160,6 +160,10 @@ toc agent spawn my-agent
 
 `TOC_NATIVE_BASE_URL` takes precedence over `OPENROUTER_BASE_URL`, and only affects `toc-native`.
 
+For runtime-agnostic API inspection, use `--inspect` on `toc agent spawn` or `toc runtime spawn`. toc will start a local reverse proxy automatically and write captures to `.toc/sessions/<id>/inspect/http.jsonl`. Read them with `toc inspect <session-id>` or `toc inspect --last`.
+
+If you are actively improving `toc-native`, see [Pushing toc-native](toc-native-improvement-loop.md) for a concrete compare-and-tighten workflow using `toc inspect compare`.
+
 ### State and resume
 
 The native runtime persists state after each model turn to `.toc/sessions/<id>/state.json`. This includes the full message history, token usage, and a turn checkpoint for crash recovery. Resume loads this state and continues the conversation.

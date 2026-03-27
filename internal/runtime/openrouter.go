@@ -113,6 +113,17 @@ func extractOpenRouterErrorMessage(body []byte) string {
 
 const defaultOpenRouterBaseURL = "https://openrouter.ai/api/v1"
 
+func resolveNativeBaseURLFromEnv() string {
+	baseURL := strings.TrimRight(strings.TrimSpace(os.Getenv("TOC_NATIVE_BASE_URL")), "/")
+	if baseURL == "" {
+		baseURL = strings.TrimRight(strings.TrimSpace(os.Getenv("OPENROUTER_BASE_URL")), "/")
+	}
+	if baseURL == "" {
+		baseURL = defaultOpenRouterBaseURL
+	}
+	return baseURL
+}
+
 type openRouterClient struct {
 	baseURL    string
 	apiKey     string
@@ -221,16 +232,8 @@ func newNativeLLMClientFromEnv(workspaceRoot string) (*openRouterClient, error) 
 			"  Get a key at: https://openrouter.ai/keys")
 	}
 
-	baseURL := strings.TrimRight(strings.TrimSpace(os.Getenv("TOC_NATIVE_BASE_URL")), "/")
-	if baseURL == "" {
-		baseURL = strings.TrimRight(strings.TrimSpace(os.Getenv("OPENROUTER_BASE_URL")), "/")
-	}
-	if baseURL == "" {
-		baseURL = defaultOpenRouterBaseURL
-	}
-
 	return &openRouterClient{
-		baseURL: baseURL,
+		baseURL: resolveNativeBaseURLFromEnv(),
 		apiKey:  apiKey,
 		httpClient: &http.Client{
 			Timeout: 2 * time.Minute,

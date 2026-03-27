@@ -105,6 +105,7 @@ func printOutput(jsonFlag, metaFlag bool, s *session.Session, status string, dat
 			"compaction_count": summaryIntField(summary, func(v *runtimeStateSummary) int { return v.CompactionCount }),
 			"last_error":       summaryField(summary, func(v *runtimeStateSummary) string { return v.LastError }),
 			"last_recovery":    summaryField(summary, func(v *runtimeStateSummary) string { return v.LastRecovery }),
+			"todos":            summaryTodos(summary),
 			"token_total":      summaryTokenField(summary),
 			"output":           string(data),
 		})
@@ -138,6 +139,12 @@ func printOutput(jsonFlag, metaFlag bool, s *session.Session, status string, dat
 			if summary.LastRecovery != "" {
 				fmt.Printf("  %s %s\n", ui.Bold("Last recovery:"), ui.Dim(summary.LastRecovery))
 			}
+			if todoLines := formatTodoLines(summary.Todos); len(todoLines) > 0 {
+				fmt.Printf("  %s\n", ui.Bold("Todos:"))
+				for _, line := range todoLines {
+					fmt.Printf("    %s %s\n", ui.Dim("•"), ui.Dim(line))
+				}
+			}
 		}
 		fmt.Println()
 	}
@@ -164,4 +171,11 @@ func summaryTokenField(summary *runtimeStateSummary) int64 {
 		return 0
 	}
 	return summary.Tokens.Total()
+}
+
+func summaryTodos(summary *runtimeStateSummary) []runtime.TodoItem {
+	if summary == nil {
+		return nil
+	}
+	return append([]runtime.TodoItem(nil), summary.Todos...)
 }

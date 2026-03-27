@@ -211,6 +211,45 @@ Anti-patterns:
 			Handler: nativeSkill,
 		},
 		{
+			Name: "TodoWrite",
+			Description: `Replace the current session todo list with a new ordered list.
+
+Use TodoWrite for multi-step work, especially when you need to track progress across file edits, tests, and sub-agent coordination. Each call replaces the entire list, so always send the full current todo list.
+
+Parameters:
+- todos (required): Complete ordered todo list. Each item must include:
+  - content: brief task description
+  - status: pending, in_progress, completed, or cancelled
+  - priority: high, medium, or low
+
+Guidelines:
+- Prefer using TodoWrite when the task has multiple meaningful steps.
+- Keep only one item in_progress at a time when possible.
+- Mark items completed immediately after finishing them.
+- If the plan changes, rewrite the full list to match the new reality.
+
+Output: A short summary confirming the updated todo list.`,
+			Parameters: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"todos": map[string]interface{}{
+						"type": "array",
+						"items": map[string]interface{}{
+							"type": "object",
+							"properties": map[string]interface{}{
+								"content":  map[string]interface{}{"type": "string", "description": "Brief description of the task"},
+								"status":   map[string]interface{}{"type": "string", "enum": []string{"pending", "in_progress", "completed", "cancelled"}},
+								"priority": map[string]interface{}{"type": "string", "enum": []string{"high", "medium", "low"}},
+							},
+							"required": []string{"content", "status", "priority"},
+						},
+					},
+				},
+				"required": []string{"todos"},
+			},
+			Handler: nativeTodoWrite,
+		},
+		{
 			Name: "SubAgent",
 			Description: `Manage sub-agent sessions for multi-agent orchestration. Sub-agents run in the background as separate sessions with their own workspace, allowing parallel task execution.
 

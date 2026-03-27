@@ -43,6 +43,12 @@ func TestResolveSessionConfig(t *testing.T) {
 	if !cfg.AllowCustomNativeModel {
 		t.Fatalf("expected AllowCustomNativeModel to propagate, got %#v", cfg)
 	}
+	if cfg.RuntimeConfig.CompactionTriggerChars != 0 {
+		t.Fatalf("CompactionTriggerChars should no longer be set by default (token budgets are primary), got %d", cfg.RuntimeConfig.CompactionTriggerChars)
+	}
+	if cfg.RuntimeConfig.CompactionKeepRecent != 12 {
+		t.Fatalf("CompactionKeepRecent = %d, want 12", cfg.RuntimeConfig.CompactionKeepRecent)
+	}
 }
 
 func TestSaveAndLoadSessionConfig(t *testing.T) {

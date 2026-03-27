@@ -124,6 +124,52 @@ func TestBuildContextDiagnostics(t *testing.T) {
 	}
 }
 
+func TestBuildContextView_InjectsWorkingSet(t *testing.T) {
+	state := &State{
+		Messages: []Message{
+			{Role: "system", Content: "system prompt"},
+			{Role: "user", Content: "hello"},
+			{Role: "assistant", Content: "hi"},
+		},
+		WorkingSet: &WorkingSet{
+			FilesEdited: []string{"main.go"},
+		},
+	}
+
+	view := BuildContextView(state)
+	// Should have: system + working set + user + assistant = 4
+	if len(view) != 4 {
+		t.Fatalf("len(view) = %d, want 4", len(view))
+	}
+	if !strings.Contains(view[1].Content, "[toc-working-set]") {
+		t.Error("expected working set injection after system prompt")
+	}
+	if !strings.Contains(view[1].Content, "main.go") {
+		t.Error("working set should mention edited file")
+	}
+}
+
+func TestBuildContextView_NoWorkingSet(t *testing.T) {
+	state := &State{
+		Messages: []Message{
+			{Role: "system", Content: "system prompt"},
+			{Role: "user", Content: "hello"},
+		},
+	}
+
+	view := BuildContextView(state)
+	if len(view) != 2 {
+		t.Fatalf("len(view) = %d, want 2 (no working set injection)", len(view))
+	}
+}
+
+func TestBuildContextView_NilState(t *testing.T) {
+	view := BuildContextView(nil)
+	if view != nil {
+		t.Error("nil state should return nil view")
+	}
+}
+
 func TestAppendUnique(t *testing.T) {
 	slice := []string{"a", "b"}
 	slice = appendUnique(slice, "b", 10) // duplicate

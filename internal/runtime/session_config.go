@@ -89,7 +89,8 @@ func ResolveSessionConfig(cfg *agent.AgentConfig, opts ...ResolveOptions) *Sessi
 		if resolveOpts.MaxIterationsOverride > 0 {
 			sessionCfg.RuntimeConfig.MaxIterations = resolveOpts.MaxIterationsOverride
 		}
-		sessionCfg.RuntimeConfig.CompactionTriggerChars = 800000
+		// Token budgets are now the primary compaction trigger (derived from
+		// model profile metadata). No legacy CompactionTriggerChars needed.
 		sessionCfg.RuntimeConfig.CompactionKeepRecent = 12
 		sessionCfg.RuntimeConfig.CompactionMaxSummaryChars = 6000
 	}

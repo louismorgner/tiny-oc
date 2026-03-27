@@ -171,6 +171,38 @@ func BuildContextDiagnostics(messages []Message, budgeter *ContextBudgeter) Cont
 	return diag
 }
 
+// BuildContextView assembles the curated message slice sent to the model.
+// This decouples what gets persisted (state.Messages) from what gets sent
+// to the API, giving us a seam for working-set injection, continuation
+// re-ranking, and other context shaping without mutating stored state.
+func BuildContextView(state *State) []Message {
+	if state == nil || len(state.Messages) == 0 {
+		return nil
+	}
+
+	// Start with the current Messages (already compacted/pruned).
+	view := make([]Message, 0, len(state.Messages)+1)
+
+	for i, msg := range state.Messages {
+		view = append(view, msg)
+
+		// After the system prompt (or continuation artifact), inject a
+		// working set summary if we have one. This gives the model
+		// awareness of which files it has touched without consuming
+		// much budget.
+		if i == 0 && (msg.Role == "system" || isContinuationArtifact(msg) || isCompactionSummary(msg)) {
+			if wsSummary := state.WorkingSet.Summary(); wsSummary != "" {
+				view = append(view, Message{
+					Role:    "user",
+					Content: "[toc-working-set]\n" + wsSummary,
+				})
+			}
+		}
+	}
+
+	return view
+}
+
 func appendUnique(slice []string, val string, maxLen int) []string {
 	for _, s := range slice {
 		if s == val {

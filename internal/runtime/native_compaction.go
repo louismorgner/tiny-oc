@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -32,7 +33,7 @@ var pruneProtectedTools = map[string]bool{
 // maybeManageContext is the new entry point for context management. It uses
 // token-budget-aware decisions when a model profile is available, falling
 // back to the legacy char-threshold path otherwise.
-func maybeManageContext(state *State, sess *session.Session, cfg *SessionConfig, profile runtimeinfo.NativeModelProfile) (bool, error) {
+func maybeManageContext(state *State, sess *session.Session, cfg *SessionConfig, profile runtimeinfo.NativeModelProfile, client *openRouterClient) (bool, error) {
 	if state == nil {
 		return false, nil
 	}
@@ -51,7 +52,7 @@ func maybeManageContext(state *State, sess *session.Session, cfg *SessionConfig,
 	// Use token-budget-based decisions when the model profile provides context
 	// window metadata. Fall back to legacy char thresholds for unknown models.
 	if profile.ContextWindow > 0 {
-		return manageContextWithBudget(state, sess, keepRecent, maxSummaryChars, profile)
+		return manageContextWithBudget(state, sess, keepRecent, maxSummaryChars, profile, client)
 	}
 	return maybeCompactState(state, sess, cfg)
 }
@@ -60,7 +61,7 @@ func maybeManageContext(state *State, sess *session.Session, cfg *SessionConfig,
 //   1. Estimate current input tokens
 //   2. Consult the budgeter for a decision
 //   3. Prune → compact → fail based on the decision
-func manageContextWithBudget(state *State, sess *session.Session, keepRecent, maxSummaryChars int, profile runtimeinfo.NativeModelProfile) (bool, error) {
+func manageContextWithBudget(state *State, sess *session.Session, keepRecent, maxSummaryChars int, profile runtimeinfo.NativeModelProfile, client *openRouterClient) (bool, error) {
 	budgeter := NewContextBudgeter(profile)
 	currentTokens := estimateMessagesTokens(state.Messages)
 	decision := budgeter.Evaluate(currentTokens)
@@ -90,7 +91,7 @@ func manageContextWithBudget(state *State, sess *session.Session, keepRecent, ma
 		}
 
 		// Full compaction needed
-		compacted, compactedCount, _ := compactMessagesStructured(state, keepRecent, maxSummaryChars)
+		compacted, compactedCount, _ := compactMessagesStructured(state, keepRecent, maxSummaryChars, client)
 		if compactedCount == 0 {
 			return pruned > 0, nil
 		}
@@ -106,7 +107,7 @@ func manageContextWithBudget(state *State, sess *session.Session, keepRecent, ma
 	case BudgetFail:
 		// Emergency: try aggressive pruning + compaction before giving up
 		pruneStaleToolOutputs(state.Messages, keepRecent)
-		compacted, compactedCount, _ := compactMessagesStructured(state, keepRecent, maxSummaryChars)
+		compacted, compactedCount, _ := compactMessagesStructured(state, keepRecent, maxSummaryChars, client)
 		if compactedCount > 0 {
 			state.Messages = compacted
 			state.CompactionCount++
@@ -156,13 +157,18 @@ func pruneStaleToolOutputs(messages []Message, keepRecent int) int {
 			continue
 		}
 
-		// Age to 1/4 budget first, then check if further pruning needed
+		// Age to 1/4 budget. For very small budgets, replace with a clean
+		// prune marker instead of a mostly-marker truncation.
 		agedBudget := toolOutputBudget(msg.Name) / 4
 		if agedBudget < 512 {
 			agedBudget = 512
 		}
 		if len(msg.Content) > agedBudget {
-			msg.Content = truncateMiddle(msg.Content, agedBudget)
+			if agedBudget <= 512 {
+				msg.Content = pruneMarker
+			} else {
+				msg.Content = truncateMiddle(msg.Content, agedBudget)
+			}
 			pruned++
 		}
 	}
@@ -186,8 +192,9 @@ func looksLikeError(content string) bool {
 }
 
 // compactMessagesStructured performs full compaction, generating a structured
-// continuation artifact instead of a freeform summary.
-func compactMessagesStructured(state *State, keepRecent, maxSummaryChars int) ([]Message, int, string) {
+// continuation artifact. When a client is available, uses the LLM to generate
+// the continuation; falls back to heuristic extraction otherwise.
+func compactMessagesStructured(state *State, keepRecent, maxSummaryChars int, client *openRouterClient) ([]Message, int, string) {
 	messages := state.Messages
 	if len(messages) == 0 {
 		return messages, 0, ""
@@ -214,8 +221,18 @@ func compactMessagesStructured(state *State, keepRecent, maxSummaryChars int) ([
 	head := messages[start:cutoff]
 	tail := append([]Message(nil), messages[cutoff:]...)
 
-	// Build structured continuation from head messages + existing state
-	continuation := buildContinuationFromMessages(head, state)
+	// Try LLM-generated continuation first; fall back to heuristic extraction.
+	var continuation ContinuationArtifact
+	if client != nil && state.Model != "" {
+		llmCont, err := generateContinuationViaLLM(client, state.Model, head, state.Continuation)
+		if err == nil && llmCont != nil {
+			continuation = *llmCont
+		} else {
+			continuation = buildContinuationFromMessages(head, state)
+		}
+	} else {
+		continuation = buildContinuationFromMessages(head, state)
+	}
 	state.Continuation = &continuation
 
 	// Render continuation as injection text
@@ -418,6 +435,84 @@ func emitContextEvent(sess *session.Session, content string) {
 		},
 	})
 }
+
+// continuationPrompt is the system instruction sent to the LLM to generate
+// a structured continuation artifact during compaction.
+const continuationPrompt = `You are a session-state summarizer. Given conversation messages being compacted, produce a JSON continuation artifact.
+
+Output ONLY valid JSON matching this schema (no markdown, no explanation):
+{
+  "goal": "the user's primary objective",
+  "constraints": ["any constraints or requirements mentioned"],
+  "decisions": ["key decisions made during the conversation"],
+  "discoveries": ["important findings or observations"],
+  "working_files": ["files that were read, edited, or created"],
+  "completed_work": ["work that has been finished"],
+  "remaining_work": ["work still to be done"],
+  "open_loops": ["unresolved errors, blockers, or questions"],
+  "next_steps": ["what should happen next"]
+}
+
+Omit empty arrays. Be concise — each entry should be one sentence max.`
+
+// generateContinuationViaLLM calls the model to synthesize a structured
+// continuation from the messages being compacted. Falls back to nil on error
+// so the caller can use heuristic extraction.
+func generateContinuationViaLLM(client *openRouterClient, model string, messages []Message, existing *ContinuationArtifact) (*ContinuationArtifact, error) {
+	if client == nil || model == "" {
+		return nil, fmt.Errorf("no client or model")
+	}
+
+	// Build a compact representation of the messages to summarize.
+	// We don't send raw messages — just a summary to keep the request small.
+	var summaryLines []string
+	for _, msg := range messages {
+		line := summarizeCompactedMessage(msg)
+		if line != "" {
+			summaryLines = append(summaryLines, line)
+		}
+	}
+	if len(summaryLines) == 0 {
+		return nil, fmt.Errorf("no content to summarize")
+	}
+
+	contextText := strings.Join(summaryLines, "\n")
+	if existing != nil {
+		contextText += "\n\nPrior continuation context:\n" + renderContinuation(*existing, 2000)
+	}
+
+	req := chatRequest{
+		Model: model,
+		Messages: []Message{
+			{Role: "system", Content: continuationPrompt},
+			{Role: "user", Content: contextText},
+		},
+	}
+
+	resp, err := client.Chat(context.Background(), req)
+	if err != nil {
+		return nil, err
+	}
+	if len(resp.Choices) == 0 {
+		return nil, fmt.Errorf("no response")
+	}
+
+	content := strings.TrimSpace(resp.Choices[0].Message.Content)
+	jsonStr := extractJSONBlock(content)
+	if jsonStr == "" {
+		jsonStr = content // try parsing the whole thing
+	}
+
+	var artifact ContinuationArtifact
+	if err := json.Unmarshal([]byte(jsonStr), &artifact); err != nil {
+		return nil, fmt.Errorf("failed to parse continuation JSON: %w", err)
+	}
+	artifact.GeneratedAt = time.Now().UTC()
+	return &artifact, nil
+}
+
+// pruneMarker is the stub content left behind when a tool result is pruned.
+const pruneMarker = "[tool result pruned — re-run tool if needed]"
 
 // --- Legacy path (kept for backward compatibility and char-threshold fallback) ---
 

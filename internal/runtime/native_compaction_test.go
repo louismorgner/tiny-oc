@@ -429,7 +429,7 @@ func TestCompactMessagesStructured_ProducesContinuation(t *testing.T) {
 		},
 	}
 
-	compacted, count, text := compactMessagesStructured(state, 2, 6000)
+	compacted, count, text := compactMessagesStructured(state, 2, 6000, nil)
 
 	if count != 4 {
 		t.Fatalf("compactedCount = %d, want 4", count)
@@ -489,7 +489,7 @@ func TestManageContextWithBudget_PrunesBeforeCompaction(t *testing.T) {
 		ReservedBuffer:  4096,
 	}
 
-	changed, err := manageContextWithBudget(state, sess, 2, 6000, profile)
+	changed, err := manageContextWithBudget(state, sess, 2, 6000, profile, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -536,7 +536,7 @@ func TestManageContextWithBudget_CompactsWhenNeeded(t *testing.T) {
 		},
 	}
 
-	changed, err := manageContextWithBudget(state, sess, 2, 6000, profile)
+	changed, err := manageContextWithBudget(state, sess, 2, 6000, profile, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -604,7 +604,7 @@ func TestMaybeManageContext_FallsBackToLegacy(t *testing.T) {
 		},
 	}
 
-	changed, err := maybeManageContext(state, sess, cfg, profile)
+	changed, err := maybeManageContext(state, sess, cfg, profile, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -633,7 +633,7 @@ func TestResumeAfterCompaction_WorksWithStructuredContinuation(t *testing.T) {
 	}
 
 	// First compaction
-	compacted1, count1, _ := compactMessagesStructured(state, 2, 6000)
+	compacted1, count1, _ := compactMessagesStructured(state, 2, 6000, nil)
 	if count1 == 0 {
 		t.Fatal("expected first compaction")
 	}
@@ -651,7 +651,7 @@ func TestResumeAfterCompaction_WorksWithStructuredContinuation(t *testing.T) {
 	)
 
 	// Second compaction
-	compacted2, count2, text := compactMessagesStructured(state, 2, 6000)
+	compacted2, count2, text := compactMessagesStructured(state, 2, 6000, nil)
 	if count2 == 0 {
 		t.Fatal("expected second compaction")
 	}
@@ -664,6 +664,105 @@ func TestResumeAfterCompaction_WorksWithStructuredContinuation(t *testing.T) {
 	// Should still have system + continuation + 2 recent
 	if len(compacted2) != 4 {
 		t.Fatalf("len(compacted) = %d, want 4", len(compacted2))
+	}
+}
+
+func TestPruneMarker_UsedForSmallBudgetTools(t *testing.T) {
+	// Glob budget = 8KB, aged = 2KB. Write/Edit have 1KB budget → aged = 256
+	// which is < 512 so they'd get prune marker. But Write/Edit are protected.
+	// Use a tool with small budget to test the marker.
+	messages := []Message{
+		{Role: "system", Content: "prompt"},
+		{Role: "tool", Name: "Glob", Content: strings.Repeat("x", 50*1024)}, // way over Glob budget
+		{Role: "user", Content: "recent"},
+		{Role: "assistant", Content: "reply"},
+	}
+
+	pruned := pruneStaleToolOutputs(messages, 2)
+	if pruned != 1 {
+		t.Fatalf("pruned = %d, want 1", pruned)
+	}
+
+	// Glob budget = 8KB, aged = 2KB > 512, so should use truncateMiddle not marker
+	if messages[1].Content == pruneMarker {
+		t.Error("Glob aged budget (2KB) should use truncateMiddle, not prune marker")
+	}
+	if !strings.Contains(messages[1].Content, "truncated") {
+		t.Error("should contain truncation marker")
+	}
+}
+
+func TestStateMigration_V5ToV6(t *testing.T) {
+	state := &State{
+		Version: 5,
+		Messages: []Message{
+			{Role: "system", Content: "prompt"},
+			{Role: "user", Content: "hello"},
+		},
+	}
+	migrateState(state)
+
+	if state.Version != StateVersion {
+		t.Errorf("Version = %d, want %d", state.Version, StateVersion)
+	}
+	if len(state.Transcript) != 2 {
+		t.Fatalf("Transcript should have 2 messages after migration, got %d", len(state.Transcript))
+	}
+	if state.Transcript[0].Content != "prompt" {
+		t.Error("Transcript should match Messages content")
+	}
+}
+
+func TestStateMigration_AlreadyV6(t *testing.T) {
+	state := &State{
+		Version: 6,
+		Messages: []Message{
+			{Role: "user", Content: "hello"},
+		},
+		Transcript: []Message{
+			{Role: "user", Content: "hello"},
+			{Role: "assistant", Content: "old message"},
+		},
+	}
+	migrateState(state)
+
+	// Should not overwrite existing Transcript
+	if len(state.Transcript) != 2 {
+		t.Fatalf("Transcript should not be overwritten, got %d", len(state.Transcript))
+	}
+}
+
+func TestTranscriptSurvivesCompaction(t *testing.T) {
+	state := &State{
+		Messages: []Message{
+			{Role: "system", Content: "system prompt"},
+			{Role: "user", Content: "first"},
+			{Role: "assistant", Content: "reply1"},
+			{Role: "tool", Name: "Read", Content: strings.Repeat("r", 4000)},
+			{Role: "user", Content: "keep"},
+			{Role: "assistant", Content: "keep2"},
+		},
+	}
+	// Copy messages to transcript (simulating the runner dual-append)
+	state.Transcript = make([]Message, len(state.Messages))
+	copy(state.Transcript, state.Messages)
+
+	compacted, count, _ := compactMessagesStructured(state, 2, 6000, nil)
+	if count == 0 {
+		t.Fatal("expected compaction")
+	}
+	state.Messages = compacted
+
+	// Messages should be compacted (fewer messages)
+	if len(state.Messages) >= 6 {
+		t.Errorf("Messages should be compacted, got %d", len(state.Messages))
+	}
+	// Transcript should be untouched
+	if len(state.Transcript) != 6 {
+		t.Errorf("Transcript should be preserved (6), got %d", len(state.Transcript))
+	}
+	if state.Transcript[1].Content != "first" {
+		t.Error("Transcript should still have original messages")
 	}
 }
 

@@ -10,7 +10,7 @@ import (
 	"github.com/tiny-oc/toc/internal/session"
 )
 
-const StateVersion = 5
+const StateVersion = 6
 
 type Message struct {
 	Role         string        `json:"role"`
@@ -80,6 +80,7 @@ type State struct {
 	Usage             TokenUsageSnapshot    `json:"usage,omitempty"`
 	LastRequestUsage  LastRequestUsage      `json:"last_request_usage,omitempty"`
 	Messages          []Message             `json:"messages,omitempty"`
+	Transcript        []Message             `json:"transcript,omitempty"`
 	Continuation      *ContinuationArtifact `json:"continuation,omitempty"`
 	WorkingSet        *WorkingSet           `json:"working_set,omitempty"`
 	PendingTurn       *TurnCheckpoint       `json:"pending_turn,omitempty"`
@@ -167,7 +168,19 @@ func loadStateFromPath(path string) (*State, error) {
 	if err := json.Unmarshal(data, &state); err != nil {
 		return nil, err
 	}
+	migrateState(&state)
 	return &state, nil
+}
+
+// migrateState applies forward-compatible migrations to older state versions.
+func migrateState(state *State) {
+	if state.Version < 6 && len(state.Transcript) == 0 && len(state.Messages) > 0 {
+		// v5 → v6: promote Messages to Transcript so older sessions get
+		// an immutable history on first load.
+		state.Transcript = make([]Message, len(state.Messages))
+		copy(state.Transcript, state.Messages)
+		state.Version = StateVersion
+	}
 }
 
 func saveStateToPath(path string, state *State) error {

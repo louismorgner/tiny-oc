@@ -501,6 +501,7 @@ func nativeQuestion(ctx nativeToolContext, call ToolCall) toolExecution {
 			continue
 		}
 		_ = os.Remove(questionPath)
+		_ = os.Remove(answerPath)
 		return toolSuccess("Question", "", ans.Answer, Step{
 			Type:    "tool",
 			Tool:    "Question",
@@ -510,12 +511,7 @@ func nativeQuestion(ctx nativeToolContext, call ToolCall) toolExecution {
 	}
 
 	_ = os.Remove(questionPath)
-	return toolSuccess("Question", "", "No answer was provided (timed out after waiting for a response).", Step{
-		Type:    "tool",
-		Tool:    "Question",
-		Content: args.Question,
-		Success: boolPtr(true),
-	})
+	return toolFailure("Question", "", "", fmt.Errorf("no answer was provided (timed out after %s)", questionPollTimeout))
 }
 
 func isValidTodoStatus(status string) bool {

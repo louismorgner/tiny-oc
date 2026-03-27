@@ -282,9 +282,12 @@ func TestNativeQuestionNonInteractiveAnswered(t *testing.T) {
 		t.Fatalf("unexpected answer: %q", result.Message)
 	}
 
-	// question.json should have been cleaned up
+	// question.json and answer.json should both have been cleaned up
 	if _, err := os.Stat(filepath.Join(metaDir, "question.json")); !os.IsNotExist(err) {
 		t.Fatal("question.json should be removed after answer is received")
+	}
+	if _, err := os.Stat(filepath.Join(metaDir, "answer.json")); !os.IsNotExist(err) {
+		t.Fatal("answer.json should be removed after answer is received")
 	}
 }
 
@@ -304,8 +307,8 @@ func TestNativeQuestionNonInteractiveTimeout(t *testing.T) {
 		"question": "Are you there?",
 	}))
 
-	if result.Step.Success == nil || !*result.Step.Success {
-		t.Fatalf("expected success (with timeout message), got %#v", result)
+	if result.Step.Success == nil || *result.Step.Success {
+		t.Fatalf("expected failure (timeout), got %#v", result)
 	}
 	if !strings.Contains(result.Message, "timed out") {
 		t.Fatalf("expected timeout message, got %q", result.Message)

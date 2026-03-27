@@ -6,50 +6,34 @@ import (
 )
 
 func TestEstimateTokens(t *testing.T) {
+	// Pinned values from cl100k_base tokenizer.
 	tests := []struct {
 		input string
+		want  int
 	}{
-		{""},
-		{"hi"},
-		{"hello world"},
-		{strings.Repeat("a", 100)},
-		{"func main() { fmt.Println(\"hello\") }"},
+		{"", 0},
+		{"hi", 1},
+		{"hello world", 2},
+		{strings.Repeat("a", 100), 13},
+		{`func main() { fmt.Println("hello") }`, 10},
 	}
 	for _, tt := range tests {
 		got := estimateTokens(tt.input)
-		if tt.input == "" {
-			if got != 0 {
-				t.Errorf("estimateTokens(%q) = %d, want 0", tt.input, got)
-			}
-			continue
-		}
-		if got <= 0 {
-			t.Errorf("estimateTokens(%q) = %d, want > 0", tt.input[:min(len(tt.input), 20)], got)
-		}
-	}
-}
-
-func TestEstimateTokens_UsesRealTokenizer(t *testing.T) {
-	// The real tokenizer should give different results than len/4 for this string.
-	// "hello world" is 2 tokens in cl100k_base, but len/4 rounds to 3.
-	got := estimateTokens("hello world")
-	if codec := getTokenCodec(); codec != nil {
-		if got == 3 {
-			t.Error("estimateTokens(\"hello world\") = 3, looks like fallback heuristic is being used instead of real tokenizer")
+		if got != tt.want {
+			t.Errorf("estimateTokens(%q) = %d, want %d", tt.input[:min(len(tt.input), 20)], got, tt.want)
 		}
 	}
 }
 
 func TestEstimateMessagesTokens(t *testing.T) {
 	msgs := []Message{
-		{Role: "system", Content: strings.Repeat("x", 400)},
-		{Role: "user", Content: "hello"},
+		{Role: "system", Content: strings.Repeat("x", 400)}, // 50 tokens + 4 overhead
+		{Role: "user", Content: "hello"},                     // 1 token + 4 overhead
 	}
 	got := estimateMessagesTokens(msgs)
-	// With real tokenizer or heuristic, should be a reasonable positive number.
-	// The per-message overhead (4 tokens each × 2 messages = 8) is always added.
-	if got < 10 {
-		t.Errorf("estimateMessagesTokens = %d, expected > 10", got)
+	// 50 + 4 + 1 + 4 = 59
+	if got < 55 || got > 65 {
+		t.Errorf("estimateMessagesTokens = %d, expected ~59", got)
 	}
 }
 

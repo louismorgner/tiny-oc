@@ -16,6 +16,9 @@ var (
 	tokenCodecOnce sync.Once
 )
 
+// getTokenCodec returns the shared tokenizer, initializing it on first call.
+// If initialization fails, the codec stays nil permanently (sync.Once won't
+// retry) and callers fall back to the len/4 heuristic.
 func getTokenCodec() tokenizer.Codec {
 	tokenCodecOnce.Do(func() {
 		enc, err := tokenizer.Get(tokenizer.Cl100kBase)

@@ -10,3 +10,15 @@ agents:
   - name: implementer
     description: Focused implementation agent — receives scoped tasks, executes precisely, reports results
     model: anthropic/claude-sonnet-4
+  - name: superfounder-product-founder
+    group: superfounder
+    description: Product founder agent — orchestrates work, maintains product vision, delegates to CTO
+    model: anthropic/claude-opus-4.6
+  - name: superfounder-cto
+    group: superfounder
+    description: Technical leader — scopes tasks, reviews PRs, orchestrates SWE agents
+    model: anthropic/claude-opus-4.6
+  - name: superfounder-swe
+    group: superfounder
+    description: Software engineer agent — executes precise implementation tasks, writes production-quality code
+    model: openai/gpt-5.4

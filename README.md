@@ -16,7 +16,7 @@ Downloads the latest prebuilt binary for your platform. Supports macOS and Linux
 
 Current runtime implementation: [Claude Code](https://docs.anthropic.com/en/docs/claude-code).
 
-`toc-native` is now on the internal beta path. Its current beta scope is local tools only: file operations, shell, glob/grep, and skills. External integrations are deferred until they are promoted into the native runtime as first-class tools.
+`toc-native` is now on the internal beta path. Its current beta scope is local tools only: file operations, shell, glob/grep, and skills. External integrations are deferred until they are promoted into the native runtime as first-class tools. By default it uses OpenRouter, and you can override just the native runtime's API base URL with `TOC_NATIVE_BASE_URL`.
 
 ### Build from source
 

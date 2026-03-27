@@ -18,8 +18,6 @@ import (
 	tocsync "github.com/tiny-oc/toc/internal/sync"
 )
 
-const maxToolOutputBytes = 64 * 1024
-
 type nativeToolContext struct {
 	SessionDir string
 	Workspace  string
@@ -209,7 +207,7 @@ func nativeGlob(ctx nativeToolContext, call ToolCall) toolExecution {
 	sort.Strings(matches)
 	matches = dedupeStrings(matches)
 
-	return toolSuccess("Glob", args.Path, strings.Join(matches, "\n"), Step{
+	return toolSuccess("Glob", args.Path, truncateToolOutput("Glob", strings.Join(matches, "\n")), Step{
 		Type:    "tool",
 		Tool:    "Glob",
 		Path:    args.Path,

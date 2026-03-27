@@ -34,11 +34,12 @@ type ToolCallFunction struct {
 
 func (m *Message) UnmarshalJSON(data []byte) error {
 	var raw struct {
-		Role       string          `json:"role"`
-		Content    json.RawMessage `json:"content,omitempty"`
-		Name       string          `json:"name,omitempty"`
-		ToolCallID string          `json:"tool_call_id,omitempty"`
-		ToolCalls  []ToolCall      `json:"tool_calls,omitempty"`
+		Role         string          `json:"role"`
+		Content      json.RawMessage `json:"content,omitempty"`
+		Name         string          `json:"name,omitempty"`
+		ToolCallID   string          `json:"tool_call_id,omitempty"`
+		ToolCalls    []ToolCall      `json:"tool_calls,omitempty"`
+		CacheControl *cacheControl   `json:"cache_control,omitempty"`
 	}
 	if err := json.Unmarshal(data, &raw); err != nil {
 		return err
@@ -54,6 +55,7 @@ func (m *Message) UnmarshalJSON(data []byte) error {
 	m.Name = raw.Name
 	m.ToolCallID = raw.ToolCallID
 	m.ToolCalls = raw.ToolCalls
+	m.CacheControl = raw.CacheControl
 	return nil
 }
 

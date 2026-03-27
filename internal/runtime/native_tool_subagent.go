@@ -293,7 +293,7 @@ func subAgentOutput(ctx nativeToolContext, sessionID string, partial bool) toolE
 		result := map[string]string{
 			"session_id": s.ID,
 			"status":     status,
-			"output":     truncateString(string(data), maxToolOutputBytes-256),
+			"output":     truncateToolOutput("SubAgent", string(data)),
 		}
 		out, _ := json.Marshal(result)
 		return toolSuccess("SubAgent", "", string(out), Step{
@@ -316,7 +316,7 @@ func subAgentOutput(ctx nativeToolContext, sessionID string, partial bool) toolE
 			result := map[string]string{
 				"session_id": s.ID,
 				"status":     status,
-				"output":     truncateString(string(partialData), maxToolOutputBytes-256),
+				"output":     truncateToolOutput("SubAgent", string(partialData)),
 			}
 			out, _ := json.Marshal(result)
 			return toolSuccess("SubAgent", "", string(out), Step{

@@ -10,12 +10,14 @@ import (
 	"os/signal"
 	"path/filepath"
 	rdebug "runtime/debug"
+	"sort"
 	"strings"
 	"syscall"
 	"time"
 
 	"github.com/tiny-oc/toc/internal/runtimeinfo"
 	"github.com/tiny-oc/toc/internal/session"
+	"github.com/tiny-oc/toc/internal/skill"
 	"github.com/tiny-oc/toc/internal/ui"
 )
 
@@ -170,6 +172,22 @@ func RunNativeSession(opts NativeRunOptions, stdin io.Reader, stdout io.Writer) 
 			return finalizeNativeSession(client, state, sessionCfg, toolSpecs, profile, toolCtx, stdout, false)
 		}
 
+		// Expand skill slash commands: /skill-name [optional args]
+		// Matches any /name where a SKILL.md exists in .toc-native/skills/<name>/.
+		if strings.HasPrefix(line, "/") {
+			skillCmd := strings.TrimPrefix(line, "/")
+			skillName, skillArgs, _ := strings.Cut(skillCmd, " ")
+			skillArgs = strings.TrimSpace(skillArgs)
+			skillMDPath := filepath.Join(toolCtx.SessionDir, ".toc-native", "skills", skillName, "SKILL.md")
+			if _, statErr := os.Stat(skillMDPath); statErr == nil {
+				if skillArgs != "" {
+					line = fmt.Sprintf("Use the `%s` skill for this task: %s", skillName, skillArgs)
+				} else {
+					line = fmt.Sprintf("Use the `%s` skill.", skillName)
+				}
+			}
+		}
+
 		if err := runNativePrompt(client, state, toolSpecs, profile, line, toolCtx, stdout, false); err != nil {
 			// If a prompt fails, still finalize rather than bailing out
 			// without running post-session hooks.
@@ -295,13 +313,21 @@ func ensureSystemPrompt(state *State) error {
 	}
 	promptPath := filepath.Join(state.SessionDir, ".toc-native", "system-prompt.md")
 	data, err := os.ReadFile(promptPath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil
-		}
+	if err != nil && !os.IsNotExist(err) {
 		return err
 	}
 	content := strings.TrimSpace(string(data))
+
+	// Append skill catalog if any skills are provisioned for this session.
+	skillsDir := filepath.Join(state.SessionDir, ".toc-native", "skills")
+	if catalog := buildSkillCatalog(skillsDir); catalog != "" {
+		if content != "" {
+			content = content + "\n\n" + catalog
+		} else {
+			content = catalog
+		}
+	}
+
 	if content == "" {
 		return nil
 	}
@@ -311,6 +337,56 @@ func ensureSystemPrompt(state *State) error {
 		CacheControl: &cacheControl{Type: "ephemeral"},
 	}}, state.Messages...)
 	return nil
+}
+
+// buildSkillCatalog scans skillsDir for provisioned skills and returns an XML
+// catalog string for injection into the system prompt. Returns "" if no skills
+// are found or the directory doesn't exist.
+func buildSkillCatalog(skillsDir string) string {
+	entries, err := os.ReadDir(skillsDir)
+	if err != nil {
+		return ""
+	}
+
+	type skillEntry struct {
+		name        string
+		description string
+	}
+	var skills []skillEntry
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		dirName := e.Name()
+		meta, err := skill.ParseSkillMD(filepath.Join(skillsDir, dirName, "SKILL.md"))
+		if err != nil || meta.Description == "" {
+			continue // skip malformed or undescribed skills
+		}
+		// Use the directory name for activation (what the Skill tool expects),
+		// description from frontmatter for context.
+		skills = append(skills, skillEntry{name: dirName, description: meta.Description})
+	}
+	if len(skills) == 0 {
+		return ""
+	}
+	sort.Slice(skills, func(i, j int) bool { return skills[i].name < skills[j].name })
+
+	var b strings.Builder
+	b.WriteString("The following skills are available for this session. When a task matches a skill's description, use the Skill tool with the skill's name to load its full instructions.\n\n")
+	b.WriteString("<available_skills>\n")
+	for _, s := range skills {
+		fmt.Fprintf(&b, "  <skill name=%q>%s</skill>\n", s.name, skillXMLEscape(s.description))
+	}
+	b.WriteString("</available_skills>")
+	return b.String()
+}
+
+// skillXMLEscape escapes characters that are unsafe inside XML text content.
+func skillXMLEscape(s string) string {
+	s = strings.ReplaceAll(s, "&", "&amp;")
+	s = strings.ReplaceAll(s, "<", "&lt;")
+	s = strings.ReplaceAll(s, ">", "&gt;")
+	return s
 }
 
 func runNativePrompt(client *openRouterClient, state *State, toolSpecs []NativeToolSpec, profile runtimeinfo.NativeModelProfile, prompt string, toolCtx nativeToolContext, stdout io.Writer, detached bool) error {

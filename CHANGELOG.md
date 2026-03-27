@@ -5,6 +5,106 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2026-03-26
+
+### Added
+
+- Redesigned context management with token budgets, pruning, and structured handoff (#114).
+- `toc stop` and `toc runtime stop` commands for killing stuck sessions (#108).
+- `toc watch` command (workspace-level) with shared logic (#109).
+- First-class skill support in toc-native, agentskills.io spec (#120).
+- Sub-agent completion notifications (#121).
+- Integration activation TUI after adding integrations (#119).
+- Exa extract action for structured data extraction (#117).
+- Configurable max tool iterations via `--max-iterations` flag (#111).
+- Per-request token tracking alongside cumulative (#112).
+- GPT-5.4 and GPT-5.3-codex model pricing (#112).
+
+### Improved
+
+- Token optimization: per-tool output budgets, middle-out truncation, cache breakpoints (#105).
+- Debug diagnosis engine: verdicts, exit signals, last words, tool timings, cost estimates (#106).
+- Debug prefix matching on session IDs (#109).
+- Slack setup wizard with foolproof step-by-step OAuth guidance (#107).
+
+## [0.4.5] - 2026-03-26
+
+### Added
+
+- Show active integrations in session startup banner (#104).
+
+## [0.4.4] - 2026-03-26
+
+### Changed
+
+- Eliminate config duplication, add unit tests (#103).
+
+### Fixed
+
+- Exa integration test returning 400 (#102).
+- Resolve credentials from workspace root, not CWD (#101).
+
+## [0.4.3] - 2026-03-26
+
+### Changed
+
+- Update implementer agent to use openai/gpt-5.3-codex (#99).
+
+### Fixed
+
+- Compaction produces invalid messages for OpenAI models via OpenRouter (#100).
+
+## [0.4.2] - 2026-03-26
+
+### Added
+
+- Implementer agent template for 3-tier hierarchy (#97).
+- `toc debug` command and native crash logs (#96).
+- Slack capability permission model (#95).
+- `toc-setup` agent skill (#94).
+- Exa semantic search integration (#88).
+- Runtime invoke discoverability and structured errors (#86).
+- Integrations and runtimes docs, updated architecture and README (#83, #87).
+- Integration permissions vision doc (#89).
+
+### Changed
+
+- Enable OpenRouter prompt caching for native runtime (#82).
+- Improved Slack OAuth2 onboarding UX (#85).
+- Removed hand-written sub-agents section from CTO agent prompt (#91).
+
+### Fixed
+
+- CI: mock keychain in smoke tests for Linux compatibility (#98).
+- Detached session resume using wrong CLI flag (#84).
+
+## [0.4.1] - 2026-03-25
+
+### Fixed
+
+- Worker URL to use toc-auth-callback subdomain (#81).
+
+## [0.4.0] - 2026-03-25
+
+### Added
+
+- `toc-native` beta runtime foundation (#71).
+- Input/output token breakdown in runtime status (#76).
+- HTTPS OAuth callback relay for Slack (#72).
+- Non-interactive flag support for all interactive CLI commands (#73).
+
+### Changed
+
+- Switched Slack integration from bot tokens to user tokens via OAuth2 (#69).
+
+### Fixed
+
+- Word-deletion (Ctrl+Backspace) in interactive prompts (#70).
+- Show initial user message in watch and replay output (#68).
+- Sort active sessions to top in `toc status` (#67).
+- Wrangler route config: add zone_name (#77).
+- Workers.dev domain for OAuth callback relay (#78).
+
 ## [0.3.3] - 2026-03-25
 
 ### Changed
@@ -106,7 +206,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `toc completion` for bash, zsh, and fish with dynamic completion of agent names and session IDs.
 - `install.sh` for building and symlinking the binary to PATH.
 
-[unreleased]: https://github.com/louismorgner/tiny-oc/compare/v0.3.3...HEAD
+[unreleased]: https://github.com/louismorgner/tiny-oc/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/louismorgner/tiny-oc/compare/v0.4.5...v0.5.0
+[0.4.5]: https://github.com/louismorgner/tiny-oc/compare/v0.4.4...v0.4.5
+[0.4.4]: https://github.com/louismorgner/tiny-oc/compare/v0.4.3...v0.4.4
+[0.4.3]: https://github.com/louismorgner/tiny-oc/compare/v0.4.2...v0.4.3
+[0.4.2]: https://github.com/louismorgner/tiny-oc/compare/v0.4.1...v0.4.2
+[0.4.1]: https://github.com/louismorgner/tiny-oc/compare/v0.4.0...v0.4.1
+[0.4.0]: https://github.com/louismorgner/tiny-oc/compare/v0.3.3...v0.4.0
 [0.3.3]: https://github.com/louismorgner/tiny-oc/compare/v0.3.2...v0.3.3
 [0.3.2]: https://github.com/louismorgner/tiny-oc/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/louismorgner/tiny-oc/compare/v0.3.0...v0.3.1

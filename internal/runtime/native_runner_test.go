@@ -282,6 +282,98 @@ func TestRunNativeSession_DetachedToolLoop(t *testing.T) {
 	}
 }
 
+func TestRunNativeSession_UsesTOCNativeBaseURL(t *testing.T) {
+	workDir := t.TempDir()
+	metaWorkspace := t.TempDir()
+
+	if err := os.MkdirAll(filepath.Join(workDir, ".toc-native"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(workDir, ".toc-native", "system-prompt.md"), []byte("You are a coding agent.\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := SaveSessionConfigInWorkspace(metaWorkspace, "sess-native-base-url", &SessionConfig{
+		Agent:   "native-agent",
+		Runtime: runtimeinfo.NativeRuntime,
+		Model:   "openai/gpt-4o-mini",
+		RuntimeConfig: SessionRuntimeOptions{
+			EnabledTools: NativeToolNames(),
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/chat/completions" {
+			t.Fatalf("path = %q", r.URL.Path)
+		}
+		if got := r.Header.Get("Authorization"); got != "Bearer test-key" {
+			t.Fatalf("authorization = %q", got)
+		}
+
+		var req chatRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		if req.Model != "openai/gpt-4o-mini" {
+			t.Fatalf("model = %q", req.Model)
+		}
+		if !req.Stream {
+			t.Fatalf("expected streaming request")
+		}
+
+		w.Header().Set("Content-Type", "text/event-stream")
+		writeSSEChunk(t, w, map[string]interface{}{
+			"id":    "resp-native-base-url-1",
+			"model": req.Model,
+			"choices": []map[string]interface{}{
+				{
+					"index": 0,
+					"delta": map[string]interface{}{
+						"role":    "assistant",
+						"content": "Custom base URL works.",
+					},
+				},
+			},
+		})
+		writeSSEChunk(t, w, map[string]interface{}{
+			"id":    "resp-native-base-url-1",
+			"model": req.Model,
+			"usage": map[string]interface{}{"prompt_tokens": 9, "completion_tokens": 4, "total_tokens": 13},
+			"choices": []map[string]interface{}{
+				{
+					"index":         0,
+					"delta":         map[string]interface{}{},
+					"finish_reason": "stop",
+				},
+			},
+		})
+		_, _ = w.Write([]byte("data: [DONE]\n\n"))
+	}))
+	defer server.Close()
+
+	t.Setenv("OPENROUTER_API_KEY", "test-key")
+	t.Setenv("TOC_NATIVE_BASE_URL", server.URL)
+
+	var stdout bytes.Buffer
+	err := RunNativeSession(NativeRunOptions{
+		Mode:      "detached",
+		Dir:       workDir,
+		SessionID: "sess-native-base-url",
+		Agent:     "native-agent",
+		Workspace: metaWorkspace,
+		Model:     "openai/gpt-4o-mini",
+		Prompt:    "Say the custom base URL is working.",
+	}, bytes.NewBuffer(nil), &stdout)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if got := stdout.String(); got != "Custom base URL works.\n" {
+		t.Fatalf("stdout = %q", got)
+	}
+}
+
 func TestRunNativeSession_ContinuesAfterSubAgentNotification(t *testing.T) {
 	workDir := t.TempDir()
 	metaWorkspace := t.TempDir()

@@ -207,7 +207,7 @@ type streamToolCallDelta struct {
 	} `json:"function"`
 }
 
-func newOpenRouterClientFromEnv(workspaceRoot string) (*openRouterClient, error) {
+func newNativeLLMClientFromEnv(workspaceRoot string) (*openRouterClient, error) {
 	apiKey := strings.TrimSpace(os.Getenv("OPENROUTER_API_KEY"))
 	if apiKey == "" {
 		// Fall back to stored key in workspace secrets.
@@ -221,7 +221,10 @@ func newOpenRouterClientFromEnv(workspaceRoot string) (*openRouterClient, error)
 			"  Get a key at: https://openrouter.ai/keys")
 	}
 
-	baseURL := strings.TrimRight(strings.TrimSpace(os.Getenv("OPENROUTER_BASE_URL")), "/")
+	baseURL := strings.TrimRight(strings.TrimSpace(os.Getenv("TOC_NATIVE_BASE_URL")), "/")
+	if baseURL == "" {
+		baseURL = strings.TrimRight(strings.TrimSpace(os.Getenv("OPENROUTER_BASE_URL")), "/")
+	}
 	if baseURL == "" {
 		baseURL = defaultOpenRouterBaseURL
 	}
@@ -248,7 +251,7 @@ func (c *openRouterClient) Chat(ctx context.Context, req chatRequest) (*chatResp
 	for attempt := 0; attempt < maxRetryAttempts; attempt++ {
 		if attempt > 0 {
 			delay := retryDelay(attempt-1, nil)
-			fmt.Fprintf(os.Stderr, "OpenRouter error (model=%s, endpoint=%s): %v — retrying in %s (attempt %d/%d)...\n",
+			fmt.Fprintf(os.Stderr, "OpenRouter error (model=%s, endpoint=%s): %v; retrying in %s (attempt %d/%d)...\n",
 				req.Model, endpoint, lastErr, delay, attempt+1, maxRetryAttempts)
 			select {
 			case <-ctx.Done():
@@ -328,7 +331,7 @@ func (c *openRouterClient) ChatStream(ctx context.Context, req chatRequest, onTe
 	for attempt := 0; attempt < maxRetryAttempts; attempt++ {
 		if attempt > 0 {
 			delay := retryDelay(attempt-1, resp)
-			fmt.Fprintf(os.Stderr, "OpenRouter error (model=%s, endpoint=%s): %v — retrying in %s (attempt %d/%d)...\n",
+			fmt.Fprintf(os.Stderr, "OpenRouter error (model=%s, endpoint=%s): %v; retrying in %s (attempt %d/%d)...\n",
 				req.Model, endpoint, lastErr, delay, attempt+1, maxRetryAttempts)
 			select {
 			case <-ctx.Done():

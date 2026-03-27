@@ -114,11 +114,25 @@ Custom models must support tool calling to work with the native runtime.
 
 ### Configuration
 
-The native runtime reads an OpenRouter API key from the environment (`OPENROUTER_API_KEY`) or from `.toc/secrets.yaml`:
+By default, the native runtime reads an OpenRouter API key from the environment (`OPENROUTER_API_KEY`) or from `.toc/secrets.yaml`:
 
 ```bash
 toc config set openrouter_key sk-or-...
 ```
+
+To point only `toc-native` at a custom OpenRouter-compatible base URL, set `TOC_NATIVE_BASE_URL`. This is useful for local reverse proxies:
+
+```bash
+# Start a reverse proxy in front of your OpenRouter-compatible endpoint
+mitmweb --mode reverse:https://openrouter.ai --listen-port 8000
+
+# Run toc-native through the proxy
+OPENROUTER_API_KEY=sk-or-... \
+TOC_NATIVE_BASE_URL=http://localhost:8000 \
+toc agent spawn my-agent
+```
+
+`TOC_NATIVE_BASE_URL` takes precedence over `OPENROUTER_BASE_URL`, and only affects `toc-native`.
 
 ### State and resume
 

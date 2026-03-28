@@ -89,7 +89,16 @@ func (claudeProvider) LaunchInteractive(opts LaunchOptions) error {
 		cmd.Env = append(cmd.Env, "ANTHROPIC_BASE_URL="+inspector.URL)
 	}
 
-	if err := cmd.Run(); err != nil {
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("failed to launch claude: %w", err)
+	}
+
+	// Write PID file so `toc stop` can find and terminate the process.
+	pidPath := filepath.Join(opts.Dir, "toc-pid.txt")
+	_ = os.WriteFile(pidPath, []byte(fmt.Sprintf("%d", cmd.Process.Pid)), 0644)
+	defer os.Remove(pidPath)
+
+	if err := cmd.Wait(); err != nil {
 		if _, ok := err.(*exec.ExitError); ok {
 			return nil
 		}

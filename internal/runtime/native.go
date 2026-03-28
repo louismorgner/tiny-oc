@@ -136,7 +136,16 @@ func (nativeProvider) LaunchInteractive(opts LaunchOptions) error {
 	signal.Notify(sigCh, syscall.SIGINT)
 	defer signal.Stop(sigCh)
 
-	if err := cmd.Run(); err != nil {
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("failed to launch toc-native runtime: %w", err)
+	}
+
+	// Write PID file so `toc stop` can find and terminate the process.
+	pidPath := filepath.Join(opts.Dir, "toc-pid.txt")
+	_ = os.WriteFile(pidPath, []byte(fmt.Sprintf("%d", cmd.Process.Pid)), 0644)
+	defer os.Remove(pidPath)
+
+	if err := cmd.Wait(); err != nil {
 		// Swallow ExitError (e.g. from Ctrl+C / SIGINT) so that the caller
 		// can proceed with post-session hooks, matching claude.go behavior.
 		if _, ok := err.(*exec.ExitError); ok {

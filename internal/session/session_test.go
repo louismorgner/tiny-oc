@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -308,5 +309,88 @@ func TestIsProcessAlive_Dead(t *testing.T) {
 	// PID 4999999 is extremely unlikely to be in use
 	if isProcessAlive(4999999) {
 		t.Error("expected PID 4999999 to be dead")
+	}
+}
+
+func TestStopByPrefix_FindsPIDFile(t *testing.T) {
+	// Simulate the toc stop <prefix> flow: resolve prefix → read PID.
+	// This was broken because interactive sessions didn't write PID files,
+	// so ReadPID always failed regardless of prefix or full ID.
+	workDir := t.TempDir()
+
+	fullID := "f74e0d70-abcd-1234-5678-123456789abc"
+	wantPID := os.Getpid() // use own PID as a known-alive process
+
+	// Write PID file like LaunchInteractive now does.
+	if err := os.WriteFile(filepath.Join(workDir, "toc-pid.txt"), []byte(strconv.Itoa(wantPID)), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Write a sessions.yaml with one session.
+	sf := &SessionsFile{Sessions: []Session{{
+		ID:            fullID,
+		Agent:         "test-agent",
+		WorkspacePath: workDir,
+		Status:        StatusActive,
+		CreatedAt:     time.Now(),
+	}}}
+	data, err := yaml.Marshal(sf)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// FindByIDPrefixInWorkspace lets us test prefix resolution + PID read
+	// without changing CWD (which FindByIDPrefix requires).
+	wsDir := t.TempDir()
+	tocDir := filepath.Join(wsDir, ".toc")
+	if err := os.MkdirAll(tocDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(tocDir, "sessions.yaml"), data, 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	// Use an 8-char prefix (the short form shown in toc output).
+	prefix := fullID[:8]
+
+	s, err := FindByIDPrefixInWorkspace(wsDir, prefix)
+	if err != nil {
+		t.Fatalf("FindByIDPrefixInWorkspace(%q): %v", prefix, err)
+	}
+
+	if s.ID != fullID {
+		t.Errorf("expected full ID %q, got %q", fullID, s.ID)
+	}
+
+	pid, err := s.ReadPID()
+	if err != nil {
+		t.Fatalf("ReadPID failed after prefix resolution: %v", err)
+	}
+	if pid != wantPID {
+		t.Errorf("expected PID %d, got %d", wantPID, pid)
+	}
+}
+
+func TestStopByPrefix_AmbiguousPrefix(t *testing.T) {
+	wsDir := t.TempDir()
+	tocDir := filepath.Join(wsDir, ".toc")
+	if err := os.MkdirAll(tocDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	// Two sessions sharing the same 8-char prefix.
+	sf := &SessionsFile{Sessions: []Session{
+		{ID: "f74e0d70-aaaa-0000-0000-000000000001", Agent: "a", WorkspacePath: t.TempDir(), Status: StatusActive},
+		{ID: "f74e0d70-bbbb-0000-0000-000000000002", Agent: "b", WorkspacePath: t.TempDir(), Status: StatusActive},
+	}}
+	data, _ := yaml.Marshal(sf)
+	os.WriteFile(filepath.Join(tocDir, "sessions.yaml"), data, 0600)
+
+	_, err := FindByIDPrefixInWorkspace(wsDir, "f74e0d70")
+	if err == nil {
+		t.Fatal("expected ambiguous prefix error, got nil")
+	}
+	if !strings.Contains(err.Error(), "ambiguous") {
+		t.Fatalf("expected ambiguous error, got: %v", err)
 	}
 }

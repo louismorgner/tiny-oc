@@ -57,6 +57,7 @@ type LaunchOptions struct {
 	Workspace string
 	Resume    bool
 	Prompt    string // If set, run this prompt non-interactively and exit
+	Inspect   bool
 }
 
 type DetachedOptions struct {
@@ -69,6 +70,7 @@ type DetachedOptions struct {
 	ParentSessionID string
 	OutputPath      string
 	Resume          bool
+	Inspect         bool
 }
 
 // Provider owns runtime-specific process launch and observability behavior.

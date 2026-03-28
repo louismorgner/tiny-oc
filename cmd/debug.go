@@ -832,6 +832,8 @@ func debugMetadataArtifacts(s *session.Session) []debugBundleArtifact {
 		{Name: "state.json", Path: iruntime.StatePath(s)},
 		{Name: "events.jsonl", Path: iruntime.EventLogPath(s)},
 		{Name: "stderr.log", Path: iruntime.StderrLogPath(s)},
+		{Name: "inspect/http.jsonl", Path: iruntime.InspectCapturePath(s)},
+		{Name: "inspect/proxy.stderr.log", Path: iruntime.InspectProxyStderrPath(s)},
 		{Name: "question.json", Path: questionPath},
 		{Name: "answer.json", Path: answerPath},
 		{Name: "toc-output.txt", Path: s.WorkspacePath + "/toc-output.txt"},

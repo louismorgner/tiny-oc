@@ -5,11 +5,14 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"flag"
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -49,6 +52,13 @@ func main() {
 	} else {
 		// For interactive mode, just print to stdout.
 		fmt.Print(output)
+	}
+
+	if os.Getenv("MOCK_CLAUDE_API_PING") != "" {
+		if err := pingAnthropicBaseURL(); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
 	}
 
 	// Write a context file if requested (for context sync testing).
@@ -94,4 +104,44 @@ func writeConversationLog(sessionID string) {
 	data = append(data, '\n')
 
 	os.WriteFile(logPath, data, 0644)
+}
+
+func pingAnthropicBaseURL() error {
+	baseURL := strings.TrimRight(os.Getenv("ANTHROPIC_BASE_URL"), "/")
+	if baseURL == "" {
+		return fmt.Errorf("ANTHROPIC_BASE_URL is not set")
+	}
+	path := os.Getenv("MOCK_CLAUDE_HTTP_PATH")
+	if path == "" {
+		path = "/v1/messages"
+	}
+	body := map[string]interface{}{
+		"model": "claude-sonnet-4",
+		"messages": []map[string]string{
+			{"role": "user", "content": "ping"},
+		},
+		"max_tokens": 64,
+	}
+	data, err := json.Marshal(body)
+	if err != nil {
+		return err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, baseURL+path, bytes.NewReader(data))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("x-api-key", "mock-key")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		return fmt.Errorf("mock claude upstream returned %s", resp.Status)
+	}
+	return nil
 }

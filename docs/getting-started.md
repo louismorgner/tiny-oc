@@ -95,6 +95,7 @@ toc status
 
 - [Configuration reference](configuration.md) — all config fields and options
 - [Runtimes](runtimes.md) — Claude Code vs toc-native, hooks, model profiles
+- [Pushing toc-native](toc-native-improvement-loop.md) — compare runtime behavior with inspect mode and tighten the native loop
 - [Skills guide](skills.md) — add reusable capabilities to your agents
 - [Integrations](integrations.md) — connect agents to GitHub, Slack, and other APIs
 - [Architecture](architecture.md) — how toc works under the hood

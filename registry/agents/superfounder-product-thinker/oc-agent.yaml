@@ -1,8 +1,8 @@
 runtime: toc-native
-name: superfounder-product-founder
-description: Product founder agent — orchestrates work, maintains product vision, delegates to CTO
+name: superfounder-product-thinker
+description: Product thinker — multimodal reasoning for UI/UX decisions, document generation, and product strategy
 group: superfounder
-model: anthropic/claude-opus-4.6
+model: qwen/qwen3.5-397b-a17b
 context:
   - BOOTSTRAP.md
   - product.md

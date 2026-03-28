@@ -1,8 +1,8 @@
 runtime: toc-native
-name: superfounder-swe
-description: Software engineer agent — executes precise implementation tasks, writes production-quality code
+name: superfounder-pr-reviewer
+description: PR reviewer — fast, thorough code review on large diffs
 group: superfounder
-model: moonshotai/kimi-k2.5
+model: xiaomi/mimo-v2-flash
 context:
   - BOOTSTRAP.md
 compose:

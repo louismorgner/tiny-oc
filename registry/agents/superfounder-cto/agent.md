@@ -90,6 +90,8 @@ cd repo/
 git diff main...<branch>
 ```
 
+**When to delegate reviews to `superfounder-pr-reviewer`:** For large diffs (hundreds of lines across many files) or when you need a fast first-pass review, spawn a `superfounder-pr-reviewer` session with the PR URL or diff. It processes long context cheaply and quickly, and returns a structured blocking/non-blocking issue list. You can then decide which issues to action. For small diffs or when you want to review directly, do the review yourself.
+
 Review checklist:
 1. **Correctness** — Does it do what was asked? Are there edge cases missed?
 2. **Tests** — Are there tests? Do they test behavior, not implementation? Do they pass?

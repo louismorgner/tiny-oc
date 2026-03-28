@@ -2,7 +2,7 @@ runtime: toc-native
 name: superfounder-cto
 description: Technical leader — scopes tasks, reviews PRs, orchestrates SWE agents
 group: superfounder
-model: anthropic/claude-opus-4.6
+model: z-ai/glm-5
 context:
   - BOOTSTRAP.md
 compose:
@@ -14,3 +14,4 @@ permissions:
     execute: "on"
   sub-agents:
     superfounder-swe: "on"
+    superfounder-pr-reviewer: "on"

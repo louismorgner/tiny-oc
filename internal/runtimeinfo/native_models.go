@@ -88,7 +88,7 @@ var nativeModelProfiles = []NativeModelProfile{
 		SupportsTools:     true,
 		SupportsStreaming: true,
 		ContextWindow:     80000,
-		MaxOutputTokens:   131072,
+		MaxOutputTokens:   8192,
 		ReservedBuffer:    4096,
 	},
 	{

@@ -1,6 +1,10 @@
 package runtime
 
-import "fmt"
+import (
+	"encoding/json"
+	"fmt"
+	"time"
+)
 
 type nativeToolHandler func(nativeToolContext, ToolCall) toolExecution
 
@@ -387,4 +391,57 @@ func executeNativeTool(specs []NativeToolSpec, ctx nativeToolContext, call ToolC
 		}
 	}
 	return toolFailure(call.Function.Name, "", "", fmt.Errorf("unknown or disabled tool: %s", call.Function.Name))
+}
+
+// defaultToolTimeout is the maximum time any non-Bash tool call may take.
+// Most tools complete in milliseconds; this is a safety net for hangs.
+const defaultToolTimeout = 10 * time.Minute
+
+// toolTimeoutGrace is added to the tool's own timeout to allow cleanup
+// before the runner forces a timeout result.
+const toolTimeoutGrace = 30 * time.Second
+
+// executeNativeToolWithTimeout wraps executeNativeTool with a hard timeout.
+// If the tool handler doesn't return in time, a timeout error is injected as
+// the tool result so the agent loop can continue instead of hanging forever.
+func executeNativeToolWithTimeout(specs []NativeToolSpec, ctx nativeToolContext, call ToolCall) toolExecution {
+	deadline := toolCallTimeout(call)
+
+	ch := make(chan toolExecution, 1)
+	go func() {
+		ch <- executeNativeTool(specs, ctx, call)
+	}()
+
+	select {
+	case result := <-ch:
+		return result
+	case <-time.After(deadline):
+		timeoutSec := int(deadline.Seconds())
+		return toolExecution{
+			Message: fmt.Sprintf("Error: tool %s timed out after %ds. The operation was killed. You can retry with a shorter timeout or a different approach.", call.Function.Name, timeoutSec),
+			Step: Step{
+				Type:    "tool",
+				Tool:    call.Function.Name,
+				TimedOut: true,
+				Success: boolPtr(false),
+			},
+		}
+	}
+}
+
+// toolCallTimeout returns the hard deadline for a tool call.
+// For Bash, it uses the requested timeout_ms plus a grace period.
+// For other tools, it returns defaultToolTimeout.
+func toolCallTimeout(call ToolCall) time.Duration {
+	if call.Function.Name != "Bash" {
+		return defaultToolTimeout
+	}
+	var args struct {
+		TimeoutMS int `json:"timeout_ms"`
+	}
+	if err := json.Unmarshal([]byte(call.Function.Arguments), &args); err != nil || args.TimeoutMS <= 0 {
+		// Default Bash timeout (30s) + grace
+		return 30*time.Second + toolTimeoutGrace
+	}
+	return time.Duration(args.TimeoutMS)*time.Millisecond + toolTimeoutGrace
 }

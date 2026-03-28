@@ -3,6 +3,7 @@ package runtime
 import (
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -48,8 +49,41 @@ func TestCodexPrepareSessionWritesAgentsAndGitRepo(t *testing.T) {
 	if !strings.Contains(content, "model gpt-5-codex") {
 		t.Fatalf("AGENTS.md missing composed model content: %q", content)
 	}
+	agentMD, err := os.ReadFile(filepath.Join(workDir, "agent.md"))
+	if err != nil {
+		t.Fatalf("expected agent.md to remain in place: %v", err)
+	}
+	if string(agentMD) != "agent {{.AgentName}} {{.SessionID}}" {
+		t.Fatalf("agent.md was unexpectedly modified: %q", string(agentMD))
+	}
 	if _, err := os.Stat(filepath.Join(workDir, ".git")); err != nil {
 		t.Fatalf("expected git repo for codex runtime: %v", err)
+	}
+}
+
+func TestBuildCodexDetachedScriptUsesShellQuotedEnv(t *testing.T) {
+	script := BuildCodexDetachedScript("/tmp/helper'bin", DetachedOptions{
+		Dir:             "/tmp/work dir",
+		Model:           `gpt-5-codex"; touch /tmp/pwned; echo "`,
+		Workspace:       "/tmp/work dir",
+		AgentName:       "codex-agent",
+		SessionID:       "sess-123",
+		ParentSessionID: "parent-456",
+		OutputPath:      "/tmp/out file.txt",
+		Resume:          true,
+	}, "/tmp/prompt file.txt", `thread-"123"`)
+
+	if !strings.Contains(script, `export TOC_CODEX_MODEL='gpt-5-codex"; touch /tmp/pwned; echo "'`) {
+		t.Fatalf("script did not shell-quote model export:\n%s", script)
+	}
+	if !strings.Contains(script, `export TOC_PROMPT_FILE='/tmp/prompt file.txt'`) {
+		t.Fatalf("script did not shell-quote prompt path:\n%s", script)
+	}
+	if !strings.Contains(script, `-m "$TOC_CODEX_MODEL"`) {
+		t.Fatalf("script should reference model via env var:\n%s", script)
+	}
+	if !strings.Contains(script, `resume "$TOC_RESUME_CONVERSATION_ID" - < "$TOC_PROMPT_FILE"`) {
+		t.Fatalf("script should reference resume/prompt via env vars:\n%s", script)
 	}
 }
 
@@ -285,5 +319,67 @@ func TestParseCodexRolloutLogAndDiscoverByWorkspace(t *testing.T) {
 	}
 	if parsed.Steps[1].Tool != "Bash" || parsed.Steps[1].Command != "git status" {
 		t.Fatalf("expected bash step from rollout log, got %#v", parsed.Steps[1])
+	}
+}
+
+func TestReadCodexSessionMetaThreadStartedKeepsCWD(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "codex.jsonl")
+	line, err := json.Marshal(map[string]interface{}{
+		"timestamp": "2026-03-27T11:00:00Z",
+		"type":      "thread.started",
+		"thread_id": "codex-thread-42",
+		"payload": map[string]interface{}{
+			"cwd": "/tmp/workspace",
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, append(line, '\n'), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	threadID, cwd, ts := readCodexSessionMeta(path)
+	if threadID != "codex-thread-42" {
+		t.Fatalf("threadID = %q", threadID)
+	}
+	if cwd != "/tmp/workspace" {
+		t.Fatalf("cwd = %q", cwd)
+	}
+	if ts.IsZero() {
+		t.Fatal("expected timestamp to be parsed")
+	}
+}
+
+func TestCodexCLIHelpAcceptsCurrentExecShapes(t *testing.T) {
+	if _, err := exec.LookPath("codex"); err != nil {
+		t.Skip("codex not installed")
+	}
+
+	workDir := t.TempDir()
+	outputPath := filepath.Join(workDir, "out.txt")
+	tests := []struct {
+		name string
+		args []string
+	}{
+		{
+			name: "exec",
+			args: []string{"exec", "-m", "gpt-5-codex", "--dangerously-bypass-approvals-and-sandbox", "-o", outputPath, "--skip-git-repo-check", "--help"},
+		},
+		{
+			name: "resume",
+			args: []string{"exec", "-m", "gpt-5-codex", "--dangerously-bypass-approvals-and-sandbox", "-o", outputPath, "resume", "--help"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cmd := exec.Command("codex", tt.args...)
+			cmd.Dir = workDir
+			out, err := cmd.CombinedOutput()
+			if err != nil {
+				t.Fatalf("codex %s failed: %v\n%s", strings.Join(tt.args, " "), err, out)
+			}
+		})
 	}
 }

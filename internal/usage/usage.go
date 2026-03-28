@@ -204,10 +204,26 @@ func parseCodexJSONL(path string) TokenUsage {
 		}
 	}
 
-	if usage.Total() > 0 {
-		return usage
+	if latestRollout.Total() > 0 {
+		usage = maxTokenUsage(usage, latestRollout)
 	}
-	return latestRollout
+	return usage
+}
+
+func maxTokenUsage(a, b TokenUsage) TokenUsage {
+	return TokenUsage{
+		InputTokens:  maxInt64(a.InputTokens, b.InputTokens),
+		OutputTokens: maxInt64(a.OutputTokens, b.OutputTokens),
+		CacheRead:    maxInt64(a.CacheRead, b.CacheRead),
+		CacheCreate:  maxInt64(a.CacheCreate, b.CacheCreate),
+	}
+}
+
+func maxInt64(a, b int64) int64 {
+	if a > b {
+		return a
+	}
+	return b
 }
 
 // claudeProjectDir derives the ~/.claude/projects/<encoded-path>/ directory

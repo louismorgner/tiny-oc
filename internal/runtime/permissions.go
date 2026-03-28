@@ -87,7 +87,7 @@ func ValidateFilesystemPermission(manifest *integration.PermissionManifest, kind
 	case agent.PermOn:
 		return nil
 	case agent.PermAsk:
-		return fmt.Errorf("permission denied: agent '%s' requires approval for filesystem %s access", agentName, kind)
+		return fmt.Errorf("permission denied: agent '%s' has filesystem %s permission set to ask, but interactive approval is not supported in the native runtime", agentName, kind)
 	case agent.PermOff:
 		return fmt.Errorf("permission denied: agent '%s' does not have filesystem %s access", agentName, kind)
 	default:
@@ -120,7 +120,7 @@ func ValidateNetworkPermission(manifest *integration.PermissionManifest, kind, a
 	case agent.PermOn:
 		return nil
 	case agent.PermAsk:
-		return fmt.Errorf("permission denied: agent '%s' requires approval for network %s access", agentName, kind)
+		return fmt.Errorf("permission denied: agent '%s' has network %s permission set to ask, but interactive approval is not supported in the native runtime", agentName, kind)
 	case agent.PermOff:
 		return fmt.Errorf("permission denied: agent '%s' does not have network %s access", agentName, kind)
 	default:

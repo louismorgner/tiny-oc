@@ -146,7 +146,7 @@ func TestNativeWebFetchPermAskBlocks(t *testing.T) {
 	if result.Step.Success == nil || *result.Step.Success {
 		t.Fatalf("expected PermAsk to block, got %#v", result)
 	}
-	if !strings.Contains(result.Message, "network web") {
+	if !strings.Contains(result.Message, "network web permission set to ask") {
 		t.Fatalf("unexpected permission error: %q", result.Message)
 	}
 }
@@ -172,6 +172,14 @@ func TestNativeWebFetchTruncatesOversizedBody(t *testing.T) {
 	}
 	if !strings.Contains(result.Message, "truncated") {
 		t.Fatalf("expected truncation warning, got %q", result.Message)
+	}
+}
+
+func TestNormalizeWebFetchTextCollapsesLargeBlankRuns(t *testing.T) {
+	got := normalizeWebFetchText("one\n\n\n\n\ntwo\r\n\r\n\r\nthree")
+	want := "one\n\ntwo\n\nthree"
+	if got != want {
+		t.Fatalf("normalizeWebFetchText() = %q, want %q", got, want)
 	}
 }
 

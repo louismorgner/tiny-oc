@@ -8,6 +8,7 @@ import (
 	"mime"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -25,6 +26,10 @@ const (
 	webFetchUA       = "tiny-oc-toc-native/1.0 (+https://github.com/louismorgner/tiny-oc)"
 )
 
+var repeatedBlankLinesRE = regexp.MustCompile(`\n{3,}`)
+
+// Shared client is intentional: requests are stateless GETs with no cookie jar
+// or per-session headers beyond the request-local User-Agent.
 var nativeWebFetchClient = &http.Client{
 	Timeout: webFetchTimeout,
 	CheckRedirect: func(req *http.Request, via []*http.Request) error {
@@ -267,7 +272,7 @@ func absolutizeNodeAttrs(node *html.Node, pageURL *url.URL) {
 	for i := range node.Attr {
 		key := strings.ToLower(node.Attr[i].Key)
 		switch key {
-		case "href", "src", "poster", "cite", "action":
+		case "href", "src", "poster", "cite":
 			node.Attr[i].Val = absolutizeURLAttr(node.Attr[i].Val, pageURL)
 		}
 	}
@@ -390,10 +395,7 @@ func formatWebFetchOutput(requestURL, finalURL, status, mediaType, title, conten
 func normalizeWebFetchText(s string) string {
 	s = strings.ReplaceAll(s, "\r\n", "\n")
 	s = strings.ReplaceAll(s, "\r", "\n")
-	// Collapse 3+ consecutive newlines to 2 (one blank line).
-	for strings.Contains(s, "\n\n\n") {
-		s = strings.ReplaceAll(s, "\n\n\n", "\n\n")
-	}
+	s = repeatedBlankLinesRE.ReplaceAllString(s, "\n\n")
 	return strings.TrimSpace(s)
 }
 

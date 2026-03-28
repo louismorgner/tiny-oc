@@ -87,7 +87,7 @@ func ValidateModelSelection(runtimeName, model string, allowCustomNativeModel bo
 		}
 	case CodexRuntime:
 		if model == "" {
-			return fmt.Errorf("missing model")
+			return fmt.Errorf("missing Codex model (expected one of: gpt-5-codex, gpt-5)")
 		}
 		for _, opt := range ModelOptions(CodexRuntime) {
 			if opt.ID == model {

@@ -93,7 +93,7 @@ func Get(name string) (Provider, error) {
 	case "", DefaultRuntime:
 		return claudeProvider{}, nil
 	case runtimeinfo.CodexRuntime:
-		return codexProvider{}, nil
+		return &codexProvider{pending: make(map[string]codexRolloutFunctionCall)}, nil
 	case runtimeinfo.NativeRuntime:
 		return nativeProvider{}, nil
 	default:

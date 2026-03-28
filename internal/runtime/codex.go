@@ -24,18 +24,23 @@ const (
 	codexMetadataFile    = ".toc-codex-session.json"
 )
 
-type codexProvider struct{}
+type codexProvider struct {
+	// pending accumulates rollout-format function_call entries across lines so
+	// the paired function_call_output can be matched when ParseSessionLogLineEvents
+	// is called line-by-line during streaming.
+	pending map[string]codexRolloutFunctionCall
+}
 
 type codexSessionMetadata struct {
 	ConversationID string `json:"conversation_id,omitempty"`
 	LogPath        string `json:"log_path,omitempty"`
 }
 
-func (codexProvider) Name() string { return runtimeinfo.CodexRuntime }
+func (p *codexProvider) Name() string { return runtimeinfo.CodexRuntime }
 
-func (codexProvider) DefaultModel() string { return runtimeinfo.DefaultModel(runtimeinfo.CodexRuntime) }
+func (p *codexProvider) DefaultModel() string { return runtimeinfo.DefaultModel(runtimeinfo.CodexRuntime) }
 
-func (codexProvider) ModelOptions() []ModelOption {
+func (p *codexProvider) ModelOptions() []ModelOption {
 	options := runtimeinfo.ModelOptions(runtimeinfo.CodexRuntime)
 	result := make([]ModelOption, 0, len(options))
 	for _, opt := range options {
@@ -48,11 +53,11 @@ func (codexProvider) ModelOptions() []ModelOption {
 	return result
 }
 
-func (codexProvider) ValidateModel(model string) error {
+func (p *codexProvider) ValidateModel(model string) error {
 	return runtimeinfo.ValidateModel(runtimeinfo.CodexRuntime, model)
 }
 
-func (codexProvider) PrepareSession(workDir, agentDir string, cfg *SessionConfig, sessionID string) error {
+func (p *codexProvider) PrepareSession(workDir, agentDir string, cfg *SessionConfig, sessionID string) error {
 	content, err := ComposePrompt(workDir, cfg, sessionID)
 	if err != nil {
 		return err
@@ -66,18 +71,18 @@ func (codexProvider) PrepareSession(workDir, agentDir string, cfg *SessionConfig
 	return ensureCodexGitRepo(workDir)
 }
 
-func (codexProvider) SkillsDir(workDir string) string {
+func (p *codexProvider) SkillsDir(workDir string) string {
 	return filepath.Join(workDir, ".codex", "skills")
 }
 
-func (codexProvider) PostSessionSync(workDir, agentDir string, patterns []string) ([]string, error) {
+func (p *codexProvider) PostSessionSync(workDir, agentDir string, patterns []string) ([]string, error) {
 	return tocsync.SyncBackWithOptions(workDir, agentDir, patterns, tocsync.Options{
 		PathMapper: codexInstructionPathMapper,
 		SkipDirs:   map[string]bool{".codex": true},
 	})
 }
 
-func (codexProvider) LaunchInteractive(opts LaunchOptions) error {
+func (p *codexProvider) LaunchInteractive(opts LaunchOptions) error {
 	var cmd *exec.Cmd
 
 	if opts.Prompt != "" {
@@ -114,7 +119,7 @@ func (codexProvider) LaunchInteractive(opts LaunchOptions) error {
 	return refreshCodexSessionMetadata(opts.Dir, opts.SessionID, time.Time{})
 }
 
-func (codexProvider) LaunchDetached(opts DetachedOptions) error {
+func (p *codexProvider) LaunchDetached(opts DetachedOptions) error {
 	promptPath := filepath.Join(opts.Dir, "toc-prompt.txt")
 	if err := os.WriteFile(promptPath, []byte(opts.Prompt), 0644); err != nil {
 		return err
@@ -152,7 +157,7 @@ func (codexProvider) LaunchDetached(opts DetachedOptions) error {
 	return cmd.Process.Release()
 }
 
-func (codexProvider) SessionLogPath(sess *session.Session) string {
+func (p *codexProvider) SessionLogPath(sess *session.Session) string {
 	if sess == nil {
 		return ""
 	}
@@ -189,17 +194,17 @@ func (codexProvider) SessionLogPath(sess *session.Session) string {
 	return logPath
 }
 
-func (codexProvider) ExpectedSessionLogPath(sess *session.Session) string {
+func (p *codexProvider) ExpectedSessionLogPath(sess *session.Session) string {
 	if sess == nil {
 		return ""
 	}
 	if sess.ParentSessionID != "" {
 		return filepath.Join(sess.WorkspacePath, codexEventsFile)
 	}
-	return codexProvider{}.SessionLogPath(sess)
+	return p.SessionLogPath(sess)
 }
 
-func (codexProvider) ParseSessionLog(path string) (*ParsedLog, error) {
+func (p *codexProvider) ParseSessionLog(path string) (*ParsedLog, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, err
@@ -230,17 +235,22 @@ func (codexProvider) ParseSessionLog(path string) (*ParsedLog, error) {
 	return result, nil
 }
 
-func (codexProvider) ParseSessionLogLineEvents(line []byte) []Event {
-	return parseCodexSessionLine(line, nil)
+func (p *codexProvider) ParseSessionLogLineEvents(line []byte) []Event {
+	return parseCodexSessionLine(line, p.pending)
 }
 
 func ensureCodexGitRepo(workDir string) error {
-	if _, err := os.Stat(filepath.Join(workDir, ".git")); err == nil {
+	// git rev-parse --git-dir succeeds for any directory that is already inside
+	// a git repo (including parent repos), so we avoid re-initialising a nested
+	// worktree when the workspace lives inside an existing repository.
+	check := exec.Command("git", "rev-parse", "--git-dir")
+	check.Dir = workDir
+	if err := check.Run(); err == nil {
 		return nil
 	}
-	cmd := exec.Command("git", "init", "-q")
-	cmd.Dir = workDir
-	if err := cmd.Run(); err != nil {
+	init := exec.Command("git", "init", "-q")
+	init.Dir = workDir
+	if err := init.Run(); err != nil {
 		return fmt.Errorf("failed to initialize git repo for codex runtime: %w", err)
 	}
 	return nil
@@ -289,7 +299,7 @@ func buildCodexExecArgs(workDir, model, prompt string, resume bool, tocSessionID
 
 func codexModelArgs(model string) []string {
 	if strings.TrimSpace(model) == "" {
-		return nil
+		return []string{}
 	}
 	return []string{"-m", model}
 }
@@ -586,7 +596,12 @@ func codexWorkspaceCandidates(workspacePath string) []string {
 	if resolved, err := filepath.EvalSymlinks(workspacePath); err == nil && resolved != workspacePath {
 		candidates = append(candidates, resolved)
 	}
-	if !strings.HasPrefix(workspacePath, "/private") {
+	// On macOS, /var/folders/... is a symlink into /private/var/folders/..., and
+	// os.Stat/filepath.Abs can return either form. Add both to ensure discovery
+	// works regardless of which form was stored in the session log.
+	if strings.HasPrefix(workspacePath, "/private") {
+		candidates = append(candidates, strings.TrimPrefix(workspacePath, "/private"))
+	} else {
 		candidates = append(candidates, "/private"+workspacePath)
 	}
 	return candidates
@@ -985,8 +1000,9 @@ func parseCodexCommandOutput(output string) (int, int64, string) {
 	if err := json.Unmarshal([]byte(output), &jsonOutput); err == nil {
 		return jsonOutput.ExitCode, 0, strings.TrimSpace(jsonOutput.Output)
 	}
-	// Fall back to treating the whole string as output
-	return 0, 0, strings.TrimSpace(output)
+	// Fall back to treating the whole string as output; use -1 to signal that
+	// the exit code is unknown rather than masking a potential failure as success.
+	return -1, 0, strings.TrimSpace(output)
 }
 
 func parseCodexCommandOutputStructured(output string) (int, int64, string) {

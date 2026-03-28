@@ -135,14 +135,14 @@ func claudeModelArg(model string) string {
 // BuildClaudeDetachedScript builds the wrapper script for a detached Claude session.
 func BuildClaudeDetachedScript(helperExecutable string, opts DetachedOptions, promptPath string) string {
 	args := "claude --dangerously-skip-permissions"
-	args += fmt.Sprintf(" -p \"$(cat %q)\"", promptPath)
+	args += fmt.Sprintf(" -p \"$(cat %s)\"", shQuote(promptPath))
 	if model := claudeModelArg(opts.Model); model != "" {
-		args += fmt.Sprintf(" --model %s", model)
+		args += fmt.Sprintf(" --model %s", shQuote(model))
 	}
 	if opts.Resume && opts.SessionID != "" {
-		args += fmt.Sprintf(" --resume %s", opts.SessionID)
+		args += fmt.Sprintf(" --resume %s", shQuote(opts.SessionID))
 	} else if opts.SessionID != "" {
-		args += fmt.Sprintf(" --session-id %s", opts.SessionID)
+		args += fmt.Sprintf(" --session-id %s", shQuote(opts.SessionID))
 	}
 
 	tmpOutputPath := opts.OutputPath + ".tmp"
@@ -150,22 +150,22 @@ func BuildClaudeDetachedScript(helperExecutable string, opts DetachedOptions, pr
 	exitCodePath := filepath.Join(opts.Dir, "toc-exit-code.txt")
 	notifyCommand := ""
 	if opts.ParentSessionID != "" {
-		notifyCommand = fmt.Sprintf("%q __notify-subagent-complete --workspace %q --parent-session-id %q --session-id %q --agent %q --prompt-file %q --output-file %q --exit-code-file %q >/dev/null 2>&1 || true\n",
-			helperExecutable, opts.Workspace, opts.ParentSessionID, opts.SessionID, opts.AgentName, promptPath, opts.OutputPath, exitCodePath)
+		notifyCommand = fmt.Sprintf("%s __notify-subagent-complete --workspace %s --parent-session-id %s --session-id %s --agent %s --prompt-file %s --output-file %s --exit-code-file %s >/dev/null 2>&1 || true\n",
+			shQuote(helperExecutable), shQuote(opts.Workspace), shQuote(opts.ParentSessionID), shQuote(opts.SessionID), shQuote(opts.AgentName), shQuote(promptPath), shQuote(opts.OutputPath), shQuote(exitCodePath))
 	}
 
 	return fmt.Sprintf(`#!/bin/sh
-echo $$ > %q
-cd %q
-export TOC_WORKSPACE=%q
-export TOC_AGENT=%q
-export TOC_SESSION_ID=%q
-%s < /dev/null > %q 2>&1
+echo $$ > %s
+cd %s
+export TOC_WORKSPACE=%s
+export TOC_AGENT=%s
+export TOC_SESSION_ID=%s
+%s < /dev/null > %s 2>&1
 TOC_EXIT=$?
-echo $TOC_EXIT > %q
-mv %q %q
+echo $TOC_EXIT > %s
+mv %s %s
 %s
-`, pidPath, opts.Dir, opts.Workspace, opts.AgentName, opts.SessionID, args, tmpOutputPath, exitCodePath, tmpOutputPath, opts.OutputPath, notifyCommand)
+`, shQuote(pidPath), shQuote(opts.Dir), shQuote(opts.Workspace), shQuote(opts.AgentName), shQuote(opts.SessionID), args, shQuote(tmpOutputPath), shQuote(exitCodePath), shQuote(tmpOutputPath), shQuote(opts.OutputPath), notifyCommand)
 }
 
 func (claudeProvider) ExpectedSessionLogPath(sess *session.Session) string {

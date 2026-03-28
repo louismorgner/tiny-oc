@@ -129,13 +129,13 @@ func TestBuildDetachedScript_EnvVars(t *testing.T) {
 		OutputPath: filepath.Join(dir, "toc-output.txt"),
 	}, promptPath)
 
-	if !strings.Contains(script, `export TOC_WORKSPACE="/my/workspace"`) {
+	if !strings.Contains(script, `export TOC_WORKSPACE='/my/workspace'`) {
 		t.Error("script missing TOC_WORKSPACE export")
 	}
-	if !strings.Contains(script, `export TOC_AGENT="test-agent"`) {
+	if !strings.Contains(script, `export TOC_AGENT='test-agent'`) {
 		t.Error("script missing TOC_AGENT export")
 	}
-	if !strings.Contains(script, `export TOC_SESSION_ID="sess-456"`) {
+	if !strings.Contains(script, `export TOC_SESSION_ID='sess-456'`) {
 		t.Error("script missing TOC_SESSION_ID export")
 	}
 }
@@ -150,7 +150,7 @@ func TestBuildDetachedScript_WithModel(t *testing.T) {
 		SessionID: "sess", OutputPath: filepath.Join(dir, "toc-output.txt"),
 	}, promptPath)
 
-	if !strings.Contains(script, "--model opus") {
+	if !strings.Contains(script, "--model 'opus'") {
 		t.Error("script missing model flag")
 	}
 }
@@ -196,7 +196,7 @@ func TestBuildDetachedScript_Resume_UsesResumeFlag(t *testing.T) {
 		Resume: true,
 	}, promptPath)
 
-	if !strings.Contains(script, "--resume sess-789") {
+	if !strings.Contains(script, "--resume 'sess-789'") {
 		t.Error("resume script should use --resume <session-id> flag")
 	}
 	if strings.Contains(script, "--continue") {
@@ -230,7 +230,7 @@ func TestBuildDetachedScript_NoResume_NoResumeFlag(t *testing.T) {
 	if strings.Contains(script, "--resume") {
 		t.Error("non-resume script should not contain --resume flag")
 	}
-	if !strings.Contains(script, "--session-id sess") {
+	if !strings.Contains(script, "--session-id 'sess'") {
 		t.Error("non-resume script should use --session-id")
 	}
 }
@@ -245,7 +245,7 @@ func TestBuildDetachedScript_SessionID(t *testing.T) {
 		SessionID: "abc-123", OutputPath: filepath.Join(dir, "toc-output.txt"),
 	}, promptPath)
 
-	if !strings.Contains(script, "--session-id abc-123") {
+	if !strings.Contains(script, "--session-id 'abc-123'") {
 		t.Error("script should pass --session-id to claude so JSONL files match the toc session ID")
 	}
 }

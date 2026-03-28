@@ -232,7 +232,7 @@ func TestEstimateCostUSD(t *testing.T) {
 	}
 }
 
-func intPtr(v int) *int { return &v }
+func intPtr(v int) *int        { return &v }
 func boolPtrTest(v bool) *bool { return &v }
 
 func TestShowSubAgentStatusHintsDebugOnFailure(t *testing.T) {
@@ -272,6 +272,131 @@ func TestShowSubAgentStatusHintsDebugOnFailure(t *testing.T) {
 	})
 	if !strings.Contains(out, "toc debug child-1") {
 		t.Fatalf("expected debug hint in output: %q", out)
+	}
+}
+
+func TestBuildDebugReportIncludesPendingQuestion(t *testing.T) {
+	workspace := t.TempDir()
+	withWorkingDir(t, workspace)
+
+	metadataDir := filepath.Join(workspace, ".toc", "sessions", "child-question")
+	if err := os.MkdirAll(metadataDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	sess := &session.Session{
+		ID:            "child-question",
+		Agent:         "native-agent",
+		Runtime:       runtimeinfo.NativeRuntime,
+		MetadataDir:   metadataDir,
+		CreatedAt:     time.Now(),
+		WorkspacePath: t.TempDir(),
+		Status:        session.StatusActive,
+	}
+	if err := os.WriteFile(filepath.Join(metadataDir, "question.json"), []byte(`{"question":"Ship the patch?","timestamp":"2026-03-27T12:00:00Z","session_id":"child-question","agent":"native-agent"}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	report, err := buildDebugReport(sess, 10, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.State.PendingQuestion == nil {
+		t.Fatal("expected pending question in debug report")
+	}
+	if report.Diagnosis.Verdict != "WAITING FOR ANSWER — operator input required" {
+		t.Fatalf("unexpected verdict: %q", report.Diagnosis.Verdict)
+	}
+
+	output := captureStdout(t, func() {
+		printDebugReport(report, false)
+	})
+	for _, want := range []string{"pending_question: Ship the patch?", "answer_with: toc answer child-question --text"} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("expected %q in output: %q", want, output)
+		}
+	}
+}
+
+func TestBuildDebugReportIncludesPendingQuestionError(t *testing.T) {
+	workspace := t.TempDir()
+	withWorkingDir(t, workspace)
+
+	metadataDir := filepath.Join(workspace, ".toc", "sessions", "child-question")
+	if err := os.MkdirAll(metadataDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	sess := &session.Session{
+		ID:            "child-question",
+		Agent:         "native-agent",
+		Runtime:       runtimeinfo.NativeRuntime,
+		MetadataDir:   metadataDir,
+		CreatedAt:     time.Now(),
+		WorkspacePath: t.TempDir(),
+		Status:        session.StatusActive,
+	}
+	if err := os.WriteFile(filepath.Join(metadataDir, "question.json"), []byte(`{"question":`), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	report, err := buildDebugReport(sess, 10, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.State.PendingQuestionError == "" {
+		t.Fatal("expected pending question parse error in debug report")
+	}
+	if report.Diagnosis.Verdict != "PENDING QUESTION METADATA ERROR — session blocked" {
+		t.Fatalf("unexpected verdict: %q", report.Diagnosis.Verdict)
+	}
+
+	output := captureStdout(t, func() {
+		printDebugReport(report, false)
+	})
+	if !strings.Contains(output, "pending_question_error: failed to parse question.json") {
+		t.Fatalf("expected pending question error in output: %q", output)
+	}
+	if !strings.Contains(output, "inspect_with: toc debug child-question") || strings.Contains(output, "answer_with: toc answer child-question") {
+		t.Fatalf("expected inspect guidance instead of answer guidance: %q", output)
+	}
+}
+
+func TestBuildDebugReportHidesAnswerGuidanceWhenAnswerAlreadyPending(t *testing.T) {
+	workspace := t.TempDir()
+	withWorkingDir(t, workspace)
+
+	metadataDir := filepath.Join(workspace, ".toc", "sessions", "child-question")
+	if err := os.MkdirAll(metadataDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	sess := &session.Session{
+		ID:            "child-question",
+		Agent:         "native-agent",
+		Runtime:       runtimeinfo.NativeRuntime,
+		MetadataDir:   metadataDir,
+		CreatedAt:     time.Now(),
+		WorkspacePath: t.TempDir(),
+		Status:        session.StatusActive,
+	}
+	if err := os.WriteFile(filepath.Join(metadataDir, "question.json"), []byte(`{"question":"Ship the patch?","timestamp":"2026-03-27T12:00:00Z","session_id":"child-question","agent":"native-agent"}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(metadataDir, "answer.json"), []byte(`{"answer":"yes","timestamp":"2026-03-27T12:01:00Z"}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	report, err := buildDebugReport(sess, 10, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !report.State.AnswerPending {
+		t.Fatal("expected answer_pending state in debug report")
+	}
+
+	output := captureStdout(t, func() {
+		printDebugReport(report, false)
+	})
+	if !strings.Contains(output, "answer_pending: true") || !strings.Contains(output, "inspect_with: toc debug child-question") || strings.Contains(output, "answer_with: toc answer child-question") {
+		t.Fatalf("expected inspect guidance instead of answer guidance: %q", output)
 	}
 }
 

@@ -579,6 +579,7 @@ func writePermissionManifest(metadataDir, sessionID string, cfg *runtime.Session
 		SessionID:    sessionID,
 		Agent:        cfg.Agent,
 		Filesystem:   perms.Filesystem,
+		Network:      perms.Network,
 		Integrations: perms.Integrations,
 		SubAgents:    perms.SubAgents,
 	}

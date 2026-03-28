@@ -57,7 +57,6 @@ var (
 	errorBlockStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("1")). // red
 			Bold(true)
-
 )
 
 // --- Markdown Rendering ---
@@ -266,7 +265,8 @@ func formatAssistantStep(content string, meta StepMeta) string {
 			b.WriteString(line)
 			b.WriteString("\n")
 		}
-		return b.String()	}
+		return b.String()
+	}
 	text := truncateStr(content, 120)
 	return fmt.Sprintf("  %s %s\n", lipgloss.NewStyle().Foreground(lipgloss.Color("6")).Render("● assistant"), text)
 }
@@ -314,6 +314,11 @@ func formatToolStep(content string, meta StepMeta) string {
 		if meta.Added > 0 || meta.Removed > 0 {
 			detail += sessionInfoStyle.Render(fmt.Sprintf(" +%d -%d", meta.Added, meta.Removed))
 		}
+	case "WebFetch":
+		detail = truncateStr(meta.Path, 90)
+		if meta.DurationMS > 0 {
+			detail += sessionInfoStyle.Render(fmt.Sprintf(" %dms", meta.DurationMS))
+		}
 	case "Glob", "Grep":
 		detail = content
 	default:
@@ -356,7 +361,8 @@ func formatMultiLineRich(label, content string, style lipgloss.Style) string {
 			b.WriteString("\n")
 		}
 	}
-	return b.String()}
+	return b.String()
+}
 
 func formatStepPlain(stepType, content string, meta StepMeta) string {
 	// Plain fallback for non-TTY
@@ -409,7 +415,8 @@ func FormatSessionSummary(model string, tokens string, resumeCount, recoveryCoun
 		b.WriteString(fmt.Sprintf("  %s %s\n", Bold("last recovery:"), sessionInfoStyle.Render(lastRecovery)))
 	}
 
-	return b.String()}
+	return b.String()
+}
 
 // --- Helpers ---
 

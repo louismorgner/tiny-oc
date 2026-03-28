@@ -16,7 +16,7 @@ Downloads the latest prebuilt binary for your platform. Supports macOS and Linux
 
 Current runtime implementation: [Claude Code](https://docs.anthropic.com/en/docs/claude-code).
 
-`toc-native` is now on the internal beta path. Its current beta scope is local tools only: file operations, shell, glob/grep, and skills. External integrations are deferred until they are promoted into the native runtime as first-class tools. By default it uses OpenRouter, and you can override just the native runtime's API base URL with `TOC_NATIVE_BASE_URL`.
+`toc-native` is now on the internal beta path. Its current beta scope includes local tools plus first-class public URL viewing via `WebFetch`. Authenticated integrations and browser automation are still out of scope. By default it uses OpenRouter, and you can override just the native runtime's API base URL with `TOC_NATIVE_BASE_URL`.
 
 ### Build from source
 
@@ -68,6 +68,7 @@ When you run `toc agent spawn`, it:
 - [Configuration reference](docs/configuration.md) — all config fields, snapshot sync patterns, audit log format
 - [Runtimes](docs/runtimes.md) — provider abstraction, Claude Code vs toc-native, hooks, model profiles
 - [Pushing toc-native](docs/toc-native-improvement-loop.md) — use inspect mode to compare runtimes and tighten the native loop
+- [toc-native Runtime](docs/toc-native-runtime.md) — in-depth architecture, agent loop, tools, compaction, and current beta edges
 - [Skills guide](docs/skills.md) — create, install, and attach reusable capabilities
 - [Integrations](docs/integrations.md) — API gateway, credential storage, permissions, built-in integrations
 - [Architecture](docs/architecture.md) — project structure and design decisions
@@ -100,6 +101,8 @@ When you run `toc agent spawn`, it:
 | `toc audit` | View the audit log |
 | `toc inspect [session-id]` | Inspect captured upstream API traffic for a session |
 | `toc inspect compare <a> <b>` | Compare captured API traffic across two sessions |
+| `toc question [session-id]` | Inspect pending detached session questions |
+| `toc answer <session-id> --text "..."` | Submit an answer for a pending detached question |
 | `toc config set <key> <value>` | Set workspace config or secrets |
 | `toc completion <shell>` | Generate shell completion script |
 

@@ -96,7 +96,7 @@ This escape hatch is for experimentation, not the default beta path. Unknown cus
 
 ### Native beta scope
 
-The current `toc-native` beta scope is local tools only.
+The current `toc-native` beta scope is local tools plus first-class public URL viewing.
 
 That means the native tool loop is expected to support:
 
@@ -104,9 +104,10 @@ That means the native tool loop is expected to support:
 - file edits
 - glob and grep
 - shell execution
+- public URL fetch and HTML-to-Markdown conversion
 - skill reads
 
-External integrations are intentionally out of scope for this beta. They are not yet part of the native runtime's first-class tool contract, even if the broader toc workspace supports integrations elsewhere.
+Authenticated integrations and browser automation are intentionally out of scope for this beta. They are not yet part of the native runtime's broader first-class tool contract, even if the workspace supports integrations elsewhere.
 
 ### Instruction compose
 
@@ -127,7 +128,7 @@ Both `agent.md` and compose files support template variables that are replaced a
 
 ## Permissions
 
-The `permissions` block controls what an agent is allowed to do. It has three areas: filesystem access, integration access, and sub-agent spawning.
+The `permissions` block controls what an agent is allowed to do. It has four areas: filesystem access, network access, integration access, and sub-agent spawning.
 
 ### Filesystem permissions
 
@@ -148,6 +149,22 @@ permissions:
 | `execute` | Bash |
 
 With the `claude-code` runtime, these are enforced via a `PreToolUse` hook script. With `toc-native`, they are checked directly before tool execution.
+
+### Network permissions
+
+Controls outbound web fetching from first-class native tools. Each level is `on` (allowed), `ask` (requires confirmation), or `off` (blocked). Defaults to `off`.
+
+```yaml
+permissions:
+  network:
+    web: "on"
+```
+
+| Level | Tools controlled |
+|---|---|
+| `web` | WebFetch |
+
+With `toc-native`, this gate applies to the native `WebFetch` tool. It does not grant access to authenticated integrations; those are still controlled separately under `permissions.integrations`.
 
 ### Integration permissions
 
@@ -192,6 +209,8 @@ During a session, agents use `toc runtime` commands to manage sub-agents:
 | `toc runtime output <session-id>` | Read completed sub-agent output |
 
 Sub-agents run in a detached runtime process, capturing output to `toc-output.txt` in the session workspace. Parent-child relationships are tracked in `sessions.yaml`. With the current `claude-code` runtime, this uses detached `claude -p` / `claude --continue` invocations.
+
+If a detached session calls the native `Question` tool, inspect it with `toc question [session-id]` and respond with `toc answer <session-id> --text "..."`. `toc runtime status` and `toc debug` surface pending questions for sub-agents.
 
 ## Snapshot sync patterns
 

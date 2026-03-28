@@ -87,10 +87,43 @@ func ValidateFilesystemPermission(manifest *integration.PermissionManifest, kind
 	case agent.PermOn:
 		return nil
 	case agent.PermAsk:
-		return fmt.Errorf("permission denied: agent '%s' requires approval for filesystem %s access", agentName, kind)
+		return fmt.Errorf("permission denied: agent '%s' has filesystem %s permission set to ask, but interactive approval is not supported in the native runtime", agentName, kind)
 	case agent.PermOff:
 		return fmt.Errorf("permission denied: agent '%s' does not have filesystem %s access", agentName, kind)
 	default:
 		return fmt.Errorf("permission denied: agent '%s' has invalid filesystem %s permission", agentName, kind)
+	}
+}
+
+// NetworkPermissionLevel returns the permission level for the given network
+// operation kind. A nil manifest returns PermOff to avoid silently enabling
+// outbound fetches for sessions that predate the network permission boundary.
+func NetworkPermissionLevel(manifest *integration.PermissionManifest, kind string) agent.PermissionLevel {
+	if manifest == nil {
+		return agent.PermOff
+	}
+
+	switch kind {
+	case "web":
+		if manifest.Network.Web == "" {
+			return agent.PermOff
+		}
+		return manifest.Network.Web
+	default:
+		return agent.PermOff
+	}
+}
+
+func ValidateNetworkPermission(manifest *integration.PermissionManifest, kind, agentName string) error {
+	level := NetworkPermissionLevel(manifest, kind)
+	switch level {
+	case agent.PermOn:
+		return nil
+	case agent.PermAsk:
+		return fmt.Errorf("permission denied: agent '%s' has network %s permission set to ask, but interactive approval is not supported in the native runtime", agentName, kind)
+	case agent.PermOff:
+		return fmt.Errorf("permission denied: agent '%s' does not have network %s access", agentName, kind)
+	default:
+		return fmt.Errorf("permission denied: agent '%s' has invalid network %s permission", agentName, kind)
 	}
 }

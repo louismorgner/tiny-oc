@@ -107,6 +107,7 @@ var toolOutputBudgets = map[string]int{
 	"Write":    1024,      // 1KB — confirmations are short
 	"Edit":     1024,      // 1KB — confirmations are short
 	"Bash":     32 * 1024, // 32KB — build/test output, keep more of the end
+	"WebFetch": 32 * 1024, // 32KB — fetched content can be large but often needs context
 	"Grep":     16 * 1024, // 16KB — matching lines, model can re-grep
 	"Glob":     8 * 1024,  // 8KB — file listings
 	"Skill":    48 * 1024, // 48KB — instructions are important

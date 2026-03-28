@@ -188,6 +188,30 @@ Anti-patterns:
 			Handler: nativeBash,
 		},
 		{
+			Name: "WebFetch",
+			Description: `Fetch a public URL and return a model-readable representation of the response.
+
+Use WebFetch when you need to inspect a specific URL directly from the native runtime. It is intended for public documentation pages, articles, changelogs, markdown files, plain text, and JSON endpoints. For HTML pages, the tool converts the response into readable Markdown while trying to keep the main page content and discard obvious chrome.
+
+Parameters:
+- url (required): Absolute HTTP or HTTPS URL to fetch.
+
+Output: A text block that includes fetch metadata (URL, redirect target, status, content type, page title when available) followed by the converted content. HTML is converted to Markdown. JSON is pretty-printed. Large responses are capped and truncated for context safety.
+
+Limitations:
+- WebFetch does NOT execute JavaScript. It only sees the server-rendered response.
+- Authenticated pages, cookie-gated content, and browser-dependent apps may not return useful content.
+- This tool is for viewing a specific URL, not for general web search or crawling.`,
+			Parameters: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"url": map[string]interface{}{"type": "string"},
+				},
+				"required": []string{"url"},
+			},
+			Handler: nativeWebFetch,
+		},
+		{
 			Name: "Skill",
 			Description: `Load the full instructions for a named skill provisioned in this session.
 
@@ -248,9 +272,9 @@ Output: A short summary confirming the updated todo list.`,
 				"required": []string{"todos"},
 			},
 			Handler: nativeTodoWrite,
-	},
-	{
-		Name: "Question",
+		},
+		{
+			Name: "Question",
 			Description: `Ask the user a clarifying question and wait for their response.
 
 Use this tool when the task is ambiguous and you need information from the user before proceeding. The agent loop pauses, the question is shown to the user, and their answer is returned as the tool result.
@@ -260,12 +284,13 @@ Parameters:
 
 Output: The user's verbatim response as a string.
 
-This tool only works in interactive (TTY) sessions. In detached or non-interactive sessions it returns an error — do not call it from background sub-agents.
+In interactive (TTY) sessions, the question is shown directly and the answer is returned immediately.
+In detached or non-interactive sessions, the question is written to session metadata and must be answered by an operator with toc question / toc answer.
 
 Anti-patterns:
 - Do NOT ask multiple questions in one call — ask one focused question at a time.
 - Do NOT use this tool for questions you can answer yourself by reading files or running commands.
-- Do NOT call this tool in detached sessions or sub-agents — it will fail.`,
+- Do NOT call this tool in detached sessions unless an operator is available to answer promptly.`,
 			Parameters: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{

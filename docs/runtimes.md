@@ -71,19 +71,22 @@ These hooks are shell scripts and JSON config generated in the session's `.claud
 
 `toc-native` is a built-in agent loop that calls models through OpenRouter. It runs the tool loop directly instead of delegating to an external CLI.
 
+For a deeper implementation walk-through, see [toc-native Runtime](toc-native-runtime.md).
+
 ### Current scope
 
-The native beta supports local tools only:
+The native beta supports local tools plus first-class public URL viewing:
 
 - File reads and writes
 - File edits (string replacement)
 - Glob and grep
 - Shell execution
+- Public URL fetch with HTML-to-Markdown conversion
 - Skill reads
 - Todo tracking with `TodoWrite`
 - Sub-agent management
 
-External integrations (`toc runtime invoke`) are not yet part of the native tool loop.
+Authenticated integrations (`toc runtime invoke`) and browser automation are not yet part of the native tool loop.
 
 ### How it works
 

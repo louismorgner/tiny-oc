@@ -11,9 +11,10 @@ type NativeModelProfile struct {
 	Description       string
 	SupportsTools     bool
 	SupportsStreaming bool
-	ContextWindow     int // total context window in tokens (0 = unknown)
-	MaxOutputTokens   int // max output tokens (0 = use provider default)
-	ReservedBuffer    int // tokens reserved for tool defs, system overhead
+	SupportsThinking  bool // model supports extended thinking/reasoning via OpenRouter reasoning param
+	ContextWindow     int  // total context window in tokens (0 = unknown)
+	MaxOutputTokens   int  // max output tokens (0 = use provider default)
+	ReservedBuffer    int  // tokens reserved for tool defs, system overhead
 }
 
 type NativeCapabilityContract struct {
@@ -47,6 +48,7 @@ var nativeModelProfiles = []NativeModelProfile{
 		Description:       "strong coding and reasoning via OpenRouter",
 		SupportsTools:     true,
 		SupportsStreaming: true,
+		SupportsThinking:  true,
 		ContextWindow:     200000,
 		MaxOutputTokens:   16384,
 		ReservedBuffer:    4096,
@@ -77,9 +79,10 @@ var nativeModelProfiles = []NativeModelProfile{
 		Description:       "Anthropic mid-tier model with strong coding and reasoning at lower cost",
 		SupportsTools:     true,
 		SupportsStreaming: true,
-		ContextWindow:     200000,
-		MaxOutputTokens:   16384,
-		ReservedBuffer:    4096,
+		SupportsThinking:  true,
+		ContextWindow:     1000000,
+		MaxOutputTokens:   128000,
+		ReservedBuffer:    8192,
 	},
 	{
 		ID:                "anthropic/claude-opus-4.6",
@@ -87,6 +90,7 @@ var nativeModelProfiles = []NativeModelProfile{
 		Description:       "Anthropic flagship model for complex coding and agentic workflows",
 		SupportsTools:     true,
 		SupportsStreaming: true,
+		SupportsThinking:  true,
 		ContextWindow:     200000,
 		MaxOutputTokens:   32768,
 		ReservedBuffer:    4096,

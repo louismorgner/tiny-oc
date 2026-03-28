@@ -43,19 +43,28 @@ type Permissions struct {
 	SubAgents    map[string]PermissionLevel        `yaml:"sub-agents,omitempty"`
 }
 
+// ThinkingConfig enables extended thinking/reasoning for models that support it.
+// Set budget_tokens for Anthropic models (controls thinking token budget) or
+// effort for other models (xhigh/high/medium/low/minimal).
+type ThinkingConfig struct {
+	BudgetTokens int    `yaml:"budget_tokens,omitempty" json:"budget_tokens,omitempty"`
+	Effort       string `yaml:"effort,omitempty"        json:"effort,omitempty"`
+}
+
 type AgentConfig struct {
-	Runtime                string       `yaml:"runtime"`
-	Name                   string       `yaml:"name"`
-	Description            string       `yaml:"description,omitempty"`
-	Model                  string       `yaml:"model"`
-	SmallModel             string       `yaml:"small_model,omitempty"`
-	AllowCustomNativeModel bool         `yaml:"allow_custom_native_model,omitempty"`
-	MaxIterations          int          `yaml:"max_iterations,omitempty"`
-	Context                []string     `yaml:"context,omitempty"`
-	Skills                 []string     `yaml:"skills,omitempty"`
-	Perms                  *Permissions `yaml:"permissions,omitempty"`
-	OnEnd                  string       `yaml:"on_end,omitempty"`
-	Compose                []string     `yaml:"compose,omitempty"`
+	Runtime                string          `yaml:"runtime"`
+	Name                   string          `yaml:"name"`
+	Description            string          `yaml:"description,omitempty"`
+	Model                  string          `yaml:"model"`
+	SmallModel             string          `yaml:"small_model,omitempty"`
+	AllowCustomNativeModel bool            `yaml:"allow_custom_native_model,omitempty"`
+	MaxIterations          int             `yaml:"max_iterations,omitempty"`
+	Context                []string        `yaml:"context,omitempty"`
+	Skills                 []string        `yaml:"skills,omitempty"`
+	Perms                  *Permissions    `yaml:"permissions,omitempty"`
+	OnEnd                  string          `yaml:"on_end,omitempty"`
+	Compose                []string        `yaml:"compose,omitempty"`
+	Thinking               *ThinkingConfig `yaml:"thinking,omitempty"`
 }
 
 // EffectivePermissions returns the resolved permission spec. If no permissions

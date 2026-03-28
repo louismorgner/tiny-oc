@@ -134,15 +134,54 @@ func summarizeEntry(index int, entry CaptureEntry) CallSummary {
 		var resp map[string]interface{}
 		if json.Unmarshal([]byte(entry.Response.Body), &resp) == nil {
 			call.ResponseModel = stringField(resp["model"])
-			call.FinishReason = firstNonEmpty(
+			call.FinishReason = FirstNonEmpty(
 				stringField(resp["stop_reason"]),
 				choiceFinishReason(resp["choices"]),
 			)
 			call.InputTokens, call.OutputTokens, call.TotalTokens = extractUsage(resp["usage"])
+		} else {
+			// Response body may be SSE (streaming). Parse the last data line
+			// that contains usage/model/finish info.
+			parseSSEResponseFields(&call, entry.Response.Body)
 		}
 	}
 
 	return call
+}
+
+func parseSSEResponseFields(call *CallSummary, body string) {
+	// Walk SSE data lines in reverse to find the last ones with JSON payloads
+	// containing usage, model, or finish_reason/stop_reason.
+	lines := strings.Split(body, "\n")
+	for i := len(lines) - 1; i >= 0; i-- {
+		line := strings.TrimSpace(lines[i])
+		if !strings.HasPrefix(line, "data: ") {
+			continue
+		}
+		payload := strings.TrimPrefix(line, "data: ")
+		if payload == "[DONE]" {
+			continue
+		}
+		var obj map[string]interface{}
+		if json.Unmarshal([]byte(payload), &obj) != nil {
+			continue
+		}
+		if call.ResponseModel == "" {
+			call.ResponseModel = stringField(obj["model"])
+		}
+		if call.FinishReason == "" {
+			call.FinishReason = FirstNonEmpty(
+				stringField(obj["stop_reason"]),
+				choiceFinishReason(obj["choices"]),
+			)
+		}
+		if call.InputTokens == 0 && call.OutputTokens == 0 && call.TotalTokens == 0 {
+			call.InputTokens, call.OutputTokens, call.TotalTokens = extractUsage(obj["usage"])
+		}
+		if call.ResponseModel != "" && call.FinishReason != "" && (call.InputTokens > 0 || call.OutputTokens > 0) {
+			break
+		}
+	}
 }
 
 func bodyFromResponse(resp *CaptureResponse) string {
@@ -267,7 +306,8 @@ func truncate(s string, max int) string {
 	return s[:max-3] + "..."
 }
 
-func firstNonEmpty(values ...string) string {
+// FirstNonEmpty returns the first non-blank string from values.
+func FirstNonEmpty(values ...string) string {
 	for _, v := range values {
 		if strings.TrimSpace(v) != "" {
 			return v

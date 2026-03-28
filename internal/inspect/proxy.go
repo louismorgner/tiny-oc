@@ -2,6 +2,7 @@ package inspect
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -237,7 +238,7 @@ func proxyRequest(parent context.Context, transport http.RoundTripper, cw *captu
 	target := joinURL(upstream, r.URL)
 	entry.Upstream = target.String()
 
-	upstreamReq, err := http.NewRequestWithContext(parent, r.Method, target.String(), strings.NewReader(string(reqBody)))
+	upstreamReq, err := http.NewRequestWithContext(parent, r.Method, target.String(), bytes.NewReader(reqBody))
 	if err != nil {
 		http.Error(w, "failed to create upstream request", http.StatusBadGateway)
 		entry.Error = fmt.Sprintf("create upstream request: %v", err)
@@ -325,7 +326,9 @@ func (cw *captureWriter) Write(entry CaptureEntry) {
 	}
 	cw.mu.Lock()
 	defer cw.mu.Unlock()
-	_ = cw.enc.Encode(entry)
+	if err := cw.enc.Encode(entry); err != nil {
+		fmt.Fprintf(os.Stderr, "inspect: failed to encode capture entry: %v\n", err)
+	}
 }
 
 func (cw *captureWriter) Close() {

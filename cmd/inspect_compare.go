@@ -152,7 +152,7 @@ func buildInspectCompareReport(left *session.Session, leftReport *inspectpkg.Rep
 		if i < len(leftReport.Calls) {
 			call := leftReport.Calls[i]
 			diff.LeftPath = call.Path
-			diff.LeftModel = firstNonEmpty(call.ResponseModel, call.RequestModel)
+			diff.LeftModel = inspectpkg.FirstNonEmpty(call.ResponseModel, call.RequestModel)
 			diff.LeftStatusCode = call.StatusCode
 			diff.LeftDurationMS = call.DurationMS
 			diff.LeftTotalTokens = call.TotalTokens
@@ -162,7 +162,7 @@ func buildInspectCompareReport(left *session.Session, leftReport *inspectpkg.Rep
 		if i < len(rightReport.Calls) {
 			call := rightReport.Calls[i]
 			diff.RightPath = call.Path
-			diff.RightModel = firstNonEmpty(call.ResponseModel, call.RequestModel)
+			diff.RightModel = inspectpkg.FirstNonEmpty(call.ResponseModel, call.RequestModel)
 			diff.RightStatusCode = call.StatusCode
 			diff.RightDurationMS = call.DurationMS
 			diff.RightTotalTokens = call.TotalTokens
@@ -236,6 +236,11 @@ func printInspectCompareHuman(report inspectCompareReport) {
 }
 
 func inspectCallMatchLabel(call inspectCallDiff) string {
+	leftPopulated := call.LeftPath != "" || call.LeftStatusCode != 0 || call.LeftDurationMS != 0
+	rightPopulated := call.RightPath != "" || call.RightStatusCode != 0 || call.RightDurationMS != 0
+	if leftPopulated != rightPopulated {
+		return "diff"
+	}
 	if !call.SamePath || !call.SameModel || !call.SameStatus || call.TokenDelta != 0 {
 		return "diff"
 	}
@@ -287,8 +292,9 @@ func compact(s string) string {
 	if strings.TrimSpace(s) == "" {
 		return "-"
 	}
-	if len(s) > 48 {
-		return s[:45] + "..."
+	runes := []rune(s)
+	if len(runes) > 48 {
+		return string(runes[:45]) + "..."
 	}
 	return s
 }

@@ -200,7 +200,7 @@ func printInspectCall(call inspectpkg.CallSummary, includeBodies, includeHeaders
 	}
 	fmt.Printf("  #%d  %s %s  %s  %dms\n", call.Index, ui.Bold(status), ui.Dim(call.Method), ui.Dim(call.Path), call.DurationMS)
 	if call.RequestModel != "" || call.ResponseModel != "" {
-		model := firstNonEmpty(call.ResponseModel, call.RequestModel)
+		model := inspectpkg.FirstNonEmpty(call.ResponseModel, call.RequestModel)
 		fmt.Printf("    %s %s", ui.Bold("model:"), ui.Dim(model))
 		if call.FinishReason != "" {
 			fmt.Printf("   %s %s", ui.Bold("finish:"), ui.Dim(call.FinishReason))
@@ -273,11 +273,3 @@ func sanitizeInspectCalls(calls []inspectpkg.CallSummary, includeBodies, include
 	return out
 }
 
-func firstNonEmpty(values ...string) string {
-	for _, v := range values {
-		if strings.TrimSpace(v) != "" {
-			return v
-		}
-	}
-	return ""
-}

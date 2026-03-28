@@ -201,6 +201,11 @@ func extractUsage(raw interface{}) (int64, int64, int64) {
 	total := int64Field(usage["total_tokens"])
 	if input == 0 && output == 0 && total == 0 {
 		input = int64Field(usage["input_tokens"])
+		// Anthropic prompt caching: add cache tokens to get the full effective
+		// input context size. Cache reads are cheap but still represent context
+		// that the model processes; cache creation tokens are the initial write.
+		input += int64Field(usage["cache_read_input_tokens"])
+		input += int64Field(usage["cache_creation_input_tokens"])
 		output = int64Field(usage["output_tokens"])
 		total = input + output
 	}

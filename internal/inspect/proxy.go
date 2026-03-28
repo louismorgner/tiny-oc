@@ -258,6 +258,10 @@ func proxyRequest(parent context.Context, transport http.RoundTripper, cw *captu
 		return
 	}
 	upstreamReq.Header = cloneHeader(r.Header)
+	// Strip Accept-Encoding so Go's transport handles transparent gzip
+	// decompression. The decompressed body is then readable for capture.
+	// Clients receive uncompressed responses, which is valid per HTTP spec.
+	upstreamReq.Header.Del("Accept-Encoding")
 	upstreamReq.Host = upstream.Host
 
 	resp, err := transport.RoundTrip(upstreamReq)

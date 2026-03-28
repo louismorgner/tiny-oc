@@ -49,6 +49,7 @@ And first-class tooling on top:
 ```bash
 toc inspect <session-id>
 toc inspect <session-id> --call 2 --body
+toc inspect --last
 toc inspect compare <session-a> <session-b>
 toc inspect compare <session-a> <session-b> --json
 ```
@@ -74,6 +75,32 @@ What you do not have:
 
 If you want serious runtime comparison, run both sessions with `--inspect`.
 
+## Setting up the comparison pair
+
+To compare `claude-code` and `toc-native`, you need two agents that run the same logical task through different runtimes.
+
+Create a `toc-native` counterpart agent alongside your existing `claude-code` agent:
+
+```yaml
+# .toc/agents/my-agent-native/oc-agent.yaml
+runtime: toc-native
+name: my-agent-native
+description: Same as my-agent but using toc-native runtime
+model: anthropic/claude-sonnet-4
+allow_custom_native_model: true
+skills:
+  - my-skill
+permissions:
+  filesystem:
+    read: "on"
+    write: "on"
+    execute: "on"
+```
+
+Keep the skills and permissions identical to your `claude-code` agent. The only variables should be `runtime` and `model`.
+
+Note: `toc-native` routes through OpenRouter by default. Use `anthropic/claude-sonnet-4` or `anthropic/claude-opus-4.6` to get the same model family as `claude-code`'s `sonnet` or `opus` shorthands.
+
 ## The core workflow
 
 ### 1. Choose a task that exposes a real edge
@@ -93,37 +120,40 @@ Avoid trivial one-shot prompts. They do not stress the runtime enough.
 Use the same:
 
 - repo state
-- agent
+- agent (same skills and permissions, different runtime)
 - prompt
 - workspace
 
 Keep variables fixed unless you are intentionally testing one change.
 
-### 3. Run the baseline runtime with inspect
-
-For example:
+### 3. Run both sessions with inspect
 
 ```bash
-toc agent spawn reviewer --prompt "fix the failing parser tests" --inspect
+toc agent spawn my-agent --inspect --prompt "fix the failing parser tests"
+toc agent spawn my-agent-native --inspect --prompt "fix the failing parser tests"
 ```
 
-If the baseline agent uses `claude-code`, that session becomes your reference.
-
-### 4. Run toc-native with inspect
-
-Use the same task and as close to the same agent contract as possible:
+Both sessions run in the background. Check status:
 
 ```bash
-toc agent spawn reviewer-native --prompt "fix the failing parser tests" --inspect
+toc runtime status <session-id>
 ```
 
-### 5. Inspect each session
+Note: inside an active agent session, use `toc runtime spawn` to dispatch sub-agents with `--inspect`. The `toc agent spawn` command is the human-facing entry point.
+
+### 4. Inspect each session
 
 Start with high-level summaries:
 
 ```bash
 toc inspect <claude-session>
 toc inspect <native-session>
+```
+
+Or use `--last` to pull the most recently completed inspected session:
+
+```bash
+toc inspect --last
 ```
 
 Then compare directly:
@@ -138,7 +168,7 @@ Use `--json` when feeding the result into another agent or script:
 toc inspect compare <claude-session> <native-session> --json
 ```
 
-### 6. Drill into specific calls
+### 5. Drill into specific calls
 
 When a call looks suspicious:
 
@@ -148,6 +178,24 @@ toc inspect <claude-session> --call 3 --body
 ```
 
 This is usually where the real cause shows up.
+
+## Reading the token numbers
+
+Token counts mean different things depending on the runtime.
+
+### toc-native
+
+Tokens are reported straightforwardly: `in` is the total context sent, `out` is the completion.
+
+### claude-code
+
+Claude Code uses Anthropic prompt caching. The `in` tokens shown by `toc inspect` include all three components:
+
+- `input_tokens` — non-cached tokens billed at full rate
+- `cache_read_input_tokens` — tokens read from the cache (billed at ~10%)
+- `cache_creation_input_tokens` — tokens written to cache on first use (billed at ~125%)
+
+The sum is the **effective context size** — what the model actually processes. A call showing `in=62000` may have only `input_tokens=3` with the rest cached: the context is real, the cache just makes it cheaper.
 
 ## What to look for
 
@@ -222,11 +270,11 @@ Do not change five things at once. One prompt, one fix, one rerun.
 
 Use tasks that expose structural weaknesses:
 
-- “Read three related files, explain the bug, patch it, and run the targeted test”
-- “Search the repo for all implementations of X, compare them, and edit the shared abstraction”
-- “Debug a failing shell command, inspect logs, and fix the config”
-- “Make a change that requires multiple file reads before the first write”
-- “Resume a partially completed task and finish it cleanly”
+- "Read three related files, explain the bug, patch it, and run the targeted test"
+- "Search the repo for all implementations of X, compare them, and edit the shared abstraction"
+- "Debug a failing shell command, inspect logs, and fix the config"
+- "Make a change that requires multiple file reads before the first write"
+- "Resume a partially completed task and finish it cleanly"
 
 These reveal far more than shallow generation tasks.
 
@@ -235,7 +283,7 @@ These reveal far more than shallow generation tasks.
 For non-interactive loops, prefer:
 
 ```bash
-toc agent spawn my-agent --prompt "..." --inspect
+toc agent spawn my-agent --inspect --prompt "..."
 ```
 
 That gives you:
@@ -279,7 +327,7 @@ These tools complement each other. They answer different questions.
 If you are actively improving `toc-native`, default to this:
 
 ```bash
-toc agent spawn <agent> --prompt "..." --inspect
+toc agent spawn <agent> --inspect --prompt "..."
 ```
 
 And when comparing against Claude:

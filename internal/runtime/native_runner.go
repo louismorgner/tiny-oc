@@ -663,7 +663,7 @@ func runNativeLoop(client *openRouterClient, state *State, toolSpecs []NativeToo
 		}
 
 		for _, call := range msg.ToolCalls {
-			result := executeNativeTool(toolSpecs, toolCtx, call)
+			result := executeNativeToolWithTimeout(toolSpecs, toolCtx, call)
 
 			// Update working set
 			if state.WorkingSet == nil {

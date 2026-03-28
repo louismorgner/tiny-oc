@@ -13,6 +13,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/tiny-oc/toc/internal/integration"
@@ -292,6 +293,22 @@ func nativeBash(ctx nativeToolContext, call ToolCall) toolExecution {
 	// if the user's shell profile (.zshrc, .bashrc, etc.) contains errors.
 	cmd := exec.CommandContext(ctxExec, "sh", "-lc", args.Command)
 	cmd.Dir = ctx.SessionDir
+	// Create a process group so we can kill the entire tree (grandchildren
+	// included), not just the top-level shell.
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	// Kill the entire process group when the context expires, rather than
+	// just the main process. This prevents orphaned grandchild processes.
+	cmd.Cancel = func() error {
+		if cmd.Process != nil {
+			// Negative PID kills the entire process group.
+			return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+		}
+		return nil
+	}
+	// WaitDelay gives CombinedOutput a hard deadline to collect remaining
+	// pipe data after the process is killed. Without this, CombinedOutput
+	// blocks forever if grandchild processes inherited stdout/stderr pipes.
+	cmd.WaitDelay = 5 * time.Second
 	output, err := cmd.CombinedOutput()
 	durationMS := time.Since(start).Milliseconds()
 	step := Step{

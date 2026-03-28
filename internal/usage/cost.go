@@ -48,10 +48,10 @@ var modelPricing = map[string]ModelPricing{
 		CacheWritePerToken: 3.75 / 1_000_000,
 	},
 	"anthropic/claude-opus-4.6": {
-		InputPerToken:      5.00 / 1_000_000,
-		OutputPerToken:     25.00 / 1_000_000,
-		CacheReadPerToken:  0.50 / 1_000_000,
-		CacheWritePerToken: 6.25 / 1_000_000,
+		InputPerToken:      15.00 / 1_000_000,
+		OutputPerToken:     75.00 / 1_000_000,
+		CacheReadPerToken:  1.50 / 1_000_000,
+		CacheWritePerToken: 18.75 / 1_000_000,
 	},
 	"z-ai/glm-5": {
 		InputPerToken:      0.72 / 1_000_000,

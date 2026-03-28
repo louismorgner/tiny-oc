@@ -40,7 +40,7 @@ var inspectCmd = &cobra.Command{
 		headersFlag, _ := cmd.Flags().GetBool("headers")
 		callFlag, _ := cmd.Flags().GetInt("call")
 		if callFlag < 0 {
-			return fmt.Errorf("--call must be >= 0")
+			return fmt.Errorf("--call must be >= 1")
 		}
 		if lastFlag && len(args) > 0 {
 			return fmt.Errorf("--last cannot be combined with a session ID")
@@ -272,4 +272,3 @@ func sanitizeInspectCalls(calls []inspectpkg.CallSummary, includeBodies, include
 	}
 	return out
 }
-

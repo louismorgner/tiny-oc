@@ -182,3 +182,31 @@ func TestPrintInspectHumanIncludesPromptAndBodies(t *testing.T) {
 		}
 	}
 }
+
+func TestInspectCommandRejectsNegativeCallIndex(t *testing.T) {
+	workspace := t.TempDir()
+	if err := os.Chdir(workspace); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = os.Chdir("/")
+	})
+	if err := os.MkdirAll(".toc", 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(".toc/config.yaml", []byte("name: test\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := inspectCmd.Flags().Set("call", "-1"); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = inspectCmd.Flags().Set("call", "0")
+	})
+
+	err := inspectCmd.RunE(inspectCmd, []string{})
+	if err == nil || !strings.Contains(err.Error(), "--call must be >= 1") {
+		t.Fatalf("expected call validation error, got %v", err)
+	}
+}

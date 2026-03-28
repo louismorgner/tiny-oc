@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -59,6 +60,7 @@ type HelperProcess struct {
 
 	cmd        *exec.Cmd
 	stderrFile *os.File
+	waitCh     chan error
 }
 
 type captureWriter struct {
@@ -114,24 +116,36 @@ func StartHelper(opts HelperOptions) (*HelperProcess, error) {
 		}
 		return nil, err
 	}
+	waitCh := make(chan error, 1)
+	go func() {
+		waitCh <- cmd.Wait()
+		close(waitCh)
+	}()
 
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
-		if cmd.ProcessState != nil && cmd.ProcessState.Exited() {
-			break
+		select {
+		case err := <-waitCh:
+			if stderrFile != nil {
+				_ = stderrFile.Close()
+			}
+			if err != nil {
+				return nil, fmt.Errorf("inspect proxy exited before becoming ready: %w", err)
+			}
+			return nil, fmt.Errorf("inspect proxy exited before becoming ready")
+		default:
 		}
 		data, err := os.ReadFile(opts.ReadyPath)
 		if err == nil {
 			baseURL := strings.TrimSpace(string(data))
 			if baseURL != "" {
-				return &HelperProcess{URL: baseURL, cmd: cmd, stderrFile: stderrFile}, nil
+				return &HelperProcess{URL: baseURL, cmd: cmd, stderrFile: stderrFile, waitCh: waitCh}, nil
 			}
 		}
 		time.Sleep(25 * time.Millisecond)
 	}
 
-	_ = cmd.Process.Kill()
-	_ = cmd.Wait()
+	stopHelperProcess(cmd.Process, waitCh, 200*time.Millisecond)
 	if stderrFile != nil {
 		_ = stderrFile.Close()
 	}
@@ -142,10 +156,7 @@ func (hp *HelperProcess) Close() {
 	if hp == nil {
 		return
 	}
-	if hp.cmd != nil && hp.cmd.Process != nil {
-		_ = hp.cmd.Process.Kill()
-		_ = hp.cmd.Wait()
-	}
+	stopHelperProcess(processForHelper(hp), hp.waitCh, 2*time.Second)
 	if hp.stderrFile != nil {
 		_ = hp.stderrFile.Close()
 	}
@@ -262,7 +273,7 @@ func proxyRequest(parent context.Context, transport http.RoundTripper, cw *captu
 	copyResponseHeaders(w.Header(), resp.Header)
 	w.WriteHeader(resp.StatusCode)
 
-	respBuf := &strings.Builder{}
+	respBuf := &bytes.Buffer{}
 	reader := bufio.NewReader(resp.Body)
 	for {
 		chunk := make([]byte, 32*1024)
@@ -270,7 +281,7 @@ func proxyRequest(parent context.Context, transport http.RoundTripper, cw *captu
 		if n > 0 {
 			part := chunk[:n]
 			_, _ = w.Write(part)
-			respBuf.Write(part)
+			appendCaptureChunk(respBuf, part, maxCaptureBodyBytes)
 			if flusher, ok := w.(http.Flusher); ok {
 				flusher.Flush()
 			}
@@ -337,7 +348,59 @@ func (cw *captureWriter) Close() {
 	}
 	cw.mu.Lock()
 	defer cw.mu.Unlock()
-	_ = cw.f.Close()
+	f := cw.f
+	cw.f = nil
+	if err := f.Sync(); err != nil {
+		fmt.Fprintf(os.Stderr, "inspect: failed to sync capture file: %v\n", err)
+	}
+	_ = f.Close()
+}
+
+func appendCaptureChunk(buf *bytes.Buffer, chunk []byte, limit int) {
+	if buf == nil || len(chunk) == 0 || limit <= 0 {
+		return
+	}
+	remaining := limit - buf.Len()
+	if remaining <= 0 {
+		return
+	}
+	if len(chunk) > remaining {
+		chunk = chunk[:remaining]
+	}
+	_, _ = buf.Write(chunk)
+}
+
+func processForHelper(hp *HelperProcess) *os.Process {
+	if hp == nil || hp.cmd == nil {
+		return nil
+	}
+	return hp.cmd.Process
+}
+
+func stopHelperProcess(proc *os.Process, waitCh <-chan error, gracePeriod time.Duration) {
+	if waitCh == nil {
+		return
+	}
+	select {
+	case <-waitCh:
+		return
+	default:
+	}
+	if proc != nil {
+		_ = proc.Signal(syscall.SIGTERM)
+	}
+	select {
+	case <-waitCh:
+		return
+	case <-time.After(gracePeriod):
+	}
+	if proc != nil {
+		_ = proc.Kill()
+	}
+	select {
+	case <-waitCh:
+	case <-time.After(2 * time.Second):
+	}
 }
 
 func redactHeaders(h http.Header) map[string][]string {

@@ -128,11 +128,9 @@ Keep variables fixed unless you are intentionally testing one change.
 
 ### 3. Run both sessions with inspect
 
-Use `toc runtime spawn` (not `toc agent spawn` — only the runtime command supports `--inspect`):
-
 ```bash
-toc runtime spawn my-agent --inspect --prompt "fix the failing parser tests"
-toc runtime spawn my-agent-native --inspect --prompt "fix the failing parser tests"
+toc agent spawn my-agent --inspect --prompt "fix the failing parser tests"
+toc agent spawn my-agent-native --inspect --prompt "fix the failing parser tests"
 ```
 
 Both sessions run in the background. Check status:
@@ -140,6 +138,8 @@ Both sessions run in the background. Check status:
 ```bash
 toc runtime status <session-id>
 ```
+
+Note: inside an active agent session, use `toc runtime spawn` to dispatch sub-agents with `--inspect`. The `toc agent spawn` command is the human-facing entry point.
 
 ### 4. Inspect each session
 
@@ -185,33 +185,17 @@ Token counts mean different things depending on the runtime.
 
 ### toc-native
 
-Tokens are reported straightforwardly: `in` is the total context sent, `out` is the completion. Each call reflects what you sent and what came back.
+Tokens are reported straightforwardly: `in` is the total context sent, `out` is the completion.
 
 ### claude-code
 
-Claude Code uses Anthropic prompt caching aggressively. The `in` tokens reported by `toc inspect` include all three components:
+Claude Code uses Anthropic prompt caching. The `in` tokens shown by `toc inspect` include all three components:
 
 - `input_tokens` — non-cached tokens billed at full rate
-- `cache_read_input_tokens` — tokens read from the 5-minute or 1-hour cache (billed at ~10%)
+- `cache_read_input_tokens` — tokens read from the cache (billed at ~10%)
 - `cache_creation_input_tokens` — tokens written to cache on first use (billed at ~125%)
 
-The sum gives the **effective context size** — what the model actually processes. This is the number shown in `toc inspect`. A call showing `in=62000` may have `input_tokens=3` with the rest cached. The context is real; the cache just makes it cheaper.
-
-This also explains why `claude-code` sessions often show much higher `in` values than `toc-native` for the same task: Claude Code injects a large system-reminder block containing full MCP server instructions and all registered tool schemas on every call. For a typical session with multiple MCP integrations, this alone can add 50–70k tokens of context per call. That context is cached after the first call, but it's still part of every request.
-
-### What the comparison reveals
-
-A comparison of the same task run through `claude-code` vs `toc-native` with 9 registered tools typically shows something like:
-
-| | claude-code | toc-native |
-|---|---|---|
-| Tools per call | 75 (all MCP tools) | 9 (only declared tools) |
-| Input per call | ~62k tokens | ~3.5k tokens |
-| API path | `/v1/messages?beta=true` | `/chat/completions` (via OpenRouter) |
-
-The ~17x input difference is structural: Claude Code includes every available MCP tool schema plus a full system-reminder injection on every turn. toc-native sends only the tools declared in the agent config.
-
-This is not a bug in either runtime — it reflects the design tradeoff. But it is exactly what `toc inspect compare` makes visible.
+The sum is the **effective context size** — what the model actually processes. A call showing `in=62000` may have only `input_tokens=3` with the rest cached: the context is real, the cache just makes it cheaper.
 
 ## What to look for
 
@@ -233,8 +217,6 @@ If `toc-native` sends much larger requests:
 - tool outputs may be carried forward too aggressively
 - prompt composition may be duplicating content
 - the runtime may be preserving more transcript than necessary
-
-If `claude-code` shows much larger input tokens, check how many tools it registered — the tool schema injection dominates context for agents with many MCP integrations.
 
 ### Path differences
 
@@ -301,7 +283,7 @@ These reveal far more than shallow generation tasks.
 For non-interactive loops, prefer:
 
 ```bash
-toc runtime spawn my-agent --prompt "..." --inspect
+toc agent spawn my-agent --inspect --prompt "..."
 ```
 
 That gives you:
@@ -345,7 +327,7 @@ These tools complement each other. They answer different questions.
 If you are actively improving `toc-native`, default to this:
 
 ```bash
-toc runtime spawn <agent> --prompt "..." --inspect
+toc agent spawn <agent> --inspect --prompt "..."
 ```
 
 And when comparing against Claude:

@@ -47,6 +47,30 @@ var modelPricing = map[string]ModelPricing{
 		CacheReadPerToken:  0.50 / 1_000_000,
 		CacheWritePerToken: 6.25 / 1_000_000,
 	},
+	"z-ai/glm-5": {
+		InputPerToken:      0.72 / 1_000_000,
+		OutputPerToken:     2.30 / 1_000_000,
+		CacheReadPerToken:  0.72 / 1_000_000,
+		CacheWritePerToken: 0.72 / 1_000_000,
+	},
+	"moonshotai/kimi-k2.5": {
+		InputPerToken:      0.45 / 1_000_000,
+		OutputPerToken:     2.20 / 1_000_000,
+		CacheReadPerToken:  0.225 / 1_000_000,
+		CacheWritePerToken: 0.45 / 1_000_000,
+	},
+	"xiaomi/mimo-v2-flash": {
+		InputPerToken:      0.09 / 1_000_000,
+		OutputPerToken:     0.29 / 1_000_000,
+		CacheReadPerToken:  0.045 / 1_000_000,
+		CacheWritePerToken: 0.09 / 1_000_000,
+	},
+	"qwen/qwen3.5-397b-a17b": {
+		InputPerToken:      0.39 / 1_000_000,
+		OutputPerToken:     2.34 / 1_000_000,
+		CacheReadPerToken:  0.39 / 1_000_000,
+		CacheWritePerToken: 0.39 / 1_000_000,
+	},
 }
 
 // EstimateCost returns the estimated USD cost for the given token usage

@@ -6,7 +6,6 @@ model: qwen/qwen3.5-397b-a17b
 context:
   - BOOTSTRAP.md
   - product.md
-  - repo/
 compose:
   - BOOTSTRAP.md
   - product.md

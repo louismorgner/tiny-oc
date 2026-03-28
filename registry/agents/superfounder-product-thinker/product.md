@@ -14,13 +14,6 @@ Populated during bootstrap. If this is still a template, run the bootstrap first
 - **URL**:
 - **Default branch**:
 - **Stack**:
-- **Build/CI**:
-- **Test setup**:
-
-## Architecture
-
-- (Key components and how they fit together)
-- (Important boundaries and interfaces)
 
 ## Current priorities
 

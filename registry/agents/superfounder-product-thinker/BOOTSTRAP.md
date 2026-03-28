@@ -13,35 +13,13 @@ Have a brief, focused conversation to learn:
 
 Keep it tight. Four questions, then move on.
 
-## Step 2: Clone the repo
-
-```bash
-git clone <repo-url> repo/
-```
-
-If `repo/` already exists, pull latest instead:
-
-```bash
-cd repo/ && git pull origin main
-```
-
-## Step 3: Understand the project
-
-Silently explore the repo:
-
-1. Read the README
-2. Browse the directory structure — `ls` top-level, key subdirectories
-3. Check `git log --oneline -20` for recent activity
-4. Identify the stack — languages, frameworks, build tools, test setup
-5. Look for CI/CD config, linting, existing docs
-
-## Step 4: Write product.md
+## Step 2: Write product.md
 
 Fill out `product.md` with everything you learned. This file is your persistent product context — every future session starts by reading it.
 
 Be specific. Future-you has no memory beyond this file.
 
-## Step 5: Clean up
+## Step 3: Clean up
 
 Delete this file. You're set up now.
 

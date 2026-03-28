@@ -3,6 +3,7 @@ package runtimeinfo
 import "fmt"
 
 const DefaultRuntime = "claude-code"
+const CodexRuntime = "codex"
 const NativeRuntime = "toc-native"
 
 type ModelOption struct {
@@ -12,12 +13,12 @@ type ModelOption struct {
 }
 
 func Supported() []string {
-	return []string{DefaultRuntime, NativeRuntime}
+	return []string{DefaultRuntime, CodexRuntime, NativeRuntime}
 }
 
 func ValidateRuntime(name string) error {
 	switch name {
-	case DefaultRuntime, NativeRuntime:
+	case DefaultRuntime, CodexRuntime, NativeRuntime:
 		return nil
 	default:
 		return fmt.Errorf("unknown runtime: %s", name)
@@ -28,6 +29,8 @@ func DefaultModel(runtimeName string) string {
 	switch runtimeName {
 	case DefaultRuntime:
 		return "sonnet"
+	case CodexRuntime:
+		return "gpt-5-codex"
 	case NativeRuntime:
 		profiles := NativeProfiles()
 		if len(profiles) == 0 {
@@ -47,6 +50,11 @@ func ModelOptions(runtimeName string) []ModelOption {
 			{ID: "sonnet", Label: "Sonnet", Description: "fast, great for most tasks"},
 			{ID: "opus", Label: "Opus", Description: "most capable, deeper reasoning"},
 			{ID: "haiku", Label: "Haiku", Description: "lightweight, quick responses"},
+		}
+	case CodexRuntime:
+		return []ModelOption{
+			{ID: "gpt-5-codex", Label: "GPT-5 Codex", Description: "optimized for coding tasks with many tools"},
+			{ID: "gpt-5", Label: "GPT-5", Description: "broader reasoning and general-purpose coding"},
 		}
 	case NativeRuntime:
 		profiles := NativeProfiles()
@@ -77,6 +85,11 @@ func ValidateModelSelection(runtimeName, model string, allowCustomNativeModel bo
 		default:
 			return fmt.Errorf("unknown model: %s (expected default, sonnet, opus, or haiku)", model)
 		}
+	case CodexRuntime:
+		if model == "" {
+			return fmt.Errorf("missing model")
+		}
+		return nil
 	case NativeRuntime:
 		return ValidateNativeModel(model, allowCustomNativeModel)
 	default:

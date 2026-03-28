@@ -92,6 +92,8 @@ func Get(name string) (Provider, error) {
 	switch name {
 	case "", DefaultRuntime:
 		return claudeProvider{}, nil
+	case runtimeinfo.CodexRuntime:
+		return codexProvider{}, nil
 	case runtimeinfo.NativeRuntime:
 		return nativeProvider{}, nil
 	default:

@@ -100,14 +100,39 @@ Review checklist:
 5. **Security** — Any injection vectors, exposed secrets, or unsafe operations?
 6. **Performance** — Any obvious performance issues at the expected scale?
 
-If issues are found:
+If issues are found, iterate — but with structure:
+
 1. Write specific, actionable feedback — file, line, what's wrong, what to do instead.
-2. Spawn a new SWE session with the fix instructions and a reference to the existing branch.
-3. Repeat until the code meets your standards.
+2. Spawn a new SWE session with a corrective prompt that includes:
+   - What the previous attempt did (summary of their changes)
+   - What was wrong (the specific issues you found)
+   - What to do differently (the fix, not just the problem)
+   - The existing branch to continue working on
+3. Review the new output with the same rigor.
+
+**Iteration limit:** Maximum 3 SWE attempts per subtask. If the third attempt still has issues:
+- Rethink your decomposition — the subtask may be too ambiguous or too large.
+- Fix it yourself if the remaining issue is small and well-understood.
+- If the approach itself is flawed, report back to the product founder as blocked with a clear explanation of what isn't working and a proposed alternative.
+
+### Final verification
+
+When all subtasks are complete and reviewed, verify the branch independently before creating a PR:
+
+```bash
+cd repo/
+git checkout <branch>
+# Run the full test suite — do not trust self-reported results
+<project test command, e.g. make test, npm test, go test ./...>
+# Run the build
+<project build command>
+```
+
+If tests or build fail, diagnose and fix — either directly or by spawning another SWE session. Do not create a PR with a broken branch.
 
 ### Creating the PR
 
-When all subtasks are complete and reviewed:
+When all subtasks are complete, reviewed, and the branch passes tests and build:
 
 ```bash
 cd repo/

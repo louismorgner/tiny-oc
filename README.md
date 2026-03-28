@@ -14,7 +14,7 @@ curl -fsSL https://raw.githubusercontent.com/louismorgner/tiny-oc/main/get-toc.s
 
 Downloads the latest prebuilt binary for your platform. Supports macOS and Linux (amd64/arm64).
 
-Current runtime implementation: [Claude Code](https://docs.anthropic.com/en/docs/claude-code).
+Supported external runtimes: [Claude Code](https://docs.anthropic.com/en/docs/claude-code) and [OpenAI Codex CLI](https://developers.openai.com/codex/cli).
 
 `toc-native` is now on the internal beta path. Its current beta scope includes local tools plus first-class public URL viewing via `WebFetch`. Authenticated integrations and browser automation are still out of scope. By default it uses OpenRouter, and you can override just the native runtime's API base URL with `TOC_NATIVE_BASE_URL`.
 
@@ -66,7 +66,7 @@ When you run `toc agent spawn`, it:
 - [Core concepts](docs/core-concepts.md) — canonical vocabulary for sessions, snapshots, permissions, and instructions
 - [Getting started](docs/getting-started.md) — install, create your first agent, spawn a session
 - [Configuration reference](docs/configuration.md) — all config fields, snapshot sync patterns, audit log format
-- [Runtimes](docs/runtimes.md) — provider abstraction, Claude Code vs toc-native, hooks, model profiles
+- [Runtimes](docs/runtimes.md) — provider abstraction, Claude Code vs Codex vs toc-native, hooks, model profiles
 - [toc-native Runtime](docs/toc-native-runtime.md) — in-depth architecture, agent loop, tools, compaction, and current beta edges
 - [Skills guide](docs/skills.md) — create, install, and attach reusable capabilities
 - [Integrations](docs/integrations.md) — API gateway, credential storage, permissions, built-in integrations

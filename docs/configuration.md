@@ -43,10 +43,10 @@ permissions:
 
 | Field | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `runtime` | string | yes | — | Agent runtime implementation. Current runtimes are `claude-code` and `toc-native` |
+| `runtime` | string | yes | — | Agent runtime implementation. Current runtimes are `claude-code`, `codex`, and `toc-native` |
 | `name` | string | yes | — | Lowercase alphanumeric with hyphens (e.g. `pr-reviewer`). Must match `^[a-z0-9][a-z0-9-]*$` |
 | `description` | string | no | — | Shown in `toc agent list` and shell tab completion |
-| `model` | string | yes | — | Declarative model preference for the selected runtime. For `claude-code`: `default`, `sonnet`, `opus`, or `haiku`. For `toc-native`, use an OpenRouter model ID such as `openai/gpt-4o-mini` |
+| `model` | string | yes | — | Declarative model preference for the selected runtime. For `claude-code`: `default`, `sonnet`, `opus`, or `haiku`. For `codex`, use a Codex model slug such as `gpt-5-codex`. For `toc-native`, use an OpenRouter model ID such as `openai/gpt-4o-mini` |
 | `small_model` | string | no | — | Optional secondary model preference for lightweight work. In `toc-native`, structured compaction uses this model when set, otherwise it falls back to `model` |
 | `allow_custom_native_model` | bool | no | `false` | For `toc-native`, allow a model outside the supported beta profile set. Use only as an explicit override for experimental models |
 | `context` | list | no | — | Glob patterns for snapshot sync between the parent snapshot and spawned sessions (see below) |
@@ -59,7 +59,7 @@ permissions:
 
 Each agent also has an `agent.md` file in the same directory. This is the runtime-neutral source of truth for the agent's system instructions.
 
-At spawn time, toc hands `agent.md` and any `compose` files to the runtime provider, which materializes the runtime-specific instruction file or payload. For the current `claude-code` runtime, that means generating `CLAUDE.md`.
+At spawn time, toc hands `agent.md` and any `compose` files to the runtime provider, which materializes the runtime-specific instruction file or payload. For `claude-code`, that means generating `CLAUDE.md`. For `codex`, that means generating `AGENTS.md`.
 
 You can put anything in `agent.md` that you'd put in a system prompt or runtime instruction file — task descriptions, constraints, output format requirements, tool usage rules, etc.
 
@@ -75,7 +75,7 @@ The layers are:
 
 - `oc-agent.yaml`: declarative agent intent
 - `.toc/sessions/<id>/session.json`: resolved session contract
-- runtime internals: provider-specific implementation details such as Claude hooks or the native OpenRouter loop
+- runtime internals: provider-specific implementation details such as Claude hooks, Codex session metadata, or the native OpenRouter loop
 
 ### Native model policy
 

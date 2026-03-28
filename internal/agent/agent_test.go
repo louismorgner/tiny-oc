@@ -193,6 +193,18 @@ func TestValidate_ClaudeCodeDefaultModelAllowed(t *testing.T) {
 	}
 }
 
+func TestValidate_CodexModelAllowed(t *testing.T) {
+	cfg := &AgentConfig{
+		Name:    "test",
+		Runtime: "codex",
+		Model:   "gpt-5-codex",
+	}
+	problems := cfg.Validate()
+	if len(problems) != 0 {
+		t.Fatalf("expected codex model to be valid, got %v", problems)
+	}
+}
+
 func TestValidate_SmallModelRequiresNativeOverride(t *testing.T) {
 	cfg := &AgentConfig{
 		Name:       "test",

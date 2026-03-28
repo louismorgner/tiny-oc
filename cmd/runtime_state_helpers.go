@@ -5,6 +5,7 @@ import (
 	"os"
 
 	"github.com/tiny-oc/toc/internal/runtime"
+	"github.com/tiny-oc/toc/internal/runtimeinfo"
 	"github.com/tiny-oc/toc/internal/session"
 	"github.com/tiny-oc/toc/internal/usage"
 )
@@ -31,7 +32,22 @@ func loadRuntimeStateSummary(s *session.Session) (*runtimeStateSummary, error) {
 	state, err := runtime.LoadState(s)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil, nil
+			cfg, cfgErr := runtime.LoadSessionConfig(s)
+			if cfgErr != nil && !os.IsNotExist(cfgErr) {
+				return nil, cfgErr
+			}
+			// Native sessions don't write a state file during normal operation,
+			// so a missing state is expected — return nil,nil rather than an error.
+			if cfg == nil && s.RuntimeName() == runtimeinfo.NativeRuntime {
+				return nil, nil
+			}
+			summary := &runtimeStateSummary{
+				Tokens: usage.ForSession(s),
+			}
+			if cfg != nil {
+				summary.Model = cfg.Model
+			}
+			return summary, nil
 		}
 		return nil, err
 	}

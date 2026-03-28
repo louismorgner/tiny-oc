@@ -113,6 +113,16 @@ func ForSession(sess *session.Session) TokenUsage {
 			total.CacheCreate += t.CacheCreate
 		}
 		return total
+	case runtimeinfo.CodexRuntime:
+		provider, err := runtime.Get(runtimeinfo.CodexRuntime)
+		if err != nil {
+			return TokenUsage{}
+		}
+		logPath := provider.SessionLogPath(sess)
+		if logPath == "" {
+			return TokenUsage{}
+		}
+		return parseCodexJSONL(logPath)
 	case runtimeinfo.NativeRuntime:
 		state, err := runtime.LoadState(sess)
 		if err != nil {
@@ -127,6 +137,98 @@ func ForSession(sess *session.Session) TokenUsage {
 	default:
 		return TokenUsage{}
 	}
+}
+
+func parseCodexJSONL(path string) TokenUsage {
+	f, err := os.Open(path)
+	if err != nil {
+		return TokenUsage{}
+	}
+	defer f.Close()
+
+	var usage TokenUsage
+	var latestRollout TokenUsage
+	scanner := bufio.NewScanner(f)
+	scanner.Buffer(make([]byte, 0, 256*1024), 4*1024*1024)
+
+	for scanner.Scan() {
+		var head struct {
+			Type    string          `json:"type"`
+			Payload json.RawMessage `json:"payload,omitempty"`
+		}
+		if err := json.Unmarshal(scanner.Bytes(), &head); err != nil {
+			continue
+		}
+
+		switch head.Type {
+		case "turn.completed":
+			var event struct {
+				Type  string `json:"type"`
+				Usage struct {
+					InputTokens       int64 `json:"input_tokens"`
+					CachedInputTokens int64 `json:"cached_input_tokens"`
+					OutputTokens      int64 `json:"output_tokens"`
+				} `json:"usage"`
+			}
+			if err := json.Unmarshal(scanner.Bytes(), &event); err != nil {
+				continue
+			}
+			usage.InputTokens += event.Usage.InputTokens
+			usage.CacheRead += event.Usage.CachedInputTokens
+			usage.OutputTokens += event.Usage.OutputTokens
+		case "event_msg":
+			var event struct {
+				Type    string `json:"type"`
+				Payload struct {
+					Type string `json:"type"`
+					Info struct {
+						TotalTokenUsage struct {
+							InputTokens       int64 `json:"input_tokens"`
+							CachedInputTokens int64 `json:"cached_input_tokens"`
+							OutputTokens      int64 `json:"output_tokens"`
+						} `json:"total_token_usage"`
+					} `json:"info"`
+				} `json:"payload"`
+			}
+			if err := json.Unmarshal(scanner.Bytes(), &event); err != nil {
+				continue
+			}
+			if event.Payload.Type != "token_count" {
+				continue
+			}
+			latestRollout = TokenUsage{
+				InputTokens:  event.Payload.Info.TotalTokenUsage.InputTokens,
+				CacheRead:    event.Payload.Info.TotalTokenUsage.CachedInputTokens,
+				OutputTokens: event.Payload.Info.TotalTokenUsage.OutputTokens,
+			}
+		}
+	}
+
+	if latestRollout.Total() > 0 {
+		usage = maxTokenUsage(usage, latestRollout)
+	}
+	return usage
+}
+
+// maxTokenUsage returns a TokenUsage that takes the maximum of each field
+// independently from a and b. This is intentional: each field is taken from
+// the best available measurement source (e.g. turn.completed events vs rollout
+// token_count totals), so a per-field max gives the most complete picture
+// even when the two sources measure different phases of the same session.
+func maxTokenUsage(a, b TokenUsage) TokenUsage {
+	return TokenUsage{
+		InputTokens:  maxInt64(a.InputTokens, b.InputTokens),
+		OutputTokens: maxInt64(a.OutputTokens, b.OutputTokens),
+		CacheRead:    maxInt64(a.CacheRead, b.CacheRead),
+		CacheCreate:  maxInt64(a.CacheCreate, b.CacheCreate),
+	}
+}
+
+func maxInt64(a, b int64) int64 {
+	if a > b {
+		return a
+	}
+	return b
 }
 
 // claudeProjectDir derives the ~/.claude/projects/<encoded-path>/ directory

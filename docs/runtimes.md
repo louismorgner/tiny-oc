@@ -7,6 +7,7 @@ A runtime is the execution engine that runs an agent session. toc abstracts over
 | Runtime | Status | Description |
 |---|---|---|
 | `claude-code` | Stable | Launches Claude Code CLI sessions |
+| `codex` | Beta | Launches OpenAI Codex CLI sessions |
 | `toc-native` | Beta | Built-in agent loop via OpenRouter |
 
 Set the runtime in `oc-agent.yaml`:
@@ -66,6 +67,27 @@ These hooks are shell scripts and JSON config generated in the session's `.claud
 | `sonnet` | Claude Sonnet |
 | `opus` | Claude Opus |
 | `haiku` | Claude Haiku |
+
+## Codex runtime
+
+Delegates session execution to the `codex` CLI from OpenAI.
+
+### How it works
+
+1. **Instruction materialization**: `agent.md` + compose files are assembled into `AGENTS.md` with template variable substitution
+2. **Session workspace**: toc initializes a lightweight git repo in the isolated session directory so Codex can run there cleanly
+3. **Launch**: interactive sessions use `codex`; detached sub-agents use `codex exec`
+4. **Skills**: placed in `.codex/skills/`
+5. **Resume**: toc discovers the Codex conversation ID from Codex logs and resumes it with `codex resume` / `codex exec resume`
+
+### Current limitations
+
+- Real-time snapshot sync hooks are not available in Codex the way they are in Claude Code, so Codex sessions currently rely on the post-session sync pass.
+- Fine-grained toc filesystem permission hooks are not injected into Codex yet. Codex currently runs with Codex CLI's own execution model inside the isolated session workspace.
+
+### Models
+
+`codex` accepts Codex model slugs. toc defaults to `gpt-5-codex` and exposes `gpt-5-codex` plus `gpt-5` in interactive agent creation.
 
 ## Native runtime (beta)
 
@@ -193,4 +215,6 @@ For models with known context windows (GPT-4o: 128K, Claude Sonnet 4: 200K), tok
 
 Use `claude-code` when you want the full Claude Code experience — its native tools, MCP support, and interactive terminal UI. This is the stable, production-ready path.
 
-Use `toc-native` when you want to experiment with non-Anthropic models or want toc to own the full agent loop. The native runtime is in beta — expect rough edges and a narrower tool set.
+Use `codex` when you want OpenAI's local coding agent experience, `AGENTS.md`-based instructions, and Codex conversation resume support inside toc.
+
+Use `toc-native` when you want toc to own the full agent loop directly through OpenRouter. The native runtime is in beta — expect rough edges and a narrower tool set.

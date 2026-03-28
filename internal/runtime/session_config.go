@@ -128,6 +128,8 @@ func resolvedLLMProvider(runtimeName string) string {
 	switch runtimeName {
 	case runtimeinfo.NativeRuntime:
 		return "openrouter"
+	case runtimeinfo.CodexRuntime:
+		return "openai-codex"
 	case DefaultRuntime:
 		return "claude-code"
 	default:

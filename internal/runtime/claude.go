@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -89,7 +90,18 @@ func (claudeProvider) LaunchInteractive(opts LaunchOptions) error {
 		cmd.Env = append(cmd.Env, "ANTHROPIC_BASE_URL="+inspector.URL)
 	}
 
-	if err := cmd.Run(); err != nil {
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("failed to launch claude: %w", err)
+	}
+
+	// Write PID file so `toc stop` can find and terminate the process.
+	pidPath := filepath.Join(opts.Dir, "toc-pid.txt")
+	if err := os.WriteFile(pidPath, []byte(fmt.Sprintf("%d", cmd.Process.Pid)), 0600); err != nil {
+		log.Printf("warning: failed to write PID file %s: %v", pidPath, err)
+	}
+	defer os.Remove(pidPath)
+
+	if err := cmd.Wait(); err != nil {
 		if _, ok := err.(*exec.ExitError); ok {
 			return nil
 		}

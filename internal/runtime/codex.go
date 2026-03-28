@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
-	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -63,9 +62,6 @@ func (codexProvider) PrepareSession(workDir, agentDir string, cfg *SessionConfig
 		if err := os.WriteFile(agentsPath, []byte(content+"\n"), 0644); err != nil {
 			return err
 		}
-	}
-	if err := os.Remove(filepath.Join(workDir, "agent.md")); err != nil && !os.IsNotExist(err) {
-		return err
 	}
 	return ensureCodexGitRepo(workDir)
 }
@@ -306,34 +302,44 @@ func BuildCodexDetachedScript(helperExecutable string, opts DetachedOptions, pro
 	exitCodePath := filepath.Join(opts.Dir, "toc-exit-code.txt")
 	notifyCommand := ""
 	if opts.ParentSessionID != "" {
-		notifyCommand = fmt.Sprintf("%q __notify-subagent-complete --workspace %q --parent-session-id %q --session-id %q --agent %q --prompt-file %q --output-file %q --exit-code-file %q >/dev/null 2>&1 || true\n",
-			helperExecutable, opts.Workspace, opts.ParentSessionID, opts.SessionID, opts.AgentName, promptPath, opts.OutputPath, exitCodePath)
+		notifyCommand = fmt.Sprintf("%s __notify-subagent-complete --workspace %s --parent-session-id %s --session-id %s --agent %s --prompt-file %s --output-file %s --exit-code-file %s >/dev/null 2>&1 || true\n",
+			shQuote(helperExecutable), shQuote(opts.Workspace), shQuote(opts.ParentSessionID), shQuote(opts.SessionID), shQuote(opts.AgentName), shQuote(promptPath), shQuote(opts.OutputPath), shQuote(exitCodePath))
 	}
 
-	command := fmt.Sprintf("codex exec --dangerously-bypass-approvals-and-sandbox -m %q -o %q", opts.Model, outputTmpPath)
+	command := "codex exec --dangerously-bypass-approvals-and-sandbox"
+	if strings.TrimSpace(opts.Model) != "" {
+		command += ` -m "$TOC_CODEX_MODEL"`
+	}
+	command += ` -o "$TOC_OUTPUT_TMP"`
 	if !opts.Resume {
-		command += " --skip-git-repo-check"
-		command += fmt.Sprintf(" - < %q", promptPath)
+		command += ` --skip-git-repo-check - < "$TOC_PROMPT_FILE"`
 	} else {
-		command = fmt.Sprintf("codex exec --dangerously-bypass-approvals-and-sandbox -m %q -o %q resume %q - < %q",
-			opts.Model, outputTmpPath, resumeConversationID, promptPath)
+		command += ` resume "$TOC_RESUME_CONVERSATION_ID" - < "$TOC_PROMPT_FILE"`
 	}
 
 	return fmt.Sprintf(`#!/bin/sh
-echo $$ > %q
-cd %q
-export TOC_WORKSPACE=%q
-export TOC_AGENT=%q
-export TOC_SESSION_ID=%q
-%s > %q 2> %q
+echo $$ > %s
+cd %s
+export TOC_WORKSPACE=%s
+export TOC_AGENT=%s
+export TOC_SESSION_ID=%s
+export TOC_PROMPT_FILE=%s
+export TOC_OUTPUT_TMP=%s
+export TOC_RESUME_CONVERSATION_ID=%s
+export TOC_CODEX_MODEL=%s
+%s > %s 2> %s
 TOC_EXIT=$?
-echo $TOC_EXIT > %q
-if [ ! -f %q ]; then
-  : > %q
+echo $TOC_EXIT > %s
+if [ ! -f %s ]; then
+  : > %s
 fi
-mv %q %q
+mv %s %s
 %s
-`, pidPath, opts.Dir, opts.Workspace, opts.AgentName, opts.SessionID, command, eventsPath, stderrPath, exitCodePath, outputTmpPath, outputTmpPath, outputTmpPath, opts.OutputPath, notifyCommand)
+`, shQuote(pidPath), shQuote(opts.Dir), shQuote(opts.Workspace), shQuote(opts.AgentName), shQuote(opts.SessionID), shQuote(promptPath), shQuote(outputTmpPath), shQuote(resumeConversationID), shQuote(opts.Model), command, shQuote(eventsPath), shQuote(stderrPath), shQuote(exitCodePath), shQuote(outputTmpPath), shQuote(outputTmpPath), shQuote(outputTmpPath), shQuote(opts.OutputPath), notifyCommand)
+}
+
+func shQuote(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", `'"'"'`) + "'"
 }
 
 func codexInstructionPathMapper(rel string) string {
@@ -483,22 +489,18 @@ func findCodexLogForWorkspace(workDir string, createdAt time.Time) (string, stri
 	var bestTime time.Time
 
 	for _, root := range searchRoots {
-		_ = filepath.WalkDir(root, func(path string, d fs.DirEntry, walkErr error) error {
-			if walkErr != nil || d.IsDir() || filepath.Ext(path) != ".jsonl" {
-				return nil
-			}
-
-			info, err := d.Info()
+		for _, path := range codexLogCandidates(root, createdAt) {
+			info, err := os.Stat(path)
 			if err != nil {
-				return nil
+				continue
 			}
 			if !createdAt.IsZero() && info.ModTime().Before(createdAt.Add(-2*time.Minute)) {
-				return nil
+				continue
 			}
 
 			conversationID, cwd, sessionTS := readCodexSessionMeta(path)
 			if cwd == "" || !matchesCodexWorkspace(cwd, workspaceCandidates) {
-				return nil
+				continue
 			}
 			candidateTime := info.ModTime()
 			if !sessionTS.IsZero() {
@@ -509,11 +511,54 @@ func findCodexLogForWorkspace(workDir string, createdAt time.Time) (string, stri
 				bestConversationID = conversationID
 				bestTime = candidateTime
 			}
-			return nil
-		})
+		}
 	}
 
 	return bestPath, bestConversationID
+}
+
+func codexLogCandidates(root string, createdAt time.Time) []string {
+	patterns := []string{filepath.Join(root, "*.jsonl")}
+	if filepath.Base(root) == "sessions" {
+		patterns = codexSessionLogPatterns(root, createdAt)
+	}
+
+	seen := make(map[string]struct{})
+	paths := make([]string, 0)
+	for _, pattern := range patterns {
+		matches, _ := filepath.Glob(pattern)
+		sort.Strings(matches)
+		for _, match := range matches {
+			if _, ok := seen[match]; ok {
+				continue
+			}
+			seen[match] = struct{}{}
+			paths = append(paths, match)
+		}
+	}
+	return paths
+}
+
+func codexSessionLogPatterns(root string, createdAt time.Time) []string {
+	if createdAt.IsZero() {
+		return []string{filepath.Join(root, "*", "*", "*", "*.jsonl")}
+	}
+
+	patterns := make([]string, 0, 3)
+	seen := make(map[string]struct{})
+	for _, ts := range []time.Time{
+		createdAt.Add(-24 * time.Hour),
+		createdAt,
+		createdAt.Add(24 * time.Hour),
+	} {
+		pattern := filepath.Join(root, ts.Format("2006"), ts.Format("01"), ts.Format("02"), "*.jsonl")
+		if _, ok := seen[pattern]; ok {
+			continue
+		}
+		seen[pattern] = struct{}{}
+		patterns = append(patterns, pattern)
+	}
+	return patterns
 }
 
 func codexWorkspaceCandidates(workspacePath string) []string {
@@ -552,6 +597,7 @@ func readCodexSessionMeta(path string) (string, string, time.Time) {
 	var line struct {
 		Timestamp string `json:"timestamp,omitempty"`
 		Type      string `json:"type"`
+		ThreadID  string `json:"thread_id,omitempty"`
 		Payload   struct {
 			ID        string `json:"id,omitempty"`
 			Timestamp string `json:"timestamp,omitempty"`
@@ -562,21 +608,16 @@ func readCodexSessionMeta(path string) (string, string, time.Time) {
 		return "", "", time.Time{}
 	}
 
-	if line.Type == "thread.started" {
-		var execLine struct {
-			Type     string `json:"type"`
-			ThreadID string `json:"thread_id,omitempty"`
-		}
-		if err := json.Unmarshal(scanner.Bytes(), &execLine); err == nil {
-			return execLine.ThreadID, "", time.Time{}
-		}
+	conversationID := line.Payload.ID
+	if conversationID == "" {
+		conversationID = line.ThreadID
 	}
 
 	ts := parseRFC3339Time(line.Payload.Timestamp)
 	if ts.IsZero() {
 		ts = parseRFC3339Time(line.Timestamp)
 	}
-	return line.Payload.ID, line.Payload.Cwd, ts
+	return conversationID, line.Payload.Cwd, ts
 }
 
 func parseRFC3339Time(value string) time.Time {

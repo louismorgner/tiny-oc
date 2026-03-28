@@ -351,6 +351,10 @@ func TestReadCodexSessionMetaThreadStartedKeepsCWD(t *testing.T) {
 	}
 }
 
+// TestCodexCLIHelpAcceptsCurrentExecShapes is a local smoke test that verifies
+// the constructed codex CLI argument shapes are accepted by the installed binary.
+// It is intentionally skipped when codex is not present (e.g. in most CI environments).
+// To run it locally, install the Codex CLI and ensure it is on PATH.
 func TestCodexCLIHelpAcceptsCurrentExecShapes(t *testing.T) {
 	if _, err := exec.LookPath("codex"); err != nil {
 		t.Skip("codex not installed")

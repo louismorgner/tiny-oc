@@ -36,6 +36,8 @@ func loadRuntimeStateSummary(s *session.Session) (*runtimeStateSummary, error) {
 			if cfgErr != nil && !os.IsNotExist(cfgErr) {
 				return nil, cfgErr
 			}
+			// Native sessions don't write a state file during normal operation,
+			// so a missing state is expected — return nil,nil rather than an error.
 			if cfg == nil && s.RuntimeName() == runtimeinfo.NativeRuntime {
 				return nil, nil
 			}

@@ -248,7 +248,7 @@ func ensureCodexGitRepo(workDir string) error {
 
 func buildCodexInteractiveArgs(workDir, model string, resume bool, tocSessionID string) ([]string, error) {
 	if !resume {
-		args := append([]string{}, codexModelArgs(model)...)
+		args := codexModelArgs(model) // codexModelArgs returns a fresh slice; no defensive copy needed
 		args = append(args, "--dangerously-bypass-approvals-and-sandbox")
 		return args, nil
 	}
@@ -317,6 +317,21 @@ func BuildCodexDetachedScript(helperExecutable string, opts DetachedOptions, pro
 		command += ` resume "$TOC_RESUME_CONVERSATION_ID" - < "$TOC_PROMPT_FILE"`
 	}
 
+	// Use named variables to keep the template readable and avoid positional arg mismatches.
+	qPid := shQuote(pidPath)
+	qDir := shQuote(opts.Dir)
+	qWorkspace := shQuote(opts.Workspace)
+	qAgent := shQuote(opts.AgentName)
+	qSessionID := shQuote(opts.SessionID)
+	qPromptFile := shQuote(promptPath)
+	qOutputTmp := shQuote(outputTmpPath)
+	qResumeConvID := shQuote(resumeConversationID)
+	qModel := shQuote(opts.Model)
+	qEvents := shQuote(eventsPath)
+	qStderr := shQuote(stderrPath)
+	qExitCode := shQuote(exitCodePath)
+	qOutput := shQuote(opts.OutputPath)
+
 	return fmt.Sprintf(`#!/bin/sh
 echo $$ > %s
 cd %s
@@ -335,7 +350,7 @@ if [ ! -f %s ]; then
 fi
 mv %s %s
 %s
-`, shQuote(pidPath), shQuote(opts.Dir), shQuote(opts.Workspace), shQuote(opts.AgentName), shQuote(opts.SessionID), shQuote(promptPath), shQuote(outputTmpPath), shQuote(resumeConversationID), shQuote(opts.Model), command, shQuote(eventsPath), shQuote(stderrPath), shQuote(exitCodePath), shQuote(outputTmpPath), shQuote(outputTmpPath), shQuote(outputTmpPath), shQuote(opts.OutputPath), notifyCommand)
+`, qPid, qDir, qWorkspace, qAgent, qSessionID, qPromptFile, qOutputTmp, qResumeConvID, qModel, command, qEvents, qStderr, qExitCode, qOutputTmp, qOutputTmp, qOutputTmp, qOutput, notifyCommand)
 }
 
 func shQuote(value string) string {
@@ -472,6 +487,11 @@ func findCodexLogByConversationID(conversationID string) string {
 	return ""
 }
 
+// findCodexLogForWorkspace scans ~/.codex/sessions (and archived_sessions) for
+// a JSONL log whose working directory matches workDir. The createdAt filter
+// narrows the glob to date-based subdirectories, keeping the scan fast for
+// typical use. On machines with a very large number of Codex sessions the scan
+// may still be slow; prefer narrowing createdAt when possible.
 func findCodexLogForWorkspace(workDir string, createdAt time.Time) (string, string) {
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -641,11 +661,18 @@ type codexRolloutFunctionCall struct {
 
 func parseCodexSessionLine(line []byte, pending map[string]codexRolloutFunctionCall) []Event {
 	var head struct {
-		Type      string `json:"type"`
-		Timestamp string `json:"timestamp,omitempty"`
+		Type      string          `json:"type"`
+		Timestamp string          `json:"timestamp,omitempty"`
+		Payload   json.RawMessage `json:"payload,omitempty"`
 	}
 	if err := json.Unmarshal(line, &head); err != nil {
 		return nil
+	}
+
+	// Prefer a format marker (presence of "payload" key) over relying on type
+	// strings being globally unique across exec and rollout log formats.
+	if len(head.Payload) > 0 {
+		return parseCodexRolloutLine(line, pending)
 	}
 
 	switch head.Type {
@@ -930,7 +957,10 @@ func codexRolloutCallOutputToStep(call codexRolloutFunctionCall, output string) 
 		step.Success = boolPtr(exitCode == 0)
 		return step
 	case "apply_patch":
-		success := !strings.Contains(strings.ToLower(output), "error")
+		// Check for an explicit "Error:" prefix rather than any occurrence of the word
+		// "error", which would misclassify output like "fixed error_handler.go".
+		trimmed := strings.TrimSpace(output)
+		success := !strings.HasPrefix(trimmed, "Error:") && !strings.HasPrefix(trimmed, "error:")
 		return Step{
 			Type:    "tool",
 			Tool:    "Edit",

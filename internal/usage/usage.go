@@ -210,6 +210,11 @@ func parseCodexJSONL(path string) TokenUsage {
 	return usage
 }
 
+// maxTokenUsage returns a TokenUsage that takes the maximum of each field
+// independently from a and b. This is intentional: each field is taken from
+// the best available measurement source (e.g. turn.completed events vs rollout
+// token_count totals), so a per-field max gives the most complete picture
+// even when the two sources measure different phases of the same session.
 func maxTokenUsage(a, b TokenUsage) TokenUsage {
 	return TokenUsage{
 		InputTokens:  maxInt64(a.InputTokens, b.InputTokens),

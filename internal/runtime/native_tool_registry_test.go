@@ -30,6 +30,11 @@ func TestNativeToolSetFiltersInRegistryOrder(t *testing.T) {
 }
 
 func TestExecuteNativeToolWithTimeout_SingleToolTimeout(t *testing.T) {
+	// Temporarily shorten the default timeout so the test completes quickly.
+	orig := defaultToolTimeout
+	defaultToolTimeout = 200 * time.Millisecond
+	defer func() { defaultToolTimeout = orig }()
+
 	// Register a fake tool that blocks longer than the timeout.
 	slowTool := NativeToolSpec{
 		Name: "SlowTool",
@@ -41,55 +46,32 @@ func TestExecuteNativeToolWithTimeout_SingleToolTimeout(t *testing.T) {
 	specs := []NativeToolSpec{slowTool}
 	ctx := nativeToolContext{SessionDir: t.TempDir(), Agent: "tester"}
 
-	// Override toolCallTimeout by using a Bash-style call with a very short timeout
-	// so the grace-period wrapper fires quickly.
-	// Instead, we'll use a non-Bash tool and temporarily test with default timeout.
-	// For a fast test, we use a custom approach: create a tool that sleeps,
-	// and test the wrapper directly with a short deadline.
-
 	call := ToolCall{
 		ID:       "call-slow",
 		Function: ToolCallFunction{Name: "SlowTool", Arguments: "{}"},
 	}
 
-	// Test the wrapper with a very short deadline by temporarily
-	// using a Bash-like call with a 50ms timeout_ms to trigger fast timeout.
-	bashArgs, _ := json.Marshal(map[string]interface{}{
-		"command":    "sleep 60",
-		"timeout_ms": 50,
-	})
-	bashCall := ToolCall{
-		ID:       "call-bash-slow",
-		Function: ToolCallFunction{Name: "Bash", Arguments: string(bashArgs)},
-	}
-
-	// Verify toolCallTimeout returns short deadline for the Bash call
-	deadline := toolCallTimeout(bashCall)
-	if deadline > 35*time.Second {
-		t.Fatalf("expected short deadline, got %v", deadline)
-	}
-
-	// Test the non-Bash slow tool path: the default 10-minute timeout is too
-	// long for a test, so we test the Bash tool path directly which gets
-	// timeout_ms + grace.
-	// For the SlowTool, verify the timeout mechanism works via a direct
-	// goroutine-based test.
 	start := time.Now()
-	ch := make(chan toolExecution, 1)
-	go func() {
-		ch <- executeNativeTool(specs, ctx, call)
-	}()
-
-	testDeadline := 200 * time.Millisecond
-	select {
-	case <-ch:
-		t.Fatal("tool should not have completed this fast")
-	case <-time.After(testDeadline):
-		// Expected: the tool is still blocked
-	}
+	result := executeNativeToolWithTimeout(specs, ctx, call)
 	elapsed := time.Since(start)
-	if elapsed < testDeadline {
+
+	if elapsed < 200*time.Millisecond {
 		t.Fatalf("timeout fired too early: %v", elapsed)
+	}
+	if elapsed > 5*time.Second {
+		t.Fatalf("timeout took too long (tool was not interrupted): %v", elapsed)
+	}
+	if result.Step.Success == nil || *result.Step.Success {
+		t.Fatalf("expected failure, got success: %#v", result)
+	}
+	if !result.Step.TimedOut {
+		t.Fatalf("expected TimedOut flag, got %#v", result.Step)
+	}
+	if result.Step.DurationMS <= 0 {
+		t.Fatalf("expected DurationMS > 0, got %d", result.Step.DurationMS)
+	}
+	if !strings.Contains(result.Message, "exceeded its deadline") {
+		t.Fatalf("expected deadline message, got %q", result.Message)
 	}
 }
 

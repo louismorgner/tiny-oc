@@ -395,7 +395,8 @@ func executeNativeTool(specs []NativeToolSpec, ctx nativeToolContext, call ToolC
 
 // defaultToolTimeout is the maximum time any non-Bash tool call may take.
 // Most tools complete in milliseconds; this is a safety net for hangs.
-const defaultToolTimeout = 10 * time.Minute
+// This is a var (not const) so tests can temporarily shorten it.
+var defaultToolTimeout = 10 * time.Minute
 
 // toolTimeoutGrace is added to the tool's own timeout to allow cleanup
 // before the runner forces a timeout result.
@@ -407,23 +408,34 @@ const toolTimeoutGrace = 30 * time.Second
 func executeNativeToolWithTimeout(specs []NativeToolSpec, ctx nativeToolContext, call ToolCall) toolExecution {
 	deadline := toolCallTimeout(call)
 
+	start := time.Now()
 	ch := make(chan toolExecution, 1)
 	go func() {
 		ch <- executeNativeTool(specs, ctx, call)
 	}()
 
+	timer := time.NewTimer(deadline)
+	defer timer.Stop()
+
 	select {
 	case result := <-ch:
 		return result
-	case <-time.After(deadline):
+	case <-timer.C:
+		// NOTE: The goroutine running executeNativeTool will leak until it
+		// returns on its own. For Bash tools this is bounded by the process
+		// timeout; for other tools there is no cancellation path today.
+		// Threading a context through every handler would fix this but is a
+		// larger refactor tracked separately.
 		timeoutSec := int(deadline.Seconds())
+		durationMS := time.Since(start).Milliseconds()
 		return toolExecution{
-			Message: fmt.Sprintf("Error: tool %s timed out after %ds. The operation was killed. You can retry with a shorter timeout or a different approach.", call.Function.Name, timeoutSec),
+			Message: fmt.Sprintf("Error: tool %s exceeded its deadline after %ds. You can retry with a shorter timeout or a different approach.", call.Function.Name, timeoutSec),
 			Step: Step{
-				Type:    "tool",
-				Tool:    call.Function.Name,
-				TimedOut: true,
-				Success: boolPtr(false),
+				Type:       "tool",
+				Tool:       call.Function.Name,
+				DurationMS: durationMS,
+				TimedOut:   true,
+				Success:    boolPtr(false),
 			},
 		}
 	}

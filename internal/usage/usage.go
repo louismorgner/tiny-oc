@@ -26,6 +26,18 @@ func (u TokenUsage) Total() int64 {
 	return u.InputTokens + u.OutputTokens + u.CacheRead + u.CacheCreate
 }
 
+// FormatCost returns a human-readable USD cost string, e.g. "~$0.04".
+// Returns empty string if cost is zero or the model has no pricing data.
+func FormatCost(cost float64) string {
+	if cost <= 0 {
+		return ""
+	}
+	if cost < 0.01 {
+		return fmt.Sprintf("~$%.4f", cost)
+	}
+	return fmt.Sprintf("~$%.2f", cost)
+}
+
 // FormatTotal returns a human-readable token count.
 func (u TokenUsage) FormatTotal() string {
 	t := u.Total()

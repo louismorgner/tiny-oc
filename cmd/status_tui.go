@@ -99,6 +99,12 @@ func (m statusModel) View() tea.View {
 	b.WriteString(fmt.Sprintf("  %s %s\n", bold("Config:"), dim(config.TocDir()+"/")))
 	b.WriteString("\n")
 
+	// Build agent name → model map for cost lookups.
+	agentModel := make(map[string]string, len(m.agents))
+	for _, a := range m.agents {
+		agentModel[a.Name] = a.Model
+	}
+
 	// Token totals per agent
 	agentTokens := make(map[string]usage.TokenUsage)
 	var totalTokens usage.TokenUsage
@@ -134,9 +140,15 @@ func (m statusModel) View() tea.View {
 				if a.Description != "" {
 					desc = " " + dim("— "+a.Description)
 				}
-				tokenStr := agentTokens[a.Name].FormatTotal()
+				agTok := agentTokens[a.Name]
+				tokenStr := agTok.FormatTotal()
 				if tokenStr != "" {
-					desc += " " + dim("["+tokenStr+"]")
+					costStr := usage.FormatCost(usage.EstimateCost(a.Model, agTok))
+					bracket := tokenStr
+					if costStr != "" {
+						bracket += "  " + costStr
+					}
+					desc += " " + dim("["+bracket+"]")
 				}
 				b.WriteString(fmt.Sprintf("    %s %s %s%s\n", green("✓"), cyan(a.Name), dim(a.Model), desc))
 			} else {
@@ -221,7 +233,12 @@ func (m statusModel) View() tea.View {
 			tokenStr := tokens.FormatTotal()
 			tokenCol := ""
 			if tokenStr != "" {
-				tokenCol = "  " + dim(tokenStr)
+				costStr := usage.FormatCost(usage.EstimateCost(agentModel[s.Agent], tokens))
+				if costStr != "" {
+					tokenCol = "  " + dim(tokenStr+"  "+costStr)
+				} else {
+					tokenCol = "  " + dim(tokenStr)
+				}
 			}
 
 			nameCol := ""

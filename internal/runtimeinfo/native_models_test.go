@@ -48,6 +48,25 @@ func TestLookupNativeProfileClaudeSonnet46(t *testing.T) {
 	}
 }
 
+func TestLookupNativeProfileClaudeOpus46(t *testing.T) {
+	profile, ok := LookupNativeProfile("anthropic/claude-opus-4.6")
+	if !ok {
+		t.Fatal("expected to find anthropic/claude-opus-4.6 profile")
+	}
+	if profile.Label != "Claude Opus 4.6" {
+		t.Fatalf("Label = %q, want %q", profile.Label, "Claude Opus 4.6")
+	}
+	if profile.ContextWindow != 200000 {
+		t.Fatalf("ContextWindow = %d, want 200000", profile.ContextWindow)
+	}
+	if profile.MaxOutputTokens != 32768 {
+		t.Fatalf("MaxOutputTokens = %d, want 32768", profile.MaxOutputTokens)
+	}
+	if !profile.SupportsTools {
+		t.Fatal("expected SupportsTools = true")
+	}
+}
+
 func TestValidateNativeModel_RejectsUnknownWithoutOverride(t *testing.T) {
 	err := ValidateNativeModel("meta-llama/unknown", false)
 	if err == nil {

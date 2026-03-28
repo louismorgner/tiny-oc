@@ -84,12 +84,12 @@ var nativeModelProfiles = []NativeModelProfile{
 	{
 		ID:                "anthropic/claude-opus-4.6",
 		Label:             "Claude Opus 4.6",
-		Description:       "Anthropic flagship model for coding and agentic workflows with 1M context",
+		Description:       "Anthropic flagship model for complex coding and agentic workflows",
 		SupportsTools:     true,
 		SupportsStreaming: true,
-		ContextWindow:     1000000,
-		MaxOutputTokens:   128000,
-		ReservedBuffer:    8192,
+		ContextWindow:     200000,
+		MaxOutputTokens:   32768,
+		ReservedBuffer:    4096,
 	},
 	{
 		ID:                "z-ai/glm-5",

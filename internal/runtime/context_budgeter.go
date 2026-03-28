@@ -45,7 +45,13 @@ func NewContextBudgeter(profile runtimeinfo.NativeModelProfile) *ContextBudgeter
 // InputBudget returns the maximum number of input tokens available for
 // message history (context window minus output reservation minus buffer).
 func (b *ContextBudgeter) InputBudget() int {
-	budget := b.ContextWindow - b.MaxOutput - b.ReservedBuffer
+	// Guard: MaxOutput must not exceed the context window (misconfigured profiles
+	// would produce a negative budget and silently floor sessions at 1024).
+	maxOut := b.MaxOutput
+	if maxOut > b.ContextWindow {
+		maxOut = b.ContextWindow / 2
+	}
+	budget := b.ContextWindow - maxOut - b.ReservedBuffer
 	if budget < 1024 {
 		return 1024
 	}

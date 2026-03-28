@@ -75,17 +75,18 @@ For a deeper implementation walk-through, see [toc-native Runtime](toc-native-ru
 
 ### Current scope
 
-The native beta supports local tools only:
+The native beta supports local tools plus first-class public URL viewing:
 
 - File reads and writes
 - File edits (string replacement)
 - Glob and grep
 - Shell execution
+- Public URL fetch with HTML-to-Markdown conversion
 - Skill reads
 - Todo tracking with `TodoWrite`
 - Sub-agent management
 
-External integrations (`toc runtime invoke`) are not yet part of the native tool loop.
+Authenticated integrations (`toc runtime invoke`) and browser automation are not yet part of the native tool loop.
 
 ### How it works
 

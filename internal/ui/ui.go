@@ -12,12 +12,12 @@ import (
 )
 
 var (
-	Bold    = color.New(color.Bold).SprintFunc()
-	Green   = color.New(color.FgGreen).SprintFunc()
-	Cyan    = color.New(color.FgCyan).SprintFunc()
-	Yellow  = color.New(color.FgYellow).SprintFunc()
-	Dim     = color.New(color.Faint).SprintFunc()
-	Red     = color.New(color.FgRed).SprintFunc()
+	Bold     = color.New(color.Bold).SprintFunc()
+	Green    = color.New(color.FgGreen).SprintFunc()
+	Cyan     = color.New(color.FgCyan).SprintFunc()
+	Yellow   = color.New(color.FgYellow).SprintFunc()
+	Dim      = color.New(color.Faint).SprintFunc()
+	Red      = color.New(color.FgRed).SprintFunc()
 	BoldCyan = color.New(color.Bold, color.FgCyan).SprintFunc()
 )
 
@@ -236,6 +236,10 @@ func ToolCallKeyParam(toolName string, args map[string]interface{}) string {
 	case "Grep":
 		if p, ok := args["pattern"].(string); ok {
 			return truncateInlineUI(p, 60)
+		}
+	case "WebFetch":
+		if u, ok := args["url"].(string); ok {
+			return truncateInlineUI(u, 80)
 		}
 	case "Skill":
 		if s, ok := args["skill"].(string); ok {

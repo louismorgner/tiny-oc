@@ -104,6 +104,7 @@ Keep `permissions` as the public term rather than `policy`.
 Current permission areas include:
 
 - filesystem
+- network
 - integrations
 - sub-agents
 
@@ -128,7 +129,7 @@ Examples:
 - searches
 - skill invocations
 
-For the current `toc-native` beta, `tool` should be read narrowly as local runtime tools. External integrations are not yet part of the native tool loop.
+For the current `toc-native` beta, `tool` includes local runtime tools plus first-class public URL viewing. Broader authenticated integrations are still outside the native tool loop.
 
 ## Event
 

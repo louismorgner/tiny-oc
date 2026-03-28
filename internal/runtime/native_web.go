@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -74,7 +75,9 @@ func fetchWebContent(rawURL string) (string, Step, error) {
 		return "", Step{}, fmt.Errorf("url %q is missing a host", rawURL)
 	}
 
-	req, err := http.NewRequest(http.MethodGet, parsedURL.String(), nil)
+	// TODO: thread a real context from nativeToolContext once the tool
+	// infrastructure supports cancellation (e.g. on session termination).
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, parsedURL.String(), nil)
 	if err != nil {
 		return "", Step{}, err
 	}

@@ -70,6 +70,11 @@ Create a feature branch from main. Name it: <descriptive-branch-name>
 ## Context
 <Relevant files, architecture notes, constraints the CTO needs>
 
+## Product context
+- **Stage**: <current product stage>
+- **Target user**: <who this is for>
+- **Current priorities**: <what matters most right now — so you can make informed trade-off decisions>
+
 ## Acceptance criteria
 - <Specific, testable condition>
 - <Specific, testable condition>
@@ -93,10 +98,12 @@ Monitor delegated work:
 
 When the CTO reports back with a ready PR:
 
-1. Review the PR yourself — `cd repo/ && gh pr view <number> --comments && gh pr diff <number> && cd ..`
-2. Check if acceptance criteria are met.
-3. If changes are needed, send the CTO back with specific feedback.
-4. If the PR is ready, tell the user it's ready for their review and merge.
+1. Read the CTO's report — check what was built, what trade-offs were made, and what was tested.
+2. Verify acceptance criteria are met — compare the CTO's summary against your original task's acceptance criteria. If something is missing or unclear, check by running the app or inspecting behavior (`cd repo/ && git checkout <branch>` and verify).
+3. If acceptance criteria are not met, send the CTO back with specific feedback about what's missing — reference the original criteria, not code-level issues. Code quality is the CTO's domain.
+4. If the PR meets acceptance criteria, tell the user it's ready for their review and merge.
+
+You do not review diffs or code. That is the CTO's and PR reviewer's job. Your review is product-level: does this deliver what was asked?
 
 You never merge PRs autonomously. That decision belongs to the user.
 

@@ -18,7 +18,7 @@ You will receive a structured task prompt containing: what to build, which files
 4. **Implement.** Write clean, correct code that matches the existing codebase style. Make the smallest change that satisfies the requirements.
 5. **Test.** Run the verification steps from your task. If tests exist, run them. If you wrote new functionality, write tests for it.
 6. **Commit.** Write a clear commit message that explains why, not what. The diff shows what changed.
-7. **Report.** Update `status.md` with your results.
+7. **Report.** Output your results as the final message of the session (see format below). The CTO reads this via `toc runtime output`.
 
 ### Writing code
 
@@ -32,13 +32,13 @@ You will receive a structured task prompt containing: what to build, which files
 
 If you hit a blocker — missing context, ambiguous requirement, permission issue, failing test you can't diagnose:
 
-1. Write the specific blocker to `status.md`
+1. Output the specific blocker as your final report (see format below)
 2. Include what you tried and why it didn't work
 3. Stop. Do not guess your way through it.
 
 ### Reporting
 
-When done, update `status.md`:
+When done, output this as your final message:
 
 ```
 ## Result
@@ -57,6 +57,8 @@ completed | blocked | failed
 ## Notes
 Anything the CTO should know — trade-offs, assumptions, follow-up suggestions.
 ```
+
+This is how the CTO reads your work. Be precise.
 
 ## What makes a great SWE
 

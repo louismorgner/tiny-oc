@@ -383,10 +383,15 @@ func TestStopByPrefix_AmbiguousPrefix(t *testing.T) {
 		{ID: "f74e0d70-aaaa-0000-0000-000000000001", Agent: "a", WorkspacePath: t.TempDir(), Status: StatusActive},
 		{ID: "f74e0d70-bbbb-0000-0000-000000000002", Agent: "b", WorkspacePath: t.TempDir(), Status: StatusActive},
 	}}
-	data, _ := yaml.Marshal(sf)
-	os.WriteFile(filepath.Join(tocDir, "sessions.yaml"), data, 0600)
+	data, err := yaml.Marshal(sf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(tocDir, "sessions.yaml"), data, 0600); err != nil {
+		t.Fatal(err)
+	}
 
-	_, err := FindByIDPrefixInWorkspace(wsDir, "f74e0d70")
+	_, err = FindByIDPrefixInWorkspace(wsDir, "f74e0d70")
 	if err == nil {
 		t.Fatal("expected ambiguous prefix error, got nil")
 	}

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -142,7 +143,9 @@ func (nativeProvider) LaunchInteractive(opts LaunchOptions) error {
 
 	// Write PID file so `toc stop` can find and terminate the process.
 	pidPath := filepath.Join(opts.Dir, "toc-pid.txt")
-	_ = os.WriteFile(pidPath, []byte(fmt.Sprintf("%d", cmd.Process.Pid)), 0644)
+	if err := os.WriteFile(pidPath, []byte(fmt.Sprintf("%d", cmd.Process.Pid)), 0600); err != nil {
+		log.Printf("warning: failed to write PID file %s: %v", pidPath, err)
+	}
 	defer os.Remove(pidPath)
 
 	if err := cmd.Wait(); err != nil {

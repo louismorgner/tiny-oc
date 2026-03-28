@@ -146,27 +146,41 @@ func RunNativeSession(opts NativeRunOptions, stdin io.Reader, stdout io.Writer) 
 	signal.Notify(sigCh, syscall.SIGINT)
 	defer signal.Stop(sigCh)
 
+	// Poll for sub-agent completion notifications while waiting for
+	// user input. Without this ticker the interactive loop blocks on
+	// stdin and only drains notifications at the top of each iteration,
+	// meaning a child that finishes mid-wait goes unprocessed until the
+	// user types something.
+	notifyTicker := time.NewTicker(2 * time.Second)
+	defer notifyTicker.Stop()
+
+	type readResult struct {
+		line string
+		err  error
+	}
+	readCh := make(chan readResult, 1)
+	stdinReading := false
+
 	reader := bufio.NewReader(stdin)
 	for {
+		// Drain any notifications that arrived since the last iteration.
 		if _, err := drainSessionNotifications(client, state, toolSpecs, profile, toolCtx, stdout, false); err != nil {
 			return err
 		}
-		if isTTY {
-			fmt.Fprint(stdout, ui.UserPromptPrefix(opts.Agent))
-		} else {
-			fmt.Fprint(stdout, ui.PlainPromptPrefix())
-		}
 
-		// Read user input, but also watch for SIGINT.
-		type readResult struct {
-			line string
-			err  error
+		// Start a stdin read goroutine if one isn't already pending.
+		if !stdinReading {
+			if isTTY {
+				fmt.Fprint(stdout, ui.UserPromptPrefix(opts.Agent))
+			} else {
+				fmt.Fprint(stdout, ui.PlainPromptPrefix())
+			}
+			go func() {
+				line, err := reader.ReadString('\n')
+				readCh <- readResult{line, err}
+			}()
+			stdinReading = true
 		}
-		readCh := make(chan readResult, 1)
-		go func() {
-			line, err := reader.ReadString('\n')
-			readCh <- readResult{line, err}
-		}()
 
 		var line string
 		var readErr error
@@ -178,8 +192,25 @@ func RunNativeSession(opts NativeRunOptions, stdin io.Reader, stdout io.Writer) 
 			}
 			return finalizeNativeSession(client, state, sessionCfg, toolSpecs, profile, toolCtx, stdout, false)
 		case r := <-readCh:
+			stdinReading = false
 			line = r.line
 			readErr = r.err
+		case <-notifyTicker.C:
+			// Check for sub-agent completions while waiting for input.
+			handled, err := drainSessionNotifications(client, state, toolSpecs, profile, toolCtx, stdout, false)
+			if err != nil {
+				return err
+			}
+			if handled {
+				// A notification was processed and the model responded.
+				// Re-print the prompt for the next user input.
+				if stdinReading {
+					if isTTY {
+						fmt.Fprint(stdout, ui.UserPromptPrefix(opts.Agent))
+					}
+				}
+			}
+			continue
 		}
 
 		if readErr != nil {

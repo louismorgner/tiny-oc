@@ -72,6 +72,16 @@ var nativeModelProfiles = []NativeModelProfile{
 		ReservedBuffer:    8192,
 	},
 	{
+		ID:                "anthropic/claude-sonnet-4.6",
+		Label:             "Claude Sonnet 4.6",
+		Description:       "Anthropic mid-tier model with strong coding and reasoning at lower cost",
+		SupportsTools:     true,
+		SupportsStreaming: true,
+		ContextWindow:     200000,
+		MaxOutputTokens:   16384,
+		ReservedBuffer:    4096,
+	},
+	{
 		ID:                "anthropic/claude-opus-4.6",
 		Label:             "Claude Opus 4.6",
 		Description:       "Anthropic flagship model for coding and agentic workflows with 1M context",

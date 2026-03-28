@@ -32,6 +32,22 @@ func TestResolveNativeProfileUnknownModel(t *testing.T) {
 	}
 }
 
+func TestLookupNativeProfileClaudeSonnet46(t *testing.T) {
+	profile, ok := LookupNativeProfile("anthropic/claude-sonnet-4.6")
+	if !ok {
+		t.Fatal("expected to find anthropic/claude-sonnet-4.6 profile")
+	}
+	if profile.Label != "Claude Sonnet 4.6" {
+		t.Fatalf("Label = %q, want %q", profile.Label, "Claude Sonnet 4.6")
+	}
+	if profile.ContextWindow != 200000 {
+		t.Fatalf("ContextWindow = %d, want 200000", profile.ContextWindow)
+	}
+	if !profile.SupportsTools {
+		t.Fatal("expected SupportsTools = true")
+	}
+}
+
 func TestValidateNativeModel_RejectsUnknownWithoutOverride(t *testing.T) {
 	err := ValidateNativeModel("meta-llama/unknown", false)
 	if err == nil {

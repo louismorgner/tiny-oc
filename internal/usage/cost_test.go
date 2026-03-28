@@ -50,6 +50,26 @@ func TestEstimateCostCodex(t *testing.T) {
 	}
 }
 
+func TestEstimateCostClaudeSonnet46(t *testing.T) {
+	tokens := TokenUsage{
+		InputTokens:  1_000_000,
+		OutputTokens: 100_000,
+		CacheRead:    500_000,
+		CacheCreate:  50_000,
+	}
+	cost := EstimateCost("anthropic/claude-sonnet-4.6", tokens)
+	// claude-sonnet-4.6: input=$3/M, output=$15/M, cache_read=$0.30/M, cache_write=$3.75/M
+	// non-cached: (1M - 500k - 50k) * 3/M = 1.35
+	// output: 100k * 15/M = 1.50
+	// cache_read: 500k * 0.30/M = 0.15
+	// cache_write: 50k * 3.75/M = 0.1875
+	// total = 3.1875
+	expected := 3.1875
+	if math.Abs(cost-expected) > 0.001 {
+		t.Fatalf("cost = %f, expected %f", cost, expected)
+	}
+}
+
 func TestLookupPricing(t *testing.T) {
 	if _, ok := LookupPricing("openai/gpt-5.4"); !ok {
 		t.Fatal("expected pricing for gpt-5.4")

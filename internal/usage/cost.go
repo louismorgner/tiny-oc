@@ -41,6 +41,12 @@ var modelPricing = map[string]ModelPricing{
 		CacheReadPerToken:  1.75 / 1_000_000, // no cache discount listed
 		CacheWritePerToken: 1.75 / 1_000_000,
 	},
+	"anthropic/claude-sonnet-4.6": {
+		InputPerToken:      3.00 / 1_000_000,
+		OutputPerToken:     15.00 / 1_000_000,
+		CacheReadPerToken:  0.30 / 1_000_000,
+		CacheWritePerToken: 3.75 / 1_000_000,
+	},
 	"anthropic/claude-opus-4.6": {
 		InputPerToken:      5.00 / 1_000_000,
 		OutputPerToken:     25.00 / 1_000_000,

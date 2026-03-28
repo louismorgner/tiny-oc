@@ -56,11 +56,11 @@ func TestLookupNativeProfileClaudeOpus46(t *testing.T) {
 	if profile.Label != "Claude Opus 4.6" {
 		t.Fatalf("Label = %q, want %q", profile.Label, "Claude Opus 4.6")
 	}
-	if profile.ContextWindow != 200000 {
-		t.Fatalf("ContextWindow = %d, want 200000", profile.ContextWindow)
+	if profile.ContextWindow != 1000000 {
+		t.Fatalf("ContextWindow = %d, want 1000000", profile.ContextWindow)
 	}
-	if profile.MaxOutputTokens != 32768 {
-		t.Fatalf("MaxOutputTokens = %d, want 32768", profile.MaxOutputTokens)
+	if profile.MaxOutputTokens != 128000 {
+		t.Fatalf("MaxOutputTokens = %d, want 128000", profile.MaxOutputTokens)
 	}
 	if !profile.SupportsTools {
 		t.Fatal("expected SupportsTools = true")

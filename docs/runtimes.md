@@ -193,7 +193,7 @@ Session config defaults:
 - Keep recent: 12 messages (retained after compaction)
 - Max continuation: ~6,000 characters
 
-For models with known context windows (GPT-4o: 128K, Claude Sonnet 4: 200K, Claude Opus 4.6: 200K), token budgets are computed automatically. Custom models use a conservative 128K default.
+For models with known context windows (GPT-4o: 128K, Claude Sonnet 4: 200K, Claude Opus 4.6: 1M), token budgets are computed automatically. Custom models use a conservative 128K default.
 
 ## Choosing a runtime
 

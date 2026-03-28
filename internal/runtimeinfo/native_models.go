@@ -87,9 +87,9 @@ var nativeModelProfiles = []NativeModelProfile{
 		Description:       "Anthropic flagship model for complex coding and agentic workflows",
 		SupportsTools:     true,
 		SupportsStreaming: true,
-		ContextWindow:     200000,
-		MaxOutputTokens:   32768,
-		ReservedBuffer:    4096,
+		ContextWindow:     1000000,
+		MaxOutputTokens:   128000,
+		ReservedBuffer:    8192,
 	},
 	{
 		ID:                "z-ai/glm-5",

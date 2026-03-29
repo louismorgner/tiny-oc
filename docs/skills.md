@@ -109,7 +109,7 @@ Removes the local skill directory and/or its URL reference.
 
 ## Built-in registry
 
-The toc registry includes skills and agent templates:
+The toc registry includes skills, agent templates, and workspaces:
 
 | Name | Type | Description |
 |---|---|---|
@@ -117,13 +117,15 @@ The toc registry includes skills and agent templates:
 | `agentic-memory` | skill | Persistent memory system with daily logs and long-term storage for cross-session continuity |
 | `cto` | agent | Technical leadership agent — code quality, architecture, and open-source standards |
 | `mini-claw` | agent | Persistent agent with identity, memory, and session awareness — inspired by OpenClaw |
+| `superfounder` | workspace | Multi-agent startup team — CTO, SWE, PR reviewer, and product thinker |
 
 Install from the registry:
 
 ```bash
 toc skill add <skill-name>
-toc agent add <agent-name>    # for agent templates (e.g. cto, mini-claw)
-toc registry search            # browse all available entries
+toc agent add <agent-name>           # for agent templates (e.g. cto, mini-claw)
+toc registry install <workspace>     # install all agents in a workspace (e.g. superfounder)
+toc registry search                  # browse all available entries
 ```
 
 These are available from the [toc registry](https://github.com/louismorgner/tiny-oc/tree/main/registry).

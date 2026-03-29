@@ -63,12 +63,15 @@ var registrySearchCmd = &cobra.Command{
 				desc = desc[:47] + "..."
 			}
 			typeBadge := ui.Dim(e.Type)
-			if e.Type == "agent" {
+			switch e.Type {
+			case "agent":
 				extra := []string{e.Model}
 				if len(e.Skills) > 0 {
 					extra = append(extra, fmt.Sprintf("%d skill(s)", len(e.Skills)))
 				}
 				desc = fmt.Sprintf("%s %s", desc, ui.Dim("["+strings.Join(extra, ", ")+"]"))
+			case "workspace":
+				desc = fmt.Sprintf("%s %s", desc, ui.Dim(fmt.Sprintf("[%d agent(s)]", len(e.Agents))))
 			}
 			fmt.Printf("  %-20s %-8s %s\n", ui.Cyan(e.Name), typeBadge, desc)
 		}

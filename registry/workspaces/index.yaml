@@ -1,0 +1,9 @@
+workspaces:
+  - name: superfounder
+    description: Multi-agent startup team — CTO, SWE, PR reviewer, and product thinker
+    tags: [multi-agent, startup, team]
+    agents:
+      - superfounder-cto
+      - superfounder-swe
+      - superfounder-pr-reviewer
+      - superfounder-product-thinker

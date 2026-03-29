@@ -18,20 +18,22 @@ import (
 )
 
 const (
-	RepoURL        = "https://github.com/louismorgner/tiny-oc.git"
-	rawBase        = "https://raw.githubusercontent.com/louismorgner/tiny-oc/main/registry"
-	SkillIndexURL  = rawBase + "/skills/index.yaml"
-	AgentIndexURL  = rawBase + "/agents/index.yaml"
+	RepoURL           = "https://github.com/louismorgner/tiny-oc.git"
+	rawBase           = "https://raw.githubusercontent.com/louismorgner/tiny-oc/main/registry"
+	SkillIndexURL     = rawBase + "/skills/index.yaml"
+	AgentIndexURL     = rawBase + "/agents/index.yaml"
+	WorkspaceIndexURL = rawBase + "/workspaces/index.yaml"
 )
 
-// Entry represents any item in the registry — skill or agent.
+// Entry represents any item in the registry — skill, agent, or workspace.
 type Entry struct {
 	Name        string   `yaml:"name" json:"name"`
 	Description string   `yaml:"description" json:"description"`
-	Type        string   `yaml:"-" json:"type"` // "skill" or "agent"
+	Type        string   `yaml:"-" json:"type"` // "skill", "agent", or "workspace"
 	Tags        []string `yaml:"tags,omitempty" json:"tags,omitempty"`
 	Model       string   `yaml:"model,omitempty" json:"model,omitempty"`
 	Skills      []string `yaml:"skills,omitempty" json:"skills,omitempty"`
+	Agents      []string `yaml:"agents,omitempty" json:"agents,omitempty"`
 }
 
 type skillIndex struct {
@@ -40,6 +42,10 @@ type skillIndex struct {
 
 type agentIndex struct {
 	Agents []Entry `yaml:"agents"`
+}
+
+type workspaceIndex struct {
+	Workspaces []Entry `yaml:"workspaces"`
 }
 
 // Index holds all registry entries.
@@ -67,6 +73,15 @@ func FetchIndex() (*Index, error) {
 	for _, a := range agents.Agents {
 		a.Type = "agent"
 		index.Entries = append(index.Entries, a)
+	}
+
+	workspaces, err := fetchYAML[workspaceIndex](WorkspaceIndexURL)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch workspaces index: %w", err)
+	}
+	for _, w := range workspaces.Workspaces {
+		w.Type = "workspace"
+		index.Entries = append(index.Entries, w)
 	}
 
 	return index, nil
@@ -154,18 +169,77 @@ func FindAgent(index *Index, name string) (*Entry, bool) {
 	return nil, false
 }
 
+// FindWorkspace looks up a workspace by exact name.
+func FindWorkspace(index *Index, name string) (*Entry, bool) {
+	for _, e := range index.Entries {
+		if e.Name == name && e.Type == "workspace" {
+			return &e, true
+		}
+	}
+	return nil, false
+}
+
 // Install installs a registry entry into the local workspace.
 // For skills: copies to .toc/skills/<name>/
 // For agents: copies to .toc/agents/<name>/ and installs referenced skills
+// For workspaces: installs all agents (and their skills) in the workspace
 func Install(entry *Entry) error {
 	switch entry.Type {
 	case "skill":
 		return installSkill(entry.Name)
 	case "agent":
 		return installAgent(entry)
+	case "workspace":
+		return installWorkspace(entry)
 	default:
 		return fmt.Errorf("unknown registry entry type: %s", entry.Type)
 	}
+}
+
+// InstallWorkspaceResult tracks which agents/skills were installed vs skipped.
+type InstallWorkspaceResult struct {
+	InstalledAgents []string
+	SkippedAgents   []string
+	InstalledSkills []string
+}
+
+// InstallWorkspace installs all agents in a workspace, returning detailed results.
+// Pass the already-fetched index to avoid a redundant network round-trip.
+func InstallWorkspace(entry *Entry, index *Index) (*InstallWorkspaceResult, error) {
+	result := &InstallWorkspaceResult{}
+
+	for _, agentName := range entry.Agents {
+		if agent.Exists(agentName) {
+			result.SkippedAgents = append(result.SkippedAgents, agentName)
+			continue
+		}
+
+		// Look up the agent entry to get its skill references
+		agentEntry, found := FindAgent(index, agentName)
+		if !found {
+			return nil, fmt.Errorf("workspace references agent '%s' which was not found in registry", agentName)
+		}
+
+		if err := installAgent(agentEntry); err != nil {
+			return nil, fmt.Errorf("failed to install agent '%s': %w", agentName, err)
+		}
+		result.InstalledAgents = append(result.InstalledAgents, agentName)
+		result.InstalledSkills = append(result.InstalledSkills, agentEntry.Skills...)
+	}
+
+	return result, nil
+}
+
+func installWorkspace(entry *Entry) error {
+	// installWorkspace is called from Install() which doesn't have the index,
+	// so we fetch it here. The CLI command uses InstallWorkspace() directly
+	// to avoid this extra fetch.
+	index, err := FetchIndex()
+	if err != nil {
+		return fmt.Errorf("failed to fetch registry index: %w", err)
+	}
+	_, err = InstallWorkspace(entry, index)
+	return err
 }
 
 func installSkill(name string) error {

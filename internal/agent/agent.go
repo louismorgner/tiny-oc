@@ -14,6 +14,15 @@ import (
 
 var validName = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*$`)
 
+// validEffortLevels is the set of allowed values for ThinkingConfig.Effort.
+var validEffortLevels = map[string]bool{
+	"xhigh":   true,
+	"high":    true,
+	"medium":  true,
+	"low":     true,
+	"minimal": true,
+}
+
 // PermissionLevel represents the three-level permission model.
 type PermissionLevel string
 
@@ -213,6 +222,16 @@ func (cfg *AgentConfig) Validate() []string {
 			if !validPermissionLevel(level) {
 				problems = append(problems, fmt.Sprintf("invalid permission level for sub-agents.%s: %s", name, level))
 			}
+		}
+	}
+
+	// Validate thinking config
+	if cfg.Thinking != nil {
+		if cfg.Thinking.BudgetTokens > 0 && cfg.Thinking.Effort != "" {
+			problems = append(problems, "thinking: budget_tokens and effort are mutually exclusive (budget_tokens is for Anthropic models, effort is for OpenAI o-series)")
+		}
+		if cfg.Thinking.Effort != "" && !validEffortLevels[cfg.Thinking.Effort] {
+			problems = append(problems, fmt.Sprintf("thinking: invalid effort value %q (must be one of: xhigh, high, medium, low, minimal)", cfg.Thinking.Effort))
 		}
 	}
 

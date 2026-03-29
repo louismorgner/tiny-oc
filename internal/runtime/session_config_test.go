@@ -149,6 +149,64 @@ func TestResolveSessionConfig_MaxIterations_InvalidEnvIgnored(t *testing.T) {
 	}
 }
 
+func TestResolveSessionConfig_ThinkingPropagates(t *testing.T) {
+	cfg := ResolveSessionConfig(&agent.AgentConfig{
+		Name:                   "test-agent",
+		Runtime:                runtimeinfo.NativeRuntime,
+		Model:                  "openai/gpt-4o-mini",
+		AllowCustomNativeModel: true,
+		Thinking:               &agent.ThinkingConfig{BudgetTokens: 10000},
+	})
+	if cfg.Thinking == nil {
+		t.Fatal("expected thinking config to propagate")
+	}
+	if cfg.Thinking.BudgetTokens != 10000 {
+		t.Fatalf("BudgetTokens = %d, want 10000", cfg.Thinking.BudgetTokens)
+	}
+}
+
+func TestResolveSessionConfig_ThinkingNilWhenUnset(t *testing.T) {
+	cfg := ResolveSessionConfig(&agent.AgentConfig{
+		Name:                   "test-agent",
+		Runtime:                runtimeinfo.NativeRuntime,
+		Model:                  "openai/gpt-4o-mini",
+		AllowCustomNativeModel: true,
+	})
+	if cfg.Thinking != nil {
+		t.Fatalf("expected nil thinking config when unset, got %+v", cfg.Thinking)
+	}
+}
+
+func TestSaveAndLoadSessionConfig_Thinking(t *testing.T) {
+	sess := &session.Session{ID: "sess-thinking", MetadataDir: t.TempDir()}
+	cfg := &SessionConfig{
+		Agent:   "tester",
+		Runtime: runtimeinfo.NativeRuntime,
+		Model:   "openai/gpt-4o-mini",
+		LLM:     SessionLLMConfig{Provider: "openrouter"},
+		Thinking: &agent.ThinkingConfig{
+			Effort: "high",
+		},
+	}
+
+	if err := SaveSessionConfig(sess, cfg); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := LoadSessionConfig(sess)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.Thinking == nil {
+		t.Fatal("expected thinking config to round-trip through save/load")
+	}
+	if loaded.Thinking.Effort != "high" {
+		t.Fatalf("Effort = %q, want %q", loaded.Thinking.Effort, "high")
+	}
+	if loaded.Thinking.BudgetTokens != 0 {
+		t.Fatalf("BudgetTokens = %d, want 0", loaded.Thinking.BudgetTokens)
+	}
+}
+
 func TestLoadSessionConfigInWorkspace_Missing(t *testing.T) {
 	_, err := LoadSessionConfigInWorkspace(t.TempDir(), "missing")
 	if !os.IsNotExist(err) {

@@ -1284,14 +1284,17 @@ func TestRunNativeSession_InteractiveNotificationWhileWaiting(t *testing.T) {
 	}
 
 	callCount := 0
+	callDone := make(chan int, 2) // signals after each model call completes
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		callCount++
+		n := callCount
 		var req chatRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			t.Fatalf("decode request: %v", err)
 		}
 		w.Header().Set("Content-Type", "text/event-stream")
-		switch callCount {
+		defer func() { callDone <- n }()
+		switch n {
 		case 1:
 			// Response to the initial prompt.
 			writeSSEChunk(t, w, map[string]interface{}{
@@ -1368,13 +1371,12 @@ func TestRunNativeSession_InteractiveNotificationWhileWaiting(t *testing.T) {
 
 	go func() {
 		// Send the first user message immediately so the session has
-		// work to do. After the model responds, the loop will block in
-		// the select waiting for the next input.
+		// work to do.
 		_, _ = stdinW.Write([]byte("Start working.\n"))
 
-		// Give the session time to process and enter the select loop,
-		// then write a notification file for the ticker to pick up.
-		time.Sleep(500 * time.Millisecond)
+		// Wait for the first model call to complete before writing the
+		// notification file, so the session is back in the select loop.
+		<-callDone
 
 		_, _ = WriteSubAgentCompletionNotification(metaWorkspace, "sess-notify-interactive", SessionNotification{
 			SessionID: "child-interactive-1",
@@ -1385,10 +1387,9 @@ func TestRunNativeSession_InteractiveNotificationWhileWaiting(t *testing.T) {
 			Output:    "child output here",
 		})
 
-		// After the notification is processed, close stdin to end the
-		// session. Give enough time for the ticker to fire and the model
-		// response to complete.
-		time.Sleep(4 * time.Second)
+		// Wait for the second model call (notification response) to
+		// complete, then close stdin to end the session.
+		<-callDone
 		stdinW.Close()
 	}()
 

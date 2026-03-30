@@ -3,6 +3,7 @@ name: superfounder-product-thinker
 description: Product thinker — multimodal reasoning for UI/UX decisions, document generation, and product strategy
 group: superfounder
 model: qwen/qwen3.5-397b-a17b
+small_model: google/gemini-2.5-flash
 context:
   - BOOTSTRAP.md
   - product.md

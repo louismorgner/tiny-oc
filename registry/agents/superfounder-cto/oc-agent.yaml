@@ -3,6 +3,7 @@ name: superfounder-cto
 description: Technical leader — scopes tasks, reviews PRs, orchestrates SWE agents
 group: superfounder
 model: z-ai/glm-5
+small_model: google/gemini-2.5-flash
 context:
   - BOOTSTRAP.md
 compose:

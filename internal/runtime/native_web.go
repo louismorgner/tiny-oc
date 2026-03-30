@@ -22,9 +22,11 @@ import (
 )
 
 const (
-	webFetchTimeout  = 20 * time.Second
-	maxWebFetchBytes = 2 * 1024 * 1024
-	webFetchUA       = "tiny-oc-toc-native/1.0 (+https://github.com/louismorgner/tiny-oc)"
+	webFetchTimeout          = 20 * time.Second
+	maxWebFetchBytes         = 2 * 1024 * 1024
+	webFetchUA               = "tiny-oc-toc-native/1.0 (+https://github.com/louismorgner/tiny-oc)"
+	maxSummarizeInputChars   = 48000
+	summarizeTimeout         = 30 * time.Second
 )
 
 var repeatedBlankLinesRE = regexp.MustCompile(`\n{3,}`)
@@ -47,7 +49,8 @@ func nativeWebFetch(ctx nativeToolContext, call ToolCall) toolExecution {
 	}
 
 	var args struct {
-		URL string `json:"url"`
+		URL   string `json:"url"`
+		Query string `json:"query"`
 	}
 	if err := decodeToolArgs(call.Function.Arguments, &args); err != nil {
 		return toolFailure("WebFetch", "", "", err)
@@ -60,6 +63,17 @@ func nativeWebFetch(ctx nativeToolContext, call ToolCall) toolExecution {
 	if err != nil {
 		return toolFailure("WebFetch", args.URL, "", err)
 	}
+
+	// Summarize via small model to keep the main context window lean.
+	summary, sumErr := summarizeWebContent(ctx, args.URL, args.Query, output)
+	if sumErr != nil && ctx.Trace != nil {
+		ctx.Trace.WriteEvent("webfetch_summarize_error", map[string]string{"url": args.URL, "error": sumErr.Error()})
+	}
+	if sumErr == nil && summary != "" {
+		output = summary
+	}
+	// On error or empty summary, fall through with raw content.
+
 	return toolSuccess("WebFetch", step.Path, output, step)
 }
 
@@ -427,4 +441,91 @@ func truncateInlineWeb(s string, maxLen int) string {
 		return s[:maxLen]
 	}
 	return s[:maxLen-3] + "..."
+}
+
+// webFetchSummarizePrompt is sent to the small model to extract relevant
+// content from a fetched web page.
+const webFetchSummarizePrompt = `You are a web content extraction assistant. Given the raw content of a web page, extract and summarize the relevant information.
+
+Guidelines:
+- Focus on the main content, ignoring navigation, ads, and boilerplate
+- Preserve important details: code examples, API signatures, configuration options, key facts
+- Keep the summary concise but complete enough to be useful
+- Use markdown formatting for readability
+- If a specific query is provided, focus your extraction on information relevant to that query
+- Do not add commentary or opinions — only extract what is on the page`
+
+// summarizeWebContent uses the small model to distill fetched web content,
+// keeping the main agent's context window clean. Returns ("", nil) if no
+// small model or LLM client is available so the caller can fall back to raw content.
+func summarizeWebContent(ctx nativeToolContext, pageURL, query, rawContent string) (string, error) {
+	model := resolveSmallModel(ctx.Config)
+	if model == "" || ctx.LLMClient == nil {
+		return "", nil
+	}
+
+	// Truncate before sending to the small model — most have context limits
+	// well below the 2MB fetch cap, and the whole point is a cheap utility call.
+	content := rawContent
+	if len(content) > maxSummarizeInputChars {
+		content = content[:maxSummarizeInputChars] + "\n\n[Content truncated for summarization]"
+	}
+
+	userPrompt := "Web page content:\n---\n" + content + "\n---\n"
+	if strings.TrimSpace(query) != "" {
+		userPrompt += "\nQuery: " + strings.TrimSpace(query)
+	} else {
+		userPrompt += "\nProvide a concise summary of the page content, preserving key details and code examples."
+	}
+
+	req := chatRequest{
+		Model: model,
+		Messages: []Message{
+			{Role: "system", Content: webFetchSummarizePrompt},
+			{Role: "user", Content: userPrompt},
+		},
+	}
+
+	timeoutCtx, cancel := context.WithTimeout(context.Background(), summarizeTimeout)
+	defer cancel()
+
+	resp, err := ctx.LLMClient.Chat(timeoutCtx, req)
+	if err != nil {
+		return "", fmt.Errorf("summarization failed: %w", err)
+	}
+	if len(resp.Choices) == 0 {
+		return "", fmt.Errorf("summarization returned no response")
+	}
+
+	summary := strings.TrimSpace(resp.Choices[0].Message.Content)
+	if summary == "" {
+		return "", fmt.Errorf("summarization returned empty content")
+	}
+
+	// Preserve fetch metadata from the raw output so the agent retains
+	// signal about the HTTP response (status, content-type, redirects).
+	var b strings.Builder
+	for _, line := range strings.SplitAfter(rawContent, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			break // metadata header ends at the first blank line
+		}
+		b.WriteString(line)
+	}
+	b.WriteString("[Summarized by ")
+	b.WriteString(model)
+	b.WriteString("]\n\n")
+	b.WriteString(summary)
+	return b.String(), nil
+}
+
+// resolveSmallModel returns the small model from config, falling back to empty
+// string if none is configured (which signals the caller to skip summarization).
+func resolveSmallModel(cfg *SessionConfig) string {
+	if cfg != nil {
+		if m := strings.TrimSpace(cfg.SmallModel); m != "" {
+			return m
+		}
+	}
+	return ""
 }

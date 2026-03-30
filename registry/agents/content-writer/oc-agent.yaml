@@ -8,7 +8,10 @@ context:
   - writing/
 skills:
   - transcribe-video
-  - scrape-text
+  - import-instagram
+  - import-tiktok
+  - import-twitter
+  - import-linkedin
 compose:
   - BOOTSTRAP.md
   - voice.md

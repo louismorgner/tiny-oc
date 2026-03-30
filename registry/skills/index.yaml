@@ -6,8 +6,17 @@ skills:
     description: Persistent memory system with daily logs and long-term storage for cross-session continuity
     tags: [memory, persistence, agentic, continuity]
   - name: transcribe-video
-    description: Transcribe video content from URLs using Apify actors
-    tags: [apify, video, transcription, scraping]
-  - name: scrape-text
-    description: Extract text content from web URLs using Apify actors
-    tags: [apify, text, scraping, extraction]
+    description: Transcribe YouTube video transcripts using Apify
+    tags: [apify, youtube, video, transcription]
+  - name: import-instagram
+    description: Scrape Instagram profiles, posts, and reels using Apify
+    tags: [apify, instagram, scraping]
+  - name: import-tiktok
+    description: Scrape TikTok video captions using Apify
+    tags: [apify, tiktok, scraping]
+  - name: import-twitter
+    description: Scrape tweets and threads from X/Twitter using Apify
+    tags: [apify, twitter, scraping]
+  - name: import-linkedin
+    description: Scrape LinkedIn posts and profiles using Apify
+    tags: [apify, linkedin, scraping]

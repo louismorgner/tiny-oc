@@ -218,8 +218,11 @@ func TestNativeTodoWriteUpdatesState(t *testing.T) {
 	if state.Todos[0].Content != "Implement TodoWrite" || state.Todos[1].Status != "pending" {
 		t.Fatalf("unexpected todos in state: %#v", state.Todos)
 	}
-	if !strings.Contains(result.Message, "Updated 2 todos") {
-		t.Fatalf("unexpected summary message: %q", result.Message)
+	if !strings.Contains(result.Message, "→ Implement TodoWrite") {
+		t.Fatalf("expected in-progress todo in message, got: %q", result.Message)
+	}
+	if !strings.Contains(result.Message, "○ Add tests") {
+		t.Fatalf("expected pending todo in message, got: %q", result.Message)
 	}
 }
 

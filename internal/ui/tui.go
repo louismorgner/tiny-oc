@@ -321,6 +321,19 @@ func formatToolStep(content string, meta StepMeta) string {
 		}
 	case "Glob", "Grep":
 		detail = content
+	case "TodoWrite":
+		// Show individual todo items on separate lines
+		header := fmt.Sprintf("  %s %s\n", toolHeaderStyle.Render(icon), toolNameStyle.Render(name))
+		lines := strings.Split(content, "\n")
+		var b strings.Builder
+		b.WriteString(header)
+		for _, line := range lines {
+			if line != "" {
+				b.WriteString(toolOutputStyle.Render(line))
+				b.WriteByte('\n')
+			}
+		}
+		return b.String()
 	default:
 		detail = name
 		if meta.Path != "" {

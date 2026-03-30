@@ -30,6 +30,24 @@ func TestNativeEditRejectsEmptyOldString(t *testing.T) {
 	}
 }
 
+func TestNativeWriteRejectsEmptyContent(t *testing.T) {
+	dir := t.TempDir()
+	result := nativeWrite(nativeToolContext{SessionDir: dir, Agent: "tester"}, toolCall(t, "Write", map[string]interface{}{
+		"file_path": "should-not-exist.txt",
+		"content":   "",
+	}))
+	if result.Step.Success == nil || *result.Step.Success {
+		t.Fatalf("expected failure, got %#v", result)
+	}
+	if !strings.Contains(result.Message, "content is required") {
+		t.Fatalf("unexpected message: %q", result.Message)
+	}
+	// File must not have been created
+	if _, err := os.Stat(filepath.Join(dir, "should-not-exist.txt")); !os.IsNotExist(err) {
+		t.Fatal("file should not exist after empty-content write")
+	}
+}
+
 func TestNativeWriteAndEditPreserveFileMode(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "script.sh")

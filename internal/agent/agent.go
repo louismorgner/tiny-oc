@@ -60,16 +60,17 @@ type ThinkingConfig struct {
 	Effort       string `yaml:"effort,omitempty"        json:"effort,omitempty"`
 }
 
-type TriggerConditionConfig struct {
+type BehaviorConditionConfig struct {
 	FileWritten string `yaml:"file_written,omitempty" json:"file_written,omitempty"`
 	FileEdited  string `yaml:"file_edited,omitempty"  json:"file_edited,omitempty"`
 	ToolUsed    string `yaml:"tool_used,omitempty"    json:"tool_used,omitempty"`
 }
 
-type TriggerConfig struct {
-	Name   string                 `yaml:"name"              json:"name"`
-	When   TriggerConditionConfig `yaml:"when"              json:"when"`
-	Prompt string                 `yaml:"prompt,omitempty"  json:"prompt,omitempty"`
+type BehaviorConfig struct {
+	Name   string                  `yaml:"name"              json:"name"`
+	On     string                  `yaml:"on,omitempty"      json:"on,omitempty"`
+	When   BehaviorConditionConfig `yaml:"when"              json:"when"`
+	Prompt string                  `yaml:"prompt,omitempty"  json:"prompt,omitempty"`
 }
 
 type AgentConfig struct {
@@ -86,7 +87,7 @@ type AgentConfig struct {
 	OnEnd                  string          `yaml:"on_end,omitempty"`
 	Compose                []string        `yaml:"compose,omitempty"`
 	Thinking               *ThinkingConfig `yaml:"thinking,omitempty"`
-	Triggers               []TriggerConfig `yaml:"triggers,omitempty"`
+	Behaviors              []BehaviorConfig `yaml:"behaviors,omitempty"`
 }
 
 // EffectivePermissions returns the resolved permission spec. If no permissions
@@ -247,23 +248,23 @@ func (cfg *AgentConfig) Validate() []string {
 			problems = append(problems, fmt.Sprintf("thinking: invalid effort value %q (must be one of: xhigh, high, medium, low, minimal)", cfg.Thinking.Effort))
 		}
 	}
-	triggerNames := make(map[string]bool)
-	for i, trigger := range cfg.Triggers {
-		label := fmt.Sprintf("triggers[%d]", i)
-		name := strings.TrimSpace(trigger.Name)
+	behaviorNames := make(map[string]bool)
+	for i, b := range cfg.Behaviors {
+		label := fmt.Sprintf("behaviors[%d]", i)
+		name := strings.TrimSpace(b.Name)
 		if name == "" {
 			problems = append(problems, label+": missing name")
-		} else if triggerNames[name] {
-			problems = append(problems, fmt.Sprintf("triggers[%d]: duplicate trigger name %q", i, name))
+		} else if behaviorNames[name] {
+			problems = append(problems, fmt.Sprintf("behaviors[%d]: duplicate behavior name %q", i, name))
 		} else {
-			triggerNames[name] = true
+			behaviorNames[name] = true
 		}
-		if strings.TrimSpace(trigger.Prompt) == "" {
+		if strings.TrimSpace(b.Prompt) == "" {
 			problems = append(problems, label+": missing prompt")
 		}
-		if strings.TrimSpace(trigger.When.FileWritten) == "" &&
-			strings.TrimSpace(trigger.When.FileEdited) == "" &&
-			strings.TrimSpace(trigger.When.ToolUsed) == "" {
+		if strings.TrimSpace(b.When.FileWritten) == "" &&
+			strings.TrimSpace(b.When.FileEdited) == "" &&
+			strings.TrimSpace(b.When.ToolUsed) == "" {
 			problems = append(problems, label+": when must define at least one condition")
 		}
 	}

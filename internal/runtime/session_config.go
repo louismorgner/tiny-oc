@@ -42,7 +42,7 @@ type SessionConfig struct {
 	Skills                 []string              `json:"skills,omitempty"`
 	Compose                []string              `json:"compose,omitempty"`
 	OnEnd                  string                `json:"on_end,omitempty"`
-	Triggers               []TurnTrigger         `json:"triggers,omitempty"`
+	Behaviors              []Behavior            `json:"behaviors,omitempty"`
 	Permissions            agent.Permissions     `json:"permissions,omitempty"`
 	RuntimeConfig          SessionRuntimeOptions `json:"runtime_config,omitempty"`
 	LLM                    SessionLLMConfig      `json:"llm,omitempty"`
@@ -76,7 +76,7 @@ func ResolveSessionConfig(cfg *agent.AgentConfig, opts ...ResolveOptions) *Sessi
 		Skills:                 append([]string(nil), cfg.Skills...),
 		Compose:                append([]string(nil), cfg.Compose...),
 		OnEnd:                  cfg.OnEnd,
-		Triggers:               resolveTurnTriggers(cfg.Triggers),
+		Behaviors:              resolveBehaviors(cfg.Behaviors),
 		Permissions:            cfg.EffectivePermissions(),
 		LLM: SessionLLMConfig{
 			Provider: resolvedLLMProvider(cfg.Runtime),

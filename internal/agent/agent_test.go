@@ -301,15 +301,15 @@ func TestSubAgentPermission(t *testing.T) {
 	}
 }
 
-func TestValidate_Triggers(t *testing.T) {
+func TestValidate_Behaviors(t *testing.T) {
 	cfg := &AgentConfig{
 		Name:    "test",
 		Runtime: "toc-native",
 		Model:   "openai/gpt-4o-mini",
-		Triggers: []TriggerConfig{
+		Behaviors: []BehaviorConfig{
 			{
 				Name:   "post-write-review",
-				When:   TriggerConditionConfig{FileWritten: "writing/*.md"},
+				When:   BehaviorConditionConfig{FileWritten: "writing/*.md"},
 				Prompt: "Review the draft.",
 			},
 		},
@@ -319,20 +319,20 @@ func TestValidate_Triggers(t *testing.T) {
 	}
 }
 
-func TestValidate_TriggersDuplicateNames(t *testing.T) {
+func TestValidate_BehaviorsDuplicateNames(t *testing.T) {
 	cfg := &AgentConfig{
 		Name:    "test",
 		Runtime: "toc-native",
 		Model:   "openai/gpt-4o-mini",
-		Triggers: []TriggerConfig{
+		Behaviors: []BehaviorConfig{
 			{
 				Name:   "voice-review",
-				When:   TriggerConditionConfig{FileWritten: "writing/*.md"},
+				When:   BehaviorConditionConfig{FileWritten: "writing/*.md"},
 				Prompt: "Review the draft.",
 			},
 			{
 				Name:   "voice-review",
-				When:   TriggerConditionConfig{ToolUsed: "Edit"},
+				When:   BehaviorConditionConfig{ToolUsed: "Edit"},
 				Prompt: "Check edits.",
 			},
 		},
@@ -340,27 +340,27 @@ func TestValidate_TriggersDuplicateNames(t *testing.T) {
 	problems := cfg.Validate()
 	found := false
 	for _, p := range problems {
-		if strings.Contains(p, "duplicate trigger name") {
+		if strings.Contains(p, "duplicate behavior name") {
 			found = true
 			break
 		}
 	}
 	if !found {
-		t.Fatalf("expected duplicate trigger name error, got %v", problems)
+		t.Fatalf("expected duplicate behavior name error, got %v", problems)
 	}
 }
 
-func TestValidate_TriggersMissingFields(t *testing.T) {
+func TestValidate_BehaviorsMissingFields(t *testing.T) {
 	cfg := &AgentConfig{
 		Name:    "test",
 		Runtime: "toc-native",
 		Model:   "openai/gpt-4o-mini",
-		Triggers: []TriggerConfig{
+		Behaviors: []BehaviorConfig{
 			{},
 		},
 	}
 	problems := cfg.Validate()
 	if len(problems) != 3 {
-		t.Fatalf("expected 3 trigger validation errors, got %v", problems)
+		t.Fatalf("expected 3 behavior validation errors, got %v", problems)
 	}
 }

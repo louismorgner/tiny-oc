@@ -9,8 +9,9 @@ context:
 compose:
   - BOOTSTRAP.md
   - voice.md
-triggers:
+behaviors:
   - name: voice-review
+    on: turn_complete
     when:
       file_written: "writing/*.md"
     prompt: |

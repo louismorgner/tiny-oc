@@ -172,7 +172,7 @@ For each iteration:
 4. Call OpenRouter with messages and tool definitions.
 5. Accumulate usage counters.
 6. Append the assistant message to state and transcript.
-7. If there are no tool calls, evaluate post-turn triggers (see below). If a trigger matches, inject its prompt and continue the loop. Otherwise, return turn completion.
+7. If there are no tool calls, evaluate post-turn behaviors (see below). If a behavior matches, inject its prompt and continue the loop. Otherwise, return turn completion.
 8. If there are tool calls:
    - save a new `PendingTurn` checkpoint with phase `executing_tools`
    - execute each tool synchronously
@@ -183,20 +183,20 @@ For each iteration:
 
 The runtime currently executes tool calls serially. There is no internal tool parallelism inside one model turn.
 
-### Post-turn trigger evaluation
+### Post-turn behavior evaluation
 
-When the model produces a response with no tool calls (the "no-tool-call boundary"), the runtime evaluates declarative triggers defined in the agent config before returning.
+When the model produces a response with no tool calls (the "no-tool-call boundary"), the runtime evaluates declarative behaviors defined in the agent config before returning. Only behaviors with `on: turn_complete` (the default) are evaluated at this point.
 
-Triggers are evaluated against a scoped working set (`pendingTriggerChanges`) that tracks file and tool activity since the last trigger fired. This is separate from the session-level `WorkingSet` — it only captures changes relevant to trigger evaluation.
+Behaviors are evaluated against a scoped working set (`pendingBehaviorChanges`) that tracks file and tool activity since the last behavior fired. This is separate from the session-level `WorkingSet` — it only captures changes relevant to behavior evaluation.
 
-Key behaviors:
+Key details:
 
-- Each trigger fires at most once per session loop invocation, tracked by name in a `firedTriggers` map.
-- When a trigger fires, its prompt is injected as a `user` message and the loop continues — the model gets another turn.
-- The scoped working set resets when a trigger fires, so subsequent triggers evaluate against fresh activity.
-- Conditions use AND semantics: if a trigger specifies both `file_written` and `tool_used`, both must match.
+- Each behavior fires at most once per session loop invocation, tracked by name in a `firedBehaviors` map.
+- When a behavior fires, its prompt is injected as a `user` message and the loop continues — the model gets another turn.
+- The scoped working set resets when a behavior fires, so subsequent behaviors evaluate against fresh activity.
+- Conditions use AND semantics: if a behavior specifies both `file_written` and `tool_used`, both must match.
 
-This lives in `evaluateTriggers(...)` in [`internal/runtime/triggers.go`](/internal/runtime/triggers.go). See [Configuration reference](configuration.md#triggers) for the full trigger config surface.
+This lives in `evaluateBehaviors(...)` in [`internal/runtime/behaviors.go`](/internal/runtime/behaviors.go). See [Configuration reference](configuration.md#behaviors) for the full behavior config surface.
 
 ### Transcript vs current message state
 

@@ -375,7 +375,7 @@ func TestRunNativeSession_UsesTOCNativeBaseURL(t *testing.T) {
 	}
 }
 
-func TestRunNativeSession_ExecutesPostTurnTriggerOnce(t *testing.T) {
+func TestRunNativeSession_ExecutesBehaviorOnce(t *testing.T) {
 	workDir := t.TempDir()
 	metaWorkspace := t.TempDir()
 
@@ -385,14 +385,15 @@ func TestRunNativeSession_ExecutesPostTurnTriggerOnce(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(workDir, ".toc-native", "system-prompt.md"), []byte("You are a writing agent.\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	if err := SaveSessionConfigInWorkspace(metaWorkspace, "sess-native-trigger", &SessionConfig{
+	if err := SaveSessionConfigInWorkspace(metaWorkspace, "sess-native-behavior", &SessionConfig{
 		Agent:   "native-agent",
 		Runtime: runtimeinfo.NativeRuntime,
 		Model:   "openai/gpt-4o-mini",
-		Triggers: []TurnTrigger{
+		Behaviors: []Behavior{
 			{
 				Name:   "voice-review",
-				When:   TriggerCondition{FileWritten: "writing/*.md"},
+				On:     "turn_complete",
+				When:   BehaviorCondition{FileWritten: "writing/*.md"},
 				Prompt: "You just saved a draft. Review it against voice.md now.",
 			},
 		},
@@ -483,7 +484,7 @@ func TestRunNativeSession_ExecutesPostTurnTriggerOnce(t *testing.T) {
 		case 3:
 			last := req.Messages[len(req.Messages)-1]
 			if last.Role != "user" || last.Content != "You just saved a draft. Review it against voice.md now." {
-				t.Fatalf("expected trigger prompt, got %#v", last)
+				t.Fatalf("expected behavior prompt, got %#v", last)
 			}
 			writeSSEChunk(t, w, map[string]interface{}{
 				"id":    "resp-trigger-3",
@@ -565,7 +566,7 @@ func TestRunNativeSession_ExecutesPostTurnTriggerOnce(t *testing.T) {
 	err := RunNativeSession(NativeRunOptions{
 		Mode:      "detached",
 		Dir:       workDir,
-		SessionID: "sess-native-trigger",
+		SessionID: "sess-native-behavior",
 		Agent:     "native-agent",
 		Workspace: metaWorkspace,
 		Model:     "openai/gpt-4o-mini",
@@ -582,18 +583,18 @@ func TestRunNativeSession_ExecutesPostTurnTriggerOnce(t *testing.T) {
 		t.Fatalf("callCount = %d, want 4", callCount)
 	}
 
-	state, err := LoadStateInWorkspace(metaWorkspace, "sess-native-trigger")
+	state, err := LoadStateInWorkspace(metaWorkspace, "sess-native-behavior")
 	if err != nil {
 		t.Fatal(err)
 	}
-	triggerPrompts := 0
+	behaviorPrompts := 0
 	for _, msg := range state.Messages {
 		if msg.Role == "user" && msg.Content == "You just saved a draft. Review it against voice.md now." {
-			triggerPrompts++
+			behaviorPrompts++
 		}
 	}
-	if triggerPrompts != 1 {
-		t.Fatalf("trigger prompt count = %d, want 1", triggerPrompts)
+	if behaviorPrompts != 1 {
+		t.Fatalf("behavior prompt count = %d, want 1", behaviorPrompts)
 	}
 	if !containsString(state.WorkingSet.ToolsUsed, "Write") {
 		t.Fatalf("expected Write in tools used, got %#v", state.WorkingSet)

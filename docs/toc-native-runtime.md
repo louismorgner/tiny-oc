@@ -172,7 +172,7 @@ For each iteration:
 4. Call OpenRouter with messages and tool definitions.
 5. Accumulate usage counters.
 6. Append the assistant message to state and transcript.
-7. If there are no tool calls, return turn completion.
+7. If there are no tool calls, evaluate post-turn behaviors (see below). If a behavior matches, inject its prompt and continue the loop. Otherwise, return turn completion.
 8. If there are tool calls:
    - save a new `PendingTurn` checkpoint with phase `executing_tools`
    - execute each tool synchronously
@@ -182,6 +182,22 @@ For each iteration:
    - shrink the checkpoint as tools finish
 
 The runtime currently executes tool calls serially. There is no internal tool parallelism inside one model turn.
+
+### Post-turn behavior evaluation
+
+When the model produces a response with no tool calls (the "no-tool-call boundary"), the runtime evaluates declarative behaviors defined in the agent config before returning. Only behaviors with `on: turn_complete` (the default) are evaluated at this point.
+
+Behaviors are evaluated against a scoped working set (`pendingBehaviorChanges`) that tracks file and tool activity since the last behavior fired. This is separate from the session-level `WorkingSet` — it only captures changes relevant to behavior evaluation.
+
+Key details:
+
+- Behaviors are evaluated in declaration order, and only the first matching behavior fires in a given evaluation cycle.
+- Each behavior fires at most once per `runNativePrompt` invocation, tracked by name in an in-memory `firedBehaviors` map. That one-shot state is not persisted across crash recovery or session resume.
+- When a behavior fires, its prompt is injected as a `user` message and the loop continues — the model gets another turn.
+- The scoped working set resets when a behavior fires, so subsequent behaviors evaluate against fresh activity.
+- Conditions use AND semantics: if a behavior specifies both `file_written` and `tool_used`, both must match.
+
+This lives in `evaluateBehaviors(...)` in [`internal/runtime/behaviors.go`](/internal/runtime/behaviors.go). See [Configuration reference](configuration.md#behaviors) for the full behavior config surface.
 
 ### Transcript vs current message state
 

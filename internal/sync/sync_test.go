@@ -61,6 +61,26 @@ func TestMatchesAny(t *testing.T) {
 	}
 }
 
+func TestMatchOne(t *testing.T) {
+	tests := []struct {
+		relPath string
+		pattern string
+		want    bool
+	}{
+		{relPath: "docs/api.md", pattern: "docs/", want: true},
+		{relPath: "writing/post.md", pattern: "writing/*.md", want: true},
+		{relPath: "writing/post.txt", pattern: "writing/*.md", want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.relPath+"_"+tt.pattern, func(t *testing.T) {
+			if got := MatchOne(tt.relPath, tt.pattern); got != tt.want {
+				t.Fatalf("MatchOne(%q, %q) = %v, want %v", tt.relPath, tt.pattern, got, tt.want)
+			}
+		})
+	}
+}
+
 func joinPatterns(p []string) string {
 	s := ""
 	for i, v := range p {

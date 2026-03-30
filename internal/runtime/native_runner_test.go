@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -371,6 +372,434 @@ func TestRunNativeSession_UsesTOCNativeBaseURL(t *testing.T) {
 	}
 
 	if got := stdout.String(); got != "Custom base URL works.\n" {
+		t.Fatalf("stdout = %q", got)
+	}
+}
+
+func TestRunNativeSession_ExecutesBehaviorOnce(t *testing.T) {
+	workDir := t.TempDir()
+	metaWorkspace := t.TempDir()
+
+	if err := os.MkdirAll(filepath.Join(workDir, ".toc-native"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(workDir, ".toc-native", "system-prompt.md"), []byte("You are a writing agent.\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := SaveSessionConfigInWorkspace(metaWorkspace, "sess-native-behavior", &SessionConfig{
+		Agent:   "native-agent",
+		Runtime: runtimeinfo.NativeRuntime,
+		Model:   "openai/gpt-4o-mini",
+		Behaviors: []Behavior{
+			{
+				Name:   "voice-review",
+				On:     "turn_complete",
+				When:   BehaviorCondition{FileWritten: "writing/*.md"},
+				Prompt: "You just saved a draft. Review it against voice.md now.",
+			},
+		},
+		RuntimeConfig: SessionRuntimeOptions{
+			EnabledTools: NativeToolNames(),
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	callCount := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		callCount++
+		var req chatRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+
+		w.Header().Set("Content-Type", "text/event-stream")
+		switch callCount {
+		case 1:
+			writeSSEChunk(t, w, map[string]interface{}{
+				"id":    "resp-trigger-1",
+				"model": req.Model,
+				"choices": []map[string]interface{}{
+					{
+						"index": 0,
+						"delta": map[string]interface{}{
+							"role":    "assistant",
+							"content": "",
+							"tool_calls": []map[string]interface{}{
+								{
+									"index": 0,
+									"id":    "call-trigger-1",
+									"type":  "function",
+									"function": map[string]interface{}{
+										"name":      "Write",
+										"arguments": `{"file_path":"writing/post.md","content":"draft\n"}`,
+									},
+								},
+							},
+						},
+					},
+				},
+			})
+			writeSSEChunk(t, w, map[string]interface{}{
+				"id":    "resp-trigger-1",
+				"model": req.Model,
+				"usage": map[string]interface{}{"prompt_tokens": 10, "completion_tokens": 4, "total_tokens": 14},
+				"choices": []map[string]interface{}{
+					{
+						"index":         0,
+						"delta":         map[string]interface{}{},
+						"finish_reason": "tool_calls",
+					},
+				},
+			})
+		case 2:
+			last := req.Messages[len(req.Messages)-1]
+			if last.Role != "tool" || last.ToolCallID != "call-trigger-1" {
+				t.Fatalf("expected write tool result, got %#v", last)
+			}
+			writeSSEChunk(t, w, map[string]interface{}{
+				"id":    "resp-trigger-2",
+				"model": req.Model,
+				"choices": []map[string]interface{}{
+					{
+						"index": 0,
+						"delta": map[string]interface{}{
+							"role":    "assistant",
+							"content": "Draft saved.",
+						},
+					},
+				},
+			})
+			writeSSEChunk(t, w, map[string]interface{}{
+				"id":    "resp-trigger-2",
+				"model": req.Model,
+				"usage": map[string]interface{}{"prompt_tokens": 11, "completion_tokens": 3, "total_tokens": 14},
+				"choices": []map[string]interface{}{
+					{
+						"index":         0,
+						"delta":         map[string]interface{}{},
+						"finish_reason": "stop",
+					},
+				},
+			})
+		case 3:
+			last := req.Messages[len(req.Messages)-1]
+			if last.Role != "user" || last.Content != "You just saved a draft. Review it against voice.md now." {
+				t.Fatalf("expected behavior prompt, got %#v", last)
+			}
+			writeSSEChunk(t, w, map[string]interface{}{
+				"id":    "resp-trigger-3",
+				"model": req.Model,
+				"choices": []map[string]interface{}{
+					{
+						"index": 0,
+						"delta": map[string]interface{}{
+							"role":    "assistant",
+							"content": "",
+							"tool_calls": []map[string]interface{}{
+								{
+									"index": 0,
+									"id":    "call-trigger-2",
+									"type":  "function",
+									"function": map[string]interface{}{
+										"name":      "Write",
+										"arguments": `{"file_path":"writing/post-reviewed.md","content":"reviewed draft\n"}`,
+									},
+								},
+							},
+						},
+					},
+				},
+			})
+			writeSSEChunk(t, w, map[string]interface{}{
+				"id":    "resp-trigger-3",
+				"model": req.Model,
+				"usage": map[string]interface{}{"prompt_tokens": 12, "completion_tokens": 4, "total_tokens": 16},
+				"choices": []map[string]interface{}{
+					{
+						"index":         0,
+						"delta":         map[string]interface{}{},
+						"finish_reason": "tool_calls",
+					},
+				},
+			})
+		case 4:
+			last := req.Messages[len(req.Messages)-1]
+			if last.Role != "tool" || last.ToolCallID != "call-trigger-2" {
+				t.Fatalf("expected review tool result, got %#v", last)
+			}
+			writeSSEChunk(t, w, map[string]interface{}{
+				"id":    "resp-trigger-4",
+				"model": req.Model,
+				"choices": []map[string]interface{}{
+					{
+						"index": 0,
+						"delta": map[string]interface{}{
+							"role":    "assistant",
+							"content": "Review complete.",
+						},
+					},
+				},
+			})
+			writeSSEChunk(t, w, map[string]interface{}{
+				"id":    "resp-trigger-4",
+				"model": req.Model,
+				"usage": map[string]interface{}{"prompt_tokens": 13, "completion_tokens": 3, "total_tokens": 16},
+				"choices": []map[string]interface{}{
+					{
+						"index":         0,
+						"delta":         map[string]interface{}{},
+						"finish_reason": "stop",
+					},
+				},
+			})
+		default:
+			t.Fatalf("unexpected extra model request %d", callCount)
+		}
+		_, _ = w.Write([]byte("data: [DONE]\n\n"))
+	}))
+	defer server.Close()
+
+	t.Setenv("OPENROUTER_API_KEY", "test-key")
+	t.Setenv("OPENROUTER_BASE_URL", server.URL)
+
+	var stdout bytes.Buffer
+	err := RunNativeSession(NativeRunOptions{
+		Mode:      "detached",
+		Dir:       workDir,
+		SessionID: "sess-native-behavior",
+		Agent:     "native-agent",
+		Workspace: metaWorkspace,
+		Model:     "openai/gpt-4o-mini",
+		Prompt:    "Draft a post and then review it.",
+	}, bytes.NewBuffer(nil), &stdout)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if got := stdout.String(); got != "Draft saved.\nReview complete.\n" {
+		t.Fatalf("stdout = %q", got)
+	}
+	if callCount != 4 {
+		t.Fatalf("callCount = %d, want 4", callCount)
+	}
+
+	state, err := LoadStateInWorkspace(metaWorkspace, "sess-native-behavior")
+	if err != nil {
+		t.Fatal(err)
+	}
+	behaviorPrompts := 0
+	for _, msg := range state.Messages {
+		if msg.Role == "user" && msg.Content == "You just saved a draft. Review it against voice.md now." {
+			behaviorPrompts++
+		}
+	}
+	if behaviorPrompts != 1 {
+		t.Fatalf("behavior prompt count = %d, want 1", behaviorPrompts)
+	}
+	if !slices.Contains(state.WorkingSet.ToolsUsed, "Write") {
+		t.Fatalf("expected Write in tools used, got %#v", state.WorkingSet)
+	}
+}
+
+func TestRunNativeSession_BehaviorDoesNotConsumeIterationBudget(t *testing.T) {
+	workDir := t.TempDir()
+	metaWorkspace := t.TempDir()
+
+	if err := os.MkdirAll(filepath.Join(workDir, ".toc-native"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(workDir, ".toc-native", "system-prompt.md"), []byte("You are a writing agent.\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	// MaxIterations=3 is enough for the 3 real iterations (tool call, tool
+	// call after behavior, final stop) but NOT enough if the behavior
+	// re-entry counts as an iteration. Without the i-- fix this test would
+	// hit errMaxIterationsReached.
+	if err := SaveSessionConfigInWorkspace(metaWorkspace, "sess-behavior-budget", &SessionConfig{
+		Agent:   "native-agent",
+		Runtime: runtimeinfo.NativeRuntime,
+		Model:   "openai/gpt-4o-mini",
+		Behaviors: []Behavior{
+			{
+				Name:   "voice-review",
+				On:     "turn_complete",
+				When:   BehaviorCondition{FileWritten: "writing/*.md"},
+				Prompt: "Review the draft now.",
+			},
+		},
+		RuntimeConfig: SessionRuntimeOptions{
+			MaxIterations: 3,
+			EnabledTools:  NativeToolNames(),
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	callCount := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		callCount++
+		var req chatRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+
+		w.Header().Set("Content-Type", "text/event-stream")
+		switch callCount {
+		case 1: // Tool call: write a file matching the behavior condition
+			writeSSEChunk(t, w, map[string]interface{}{
+				"id":    "resp-1",
+				"model": req.Model,
+				"choices": []map[string]interface{}{
+					{
+						"index": 0,
+						"delta": map[string]interface{}{
+							"role":    "assistant",
+							"content": "",
+							"tool_calls": []map[string]interface{}{
+								{
+									"index": 0,
+									"id":    "call-1",
+									"type":  "function",
+									"function": map[string]interface{}{
+										"name":      "Write",
+										"arguments": `{"file_path":"writing/post.md","content":"draft\n"}`,
+									},
+								},
+							},
+						},
+					},
+				},
+			})
+			writeSSEChunk(t, w, map[string]interface{}{
+				"id":    "resp-1",
+				"model": req.Model,
+				"usage": map[string]interface{}{"prompt_tokens": 10, "completion_tokens": 4, "total_tokens": 14},
+				"choices": []map[string]interface{}{
+					{
+						"index":         0,
+						"delta":         map[string]interface{}{},
+						"finish_reason": "tool_calls",
+					},
+				},
+			})
+		case 2: // Text response — triggers behavior
+			writeSSEChunk(t, w, map[string]interface{}{
+				"id":    "resp-2",
+				"model": req.Model,
+				"choices": []map[string]interface{}{
+					{
+						"index": 0,
+						"delta": map[string]interface{}{
+							"role":    "assistant",
+							"content": "Draft saved.",
+						},
+					},
+				},
+			})
+			writeSSEChunk(t, w, map[string]interface{}{
+				"id":    "resp-2",
+				"model": req.Model,
+				"usage": map[string]interface{}{"prompt_tokens": 11, "completion_tokens": 3, "total_tokens": 14},
+				"choices": []map[string]interface{}{
+					{
+						"index":         0,
+						"delta":         map[string]interface{}{},
+						"finish_reason": "stop",
+					},
+				},
+			})
+		case 3: // Behavior re-entry — tool call
+			writeSSEChunk(t, w, map[string]interface{}{
+				"id":    "resp-3",
+				"model": req.Model,
+				"choices": []map[string]interface{}{
+					{
+						"index": 0,
+						"delta": map[string]interface{}{
+							"role":    "assistant",
+							"content": "",
+							"tool_calls": []map[string]interface{}{
+								{
+									"index": 0,
+									"id":    "call-2",
+									"type":  "function",
+									"function": map[string]interface{}{
+										"name":      "Write",
+										"arguments": `{"file_path":"writing/reviewed.md","content":"reviewed\n"}`,
+									},
+								},
+							},
+						},
+					},
+				},
+			})
+			writeSSEChunk(t, w, map[string]interface{}{
+				"id":    "resp-3",
+				"model": req.Model,
+				"usage": map[string]interface{}{"prompt_tokens": 12, "completion_tokens": 4, "total_tokens": 16},
+				"choices": []map[string]interface{}{
+					{
+						"index":         0,
+						"delta":         map[string]interface{}{},
+						"finish_reason": "tool_calls",
+					},
+				},
+			})
+		case 4: // Final text response
+			writeSSEChunk(t, w, map[string]interface{}{
+				"id":    "resp-4",
+				"model": req.Model,
+				"choices": []map[string]interface{}{
+					{
+						"index": 0,
+						"delta": map[string]interface{}{
+							"role":    "assistant",
+							"content": "Review complete.",
+						},
+					},
+				},
+			})
+			writeSSEChunk(t, w, map[string]interface{}{
+				"id":    "resp-4",
+				"model": req.Model,
+				"usage": map[string]interface{}{"prompt_tokens": 13, "completion_tokens": 3, "total_tokens": 16},
+				"choices": []map[string]interface{}{
+					{
+						"index":         0,
+						"delta":         map[string]interface{}{},
+						"finish_reason": "stop",
+					},
+				},
+			})
+		default:
+			t.Fatalf("unexpected extra model request %d", callCount)
+		}
+		_, _ = w.Write([]byte("data: [DONE]\n\n"))
+	}))
+	defer server.Close()
+
+	t.Setenv("OPENROUTER_API_KEY", "test-key")
+	t.Setenv("OPENROUTER_BASE_URL", server.URL)
+
+	var stdout bytes.Buffer
+	err := RunNativeSession(NativeRunOptions{
+		Mode:      "detached",
+		Dir:       workDir,
+		SessionID: "sess-behavior-budget",
+		Agent:     "native-agent",
+		Workspace: metaWorkspace,
+		Model:     "openai/gpt-4o-mini",
+		Prompt:    "Draft and review.",
+	}, bytes.NewBuffer(nil), &stdout)
+	if err != nil {
+		t.Fatalf("expected no error with MaxIterations=3, got: %v", err)
+	}
+
+	if callCount != 4 {
+		t.Fatalf("callCount = %d, want 4 (behavior re-entry should not consume iteration budget)", callCount)
+	}
+	if got := stdout.String(); got != "Draft saved.\nReview complete.\n" {
 		t.Fatalf("stdout = %q", got)
 	}
 }

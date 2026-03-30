@@ -25,6 +25,9 @@ func TestWorkingSet_UpdateFromToolCall(t *testing.T) {
 	if len(ws.FilesWritten) != 1 || ws.FilesWritten[0] != "new.go" {
 		t.Errorf("FilesWritten = %v, want [new.go]", ws.FilesWritten)
 	}
+	if len(ws.ToolsUsed) != 4 {
+		t.Errorf("ToolsUsed = %d, want 4", len(ws.ToolsUsed))
+	}
 	if len(ws.RecentBash) != 2 {
 		t.Errorf("RecentBash = %d, want 2", len(ws.RecentBash))
 	}

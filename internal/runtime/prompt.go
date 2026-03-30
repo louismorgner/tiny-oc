@@ -54,25 +54,20 @@ func ComposePrompt(workDir string, cfg *SessionConfig, sessionID string) (string
 // agent has no sub-agent permissions the placeholder resolves to empty string
 // so agent.md authors can include {{.SubAgentInstructions}} unconditionally.
 func subAgentInstructions(runtimeName string, perms agent.Permissions) string {
-	if !hasSubAgentPermissions(perms) {
+	if !perms.HasAnySubAgent() {
 		return ""
 	}
 
 	switch runtimeName {
+	case runtimeinfo.DefaultRuntime:
+		return claudeCodeSubAgentInstructions
 	case runtimeinfo.NativeRuntime:
 		return nativeSubAgentInstructions
 	default:
-		return claudeCodeSubAgentInstructions
+		// Unknown runtime — return empty rather than guessing wrong instructions.
+		// ValidateRuntime gates earlier in the flow, so this should not be reachable.
+		return ""
 	}
-}
-
-func hasSubAgentPermissions(perms agent.Permissions) bool {
-	for _, level := range perms.SubAgents {
-		if level != agent.PermOff {
-			return true
-		}
-	}
-	return false
 }
 
 const claudeCodeSubAgentInstructions = `## Sub-agents

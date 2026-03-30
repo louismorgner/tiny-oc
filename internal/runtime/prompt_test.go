@@ -92,6 +92,36 @@ func TestComposePrompt_SubAgentInstructions_NoPermissions(t *testing.T) {
 	}
 }
 
+func TestComposePrompt_SubAgentInstructions_PermAsk(t *testing.T) {
+	// PermAsk means the agent can spawn sub-agents but needs user confirmation.
+	// It should still receive sub-agent instructions.
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "agent.md"), []byte("# test\n\n{{.SubAgentInstructions}}"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := &SessionConfig{
+		Agent:   "test-agent",
+		Runtime: runtimeinfo.DefaultRuntime,
+		Model:   "sonnet",
+		Permissions: agent.Permissions{
+			SubAgents: map[string]agent.PermissionLevel{"*": agent.PermAsk},
+		},
+	}
+
+	content, err := ComposePrompt(dir, cfg, "test-session")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !strings.Contains(content, "Sub-agents") {
+		t.Error("PermAsk should be treated as having sub-agent permissions")
+	}
+	if !strings.Contains(content, "toc runtime spawn") {
+		t.Error("expected claude-code sub-agent instructions")
+	}
+}
+
 func TestComposePrompt_SubAgentInstructions_AllOff(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "agent.md"), []byte("{{.SubAgentInstructions}}"), 0644); err != nil {

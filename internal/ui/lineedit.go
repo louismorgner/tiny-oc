@@ -16,13 +16,12 @@ import (
 // Alt+Backspace (ESC DEL) for word deletion in addition to standard
 // editing keys (Backspace, Ctrl+W, Ctrl+U, Ctrl+C, Ctrl+D).
 type LineEditor struct {
-	In     *os.File
-	Out    io.Writer
-	Prompt string // prompt string reprinted on redraw
+	In  *os.File
+	Out io.Writer
 
 	mu       sync.Mutex
-	buf      []byte       // current line buffer, guarded by mu
-	oldState *term.State  // saved terminal state from EnterRawMode
+	buf      []byte      // snapshot of line buffer for external readers, guarded by mu
+	oldState *term.State // saved terminal state from EnterRawMode, guarded by mu
 }
 
 // errInterrupt is returned when the user presses Ctrl+C.
@@ -50,8 +49,10 @@ func (le *LineEditor) EnterRawMode() error {
 }
 
 // RestoreMode restores the terminal to the state saved by EnterRawMode.
-// It is safe to call multiple times.
+// It is safe to call concurrently and multiple times.
 func (le *LineEditor) RestoreMode() {
+	le.mu.Lock()
+	defer le.mu.Unlock()
 	if le.oldState != nil {
 		term.Restore(le.In.Fd(), le.oldState)
 		le.oldState = nil
@@ -59,14 +60,16 @@ func (le *LineEditor) RestoreMode() {
 }
 
 // ReadLine reads one line of input. The caller must have already called
-// EnterRawMode. It returns the line (without trailing newline) or an error.
-// On Ctrl+C it returns errInterrupt; on Ctrl+D at an empty line it returns io.EOF.
-func (le *LineEditor) ReadLine() (string, error) {
+// EnterRawMode. The prompt string is used when redrawing the line (e.g.
+// after word deletion). It returns the line (without trailing newline)
+// or an error. On Ctrl+C it returns errInterrupt; on Ctrl+D at an empty
+// line it returns io.EOF.
+func (le *LineEditor) ReadLine(prompt string) (string, error) {
 	le.mu.Lock()
 	le.buf = le.buf[:0]
 	le.mu.Unlock()
 
-	return readLineRaw(le.In, le.Out, le.Prompt, le)
+	return readLineRaw(le.In, le.Out, prompt, le)
 }
 
 // Buffer returns a copy of the current in-progress input. This is safe
@@ -128,6 +131,10 @@ func readLineRaw(r io.Reader, w io.Writer, prompt string, le *LineEditor) (strin
 				fmt.Fprint(w, "\r\n")
 				return "", io.EOF
 			}
+			// Non-empty buffer: ignore. We don't support cursor movement,
+			// so delete-char-under-cursor (readline default) is not applicable.
+			// Flushing the partial buffer would be surprising. Silently
+			// ignoring matches the behavior of simple line editors.
 
 		case b == 0x17: // Ctrl+W — delete word backward
 			buf = deleteWordBackward(buf)
@@ -166,9 +173,29 @@ func readLineRaw(r io.Reader, w io.Writer, prompt string, le *LineEditor) (strin
 			}
 
 		case b >= 0x20: // Printable ASCII and start of UTF-8 sequences
-			buf = append(buf, b)
-			syncBuf()
-			w.Write([]byte{b})
+			if b < 0x80 {
+				// Single-byte ASCII character.
+				buf = append(buf, b)
+				syncBuf()
+				w.Write([]byte{b})
+			} else {
+				// Multi-byte UTF-8: unread the leading byte and use
+				// ReadRune to collect the complete character.
+				br.UnreadByte()
+				r, size, err := br.ReadRune()
+				if err != nil {
+					return string(buf), err
+				}
+				if r == utf8.RuneError && size == 1 {
+					// Invalid UTF-8 byte — skip it.
+					continue
+				}
+				var rBuf [utf8.UTFMax]byte
+				n := utf8.EncodeRune(rBuf[:], r)
+				buf = append(buf, rBuf[:n]...)
+				syncBuf()
+				w.Write(rBuf[:n])
+			}
 
 		default:
 			// Other control characters: ignore
@@ -193,8 +220,16 @@ func discardEscapeSequence(br *bufio.Reader) {
 	if err != nil {
 		return
 	}
+	if next == 'O' {
+		// SS3 sequence (e.g. ESC O H for Home, ESC O F for End).
+		// Consume the final byte to avoid leaking it into input.
+		if br.Buffered() > 0 {
+			br.ReadByte()
+		}
+		return
+	}
 	if next != '[' {
-		// Not a CSI sequence; single-char escape — already consumed.
+		// Not a CSI or SS3 sequence; single-char escape — already consumed.
 		return
 	}
 	// CSI: read until a final byte (0x40-0x7E), but only from what's

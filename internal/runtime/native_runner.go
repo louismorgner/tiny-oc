@@ -198,9 +198,8 @@ func RunNativeSession(opts NativeRunOptions, stdin io.Reader, stdout io.Writer) 
 			if lineEditor != nil {
 				prompt := ui.UserPromptPrefix(opts.Agent)
 				fmt.Fprint(stdout, prompt)
-				lineEditor.Prompt = prompt
 				go func() {
-					line, err := lineEditor.ReadLine()
+					line, err := lineEditor.ReadLine(prompt)
 					readCh <- readResult{line, err}
 				}()
 			} else {

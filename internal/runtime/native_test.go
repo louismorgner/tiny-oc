@@ -280,6 +280,11 @@ func TestEnsureSystemPromptInjectsTodoWriteNotes(t *testing.T) {
 	if !strings.Contains(content, "TodoWrite tool") {
 		t.Fatalf("expected TodoWrite runtime notes in system prompt, got %q", content)
 	}
+	for _, needle := range []string{todoWriteSkipShortSessions, todoWriteRewriteOnlyOnChange} {
+		if !strings.Contains(content, needle) {
+			t.Fatalf("expected prompt to contain TodoWrite guidance %q, got %q", needle, content)
+		}
+	}
 }
 
 func TestNativeParseSessionLog(t *testing.T) {

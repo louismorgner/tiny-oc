@@ -463,9 +463,7 @@ func buildNativeRuntimeNotes(sessionCfg *SessionConfig) string {
 	if !toolEnabled(sessionCfg.RuntimeConfig.EnabledTools, "TodoWrite") {
 		return ""
 	}
-	return `If the task has multiple meaningful steps, use the TodoWrite tool to keep a short session todo list current.
-TodoWrite replaces the entire list on each call, so always send the full updated list.
-Prefer only one item with status "in_progress" at a time and mark items complete immediately.`
+	return todoWriteRuntimeNotes
 }
 
 func toolEnabled(enabled []string, name string) bool {

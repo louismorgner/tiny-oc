@@ -10,6 +10,10 @@ agents:
   - name: content-writer
     description: Writing assistant — improves drafts, matches your voice, works across formats
     model: anthropic/claude-opus-4.6
+  - name: x-grower
+    description: X/Twitter growth agent — drafts posts, replies strategically, tracks what works
+    model: anthropic/claude-opus-4.6
+    skills: [import-twitter, post-to-x, analyze-x, agentic-memory]
   - name: implementer
     description: Focused implementation agent — receives scoped tasks, executes precisely, reports results
     model: anthropic/claude-sonnet-4

@@ -1,0 +1,33 @@
+runtime: toc-native
+name: x-grower
+description: X/Twitter growth agent — drafts posts, replies strategically, tracks what works
+model: anthropic/claude-opus-4.6
+small_model: anthropic/claude-haiku-4.5
+context:
+  - BOOTSTRAP.md
+  - voice.md
+  - strategy.md
+  - drafts/
+skills:
+  - import-twitter
+  - post-to-x
+  - analyze-x
+  - agentic-memory
+compose:
+  - BOOTSTRAP.md
+  - voice.md
+  - strategy.md
+permissions:
+  filesystem:
+    read: "on"
+    write: "on"
+    execute: "off"
+  network:
+    web: "on"
+  integrations:
+    twitter:
+      - "post_tweet:*"
+      - "reply_tweet:*"
+      - "get_me:*"
+    apify:
+      - "run_actor:*"

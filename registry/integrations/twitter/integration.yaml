@@ -1,0 +1,64 @@
+name: twitter
+description: X/Twitter API v2 — post tweets, reply to tweets, and read account info
+
+auth:
+  method: oauth2
+  setup_url: https://developer.x.com/en/portal/dashboard
+  setup_instructions: |
+    1. Go to https://developer.x.com/en/portal/dashboard
+    2. Create a project and app with OAuth 2.0 (User Authentication)
+    3. Set permissions to Read and Write
+    4. Generate an access token and refresh token
+    5. Run `toc integrate add twitter` and paste the bearer token when prompted
+
+actions:
+  post_tweet:
+    description: Post a new tweet to the authenticated account
+    scopes:
+      "*": any tweet
+    params:
+      - name: text
+        required: true
+      - name: reply_to
+        required: false
+        description: Tweet ID to reply to (makes this a reply)
+      - name: quote_tweet_id
+        required: false
+        description: Tweet ID to quote
+    method: POST
+    endpoint: https://api.x.com/2/tweets
+    auth_header: "Bearer {{token}}"
+    body_format: json
+    rate_limit:
+      max: 17
+      window: 900s
+
+  reply_tweet:
+    description: Reply to an existing tweet
+    scopes:
+      "*": any reply
+    params:
+      - name: text
+        required: true
+      - name: in_reply_to_tweet_id
+        required: true
+        description: The tweet ID to reply to
+    method: POST
+    endpoint: https://api.x.com/2/tweets
+    auth_header: "Bearer {{token}}"
+    body_format: json
+    rate_limit:
+      max: 17
+      window: 900s
+
+  get_me:
+    description: Get the authenticated user's profile info
+    scopes:
+      "*": own profile
+    params: []
+    method: GET
+    endpoint: https://api.x.com/2/users/me?user.fields=public_metrics,description
+    auth_header: "Bearer {{token}}"
+    rate_limit:
+      max: 75
+      window: 900s

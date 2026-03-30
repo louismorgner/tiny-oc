@@ -23,3 +23,36 @@ skills:
   - name: import-linkedin
     description: Scrape LinkedIn posts and profiles using Apify
     tags: [apify, linkedin, scraping]
+  - name: yc-thinking
+    description: Core YC and Paul Graham frameworks for startup thinking
+    tags: [strategy, yc, frameworks, startup]
+  - name: fundraising
+    description: Fundraising strategy — rounds, mechanics, investor dynamics
+    tags: [strategy, fundraising, investors, finance]
+  - name: product
+    description: Product thinking — PMF, user research, prioritization, MVP scoping
+    tags: [strategy, product, pmf, research]
+  - name: positioning
+    description: Product positioning — April Dunford framework adapted for startups
+    tags: [strategy, positioning, marketing]
+  - name: gtm
+    description: Go-to-market — PLG, sales-led, community-led playbooks by stage
+    tags: [strategy, gtm, growth, sales]
+  - name: pricing
+    description: Pricing strategy — value-based pricing, packaging, capture
+    tags: [strategy, pricing, monetization]
+  - name: people-ops
+    description: People — hiring, firing, feedback, conflict, leading small teams
+    tags: [strategy, people, hiring, management]
+  - name: storytelling
+    description: Narrative and storytelling — for investors, customers, and teams
+    tags: [strategy, storytelling, narrative, pitch]
+  - name: company-research
+    description: Deep company research using Exa search
+    tags: [research, exa, competitive-analysis]
+  - name: person-research
+    description: Meeting prep — research a person using Exa and Apollo
+    tags: [research, exa, apollo, meeting-prep]
+  - name: market-research
+    description: Market research — sizing, landscape, trends using Exa
+    tags: [research, exa, market-analysis]

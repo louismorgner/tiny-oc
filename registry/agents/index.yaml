@@ -10,6 +10,10 @@ agents:
   - name: content-writer
     description: Writing assistant — improves drafts, matches your voice, works across formats
     model: anthropic/claude-opus-4.6
+  - name: co-founder
+    description: Strategic thinking partner for founders — fundraising, product, GTM, people, and hard decisions
+    model: anthropic/claude-opus-4.6
+    skills: [yc-thinking, fundraising, product, positioning, gtm, pricing, people-ops, storytelling, company-research, person-research, market-research]
   - name: implementer
     description: Focused implementation agent — receives scoped tasks, executes precisely, reports results
     model: anthropic/claude-sonnet-4

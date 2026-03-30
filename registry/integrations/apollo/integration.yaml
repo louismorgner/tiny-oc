@@ -1,0 +1,184 @@
+name: apollo
+description: Apollo.io API — people and company enrichment, contact search, and org data
+auth:
+  method: api_key
+  setup_url: https://developer.apollo.io/
+  setup_instructions: |
+    1. Go to https://app.apollo.io/#/settings/integrations/api-keys and sign in
+    2. Create a new API key and copy it
+    3. Run `toc integrate add apollo` and paste the key when prompted
+
+actions:
+  people.match:
+    description: Enrich a person by name + company or email — returns role, contact info, career history
+    scopes:
+      "*": any person lookup
+    params:
+      - name: first_name
+        required: false
+      - name: last_name
+        required: false
+      - name: name
+        required: false
+      - name: email
+        required: false
+      - name: organization_name
+        required: false
+      - name: domain
+        required: false
+      - name: linkedin_url
+        required: false
+    method: POST
+    endpoint: https://api.apollo.io/api/v1/people/match
+    auth_header: "x-api-key: {{token}}"
+    body_format: json
+    rate_limit:
+      max: 50
+      window: 60s
+    returns:
+      - person.first_name
+      - person.last_name
+      - person.title
+      - person.headline
+      - person.email
+      - person.linkedin_url
+      - person.organization.name
+      - person.organization.website_url
+      - person.employment_history[]
+
+  people.search:
+    description: Search for people by title, company, location, industry, and other filters
+    scopes:
+      "*": any people search
+    params:
+      - name: person_titles
+        required: false
+        kind: csv
+      - name: q_organization_name
+        required: false
+      - name: organization_domains
+        required: false
+        kind: csv
+      - name: person_locations
+        required: false
+        kind: csv
+      - name: q_keywords
+        required: false
+      - name: organization_num_employees_ranges
+        required: false
+        kind: csv
+      - name: page
+        required: false
+        default: "1"
+      - name: per_page
+        required: false
+        default: "10"
+    method: POST
+    endpoint: https://api.apollo.io/api/v1/mixed_people/search
+    auth_header: "x-api-key: {{token}}"
+    body_format: json
+    rate_limit:
+      max: 50
+      window: 60s
+    returns:
+      - people[].first_name
+      - people[].last_name
+      - people[].title
+      - people[].email
+      - people[].linkedin_url
+      - people[].organization.name
+      - people[].organization.website_url
+
+  organizations.enrich:
+    description: Enrich a company by domain — returns funding, headcount, industry, tech stack
+    scopes:
+      "*": any organization lookup
+    params:
+      - name: domain
+        required: true
+    method: GET
+    endpoint: https://api.apollo.io/api/v1/organizations/enrich?domain={{domain}}
+    auth_header: "x-api-key: {{token}}"
+    body_format: query
+    rate_limit:
+      max: 50
+      window: 60s
+    returns:
+      - organization.name
+      - organization.website_url
+      - organization.blog_url
+      - organization.linkedin_url
+      - organization.twitter_url
+      - organization.founded_year
+      - organization.estimated_num_employees
+      - organization.industry
+      - organization.keywords
+      - organization.short_description
+      - organization.total_funding
+      - organization.latest_funding_round_date
+      - organization.latest_funding_stage
+      - organization.technology_names
+
+  organizations.search:
+    description: Search for companies by industry, size, location, funding, and other filters
+    scopes:
+      "*": any organization search
+    params:
+      - name: q_organization_name
+        required: false
+      - name: organization_domains
+        required: false
+        kind: csv
+      - name: organization_locations
+        required: false
+        kind: csv
+      - name: organization_num_employees_ranges
+        required: false
+        kind: csv
+      - name: q_organization_keyword_tags
+        required: false
+        kind: csv
+      - name: organization_latest_funding_stage_cd
+        required: false
+        kind: csv
+      - name: page
+        required: false
+        default: "1"
+      - name: per_page
+        required: false
+        default: "10"
+    method: POST
+    endpoint: https://api.apollo.io/api/v1/mixed_companies/search
+    auth_header: "x-api-key: {{token}}"
+    body_format: json
+    rate_limit:
+      max: 50
+      window: 60s
+    returns:
+      - organizations[].name
+      - organizations[].website_url
+      - organizations[].linkedin_url
+      - organizations[].estimated_num_employees
+      - organizations[].industry
+      - organizations[].total_funding
+      - organizations[].latest_funding_stage
+
+  organizations.job_postings:
+    description: Get active job postings for a company — useful for understanding hiring priorities
+    scopes:
+      "*": any organization job posting lookup
+    params:
+      - name: organization_id
+        required: true
+    method: GET
+    endpoint: https://api.apollo.io/api/v1/organizations/{{organization_id}}/job_postings
+    auth_header: "x-api-key: {{token}}"
+    body_format: query
+    rate_limit:
+      max: 50
+      window: 60s
+    returns:
+      - job_postings[].title
+      - job_postings[].url
+      - job_postings[].city
+      - job_postings[].last_seen_at

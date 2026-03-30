@@ -1,0 +1,37 @@
+runtime: toc-native
+name: co-founder
+description: Strategic thinking partner for founders — fundraising, product, GTM, people, and hard decisions
+model: anthropic/claude-opus-4.6
+small_model: anthropic/claude-haiku-4.5
+context:
+  - BOOTSTRAP.md
+  - business.md
+  - decisions/
+compose:
+  - BOOTSTRAP.md
+  - business.md
+skills:
+  - yc-thinking
+  - fundraising
+  - product
+  - positioning
+  - gtm
+  - pricing
+  - people-ops
+  - storytelling
+  - company-research
+  - person-research
+  - market-research
+permissions:
+  filesystem:
+    read: "on"
+    write: "on"
+    execute: "off"
+  network:
+    web: "on"
+  integrations:
+    exa:
+      - "search:*"
+    apollo:
+      - "people.match:*"
+      - "organizations.enrich:*"

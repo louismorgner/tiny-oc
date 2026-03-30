@@ -2,6 +2,7 @@ runtime: toc-native
 name: content-writer
 description: Writing assistant — improves drafts, matches your voice, works across formats
 model: anthropic/claude-opus-4.6
+small_model: anthropic/claude-haiku-4.5
 context:
   - BOOTSTRAP.md
   - voice.md

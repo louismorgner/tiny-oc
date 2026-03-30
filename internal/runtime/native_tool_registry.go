@@ -193,14 +193,15 @@ Anti-patterns:
 		},
 		{
 			Name: "WebFetch",
-			Description: `Fetch a public URL and return a model-readable representation of the response.
+			Description: `Fetch a public URL and return a concise, model-readable summary of the response.
 
-Use WebFetch when you need to inspect a specific URL directly from the native runtime. It is intended for public documentation pages, articles, changelogs, markdown files, plain text, and JSON endpoints. For HTML pages, the tool converts the response into readable Markdown while trying to keep the main page content and discard obvious chrome.
+Use WebFetch when you need to inspect a specific URL directly from the native runtime. It is intended for public documentation pages, articles, changelogs, markdown files, plain text, and JSON endpoints. For HTML pages, the tool converts the response into readable Markdown and then summarizes it using a small model to keep your context window clean.
 
 Parameters:
 - url (required): Absolute HTTP or HTTPS URL to fetch.
+- query (optional): What you are looking for on this page. When provided, the summary focuses on information relevant to this query. When omitted, a general summary is returned.
 
-Output: A text block that includes fetch metadata (URL, redirect target, status, content type, page title when available) followed by the converted content. HTML is converted to Markdown. JSON is pretty-printed. Large responses are capped and truncated for context safety.
+Output: A summarized text block with fetch metadata (URL, model used) followed by the extracted content. HTML is converted to Markdown before summarization. JSON is pretty-printed. If no small model is configured, the raw converted content is returned instead.
 
 Limitations:
 - WebFetch does NOT execute JavaScript. It only sees the server-rendered response.
@@ -209,7 +210,8 @@ Limitations:
 			Parameters: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
-					"url": map[string]interface{}{"type": "string"},
+					"url":   map[string]interface{}{"type": "string", "description": "Absolute HTTP or HTTPS URL to fetch."},
+					"query": map[string]interface{}{"type": "string", "description": "Optional: what you are looking for on this page. Focuses the summary on relevant information."},
 				},
 				"required": []string{"url"},
 			},

@@ -3,6 +3,7 @@ name: superfounder-swe
 description: Software engineer agent — executes precise implementation tasks, writes production-quality code
 group: superfounder
 model: moonshotai/kimi-k2.5
+small_model: google/gemini-2.5-flash
 context:
   - BOOTSTRAP.md
 compose:

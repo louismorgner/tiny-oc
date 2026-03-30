@@ -33,6 +33,7 @@ type nativeToolContext struct {
 	Config     *SessionConfig
 	SpawnFunc  SubAgentSpawnFunc
 	Trace      *traceWriter
+	LLMClient  *openRouterClient
 }
 
 type toolExecution struct {

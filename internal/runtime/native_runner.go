@@ -82,6 +82,7 @@ func RunNativeSession(opts NativeRunOptions, stdin io.Reader, stdout io.Writer) 
 		Manifest:   manifest,
 		Config:     sessionCfg,
 		SpawnFunc:  opts.SpawnFunc,
+		LLMClient:  client,
 	}
 	envTrace, _ := strconv.ParseBool(os.Getenv("TOC_TRACE"))
 	if opts.Trace || envTrace {

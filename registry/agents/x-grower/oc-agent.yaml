@@ -14,7 +14,6 @@ skills:
   - analyze-x
   - agentic-memory
 compose:
-  - BOOTSTRAP.md
   - voice.md
   - strategy.md
 permissions:
@@ -27,7 +26,8 @@ permissions:
   integrations:
     twitter:
       - "post_tweet:*"
-      - "reply_tweet:*"
+      - "search_tweets:*"
+      - "get_user_tweets:*"
       - "get_me:*"
     apify:
       - "run_actor:*"

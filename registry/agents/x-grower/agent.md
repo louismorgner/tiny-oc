@@ -26,7 +26,7 @@ Then respond.
 
 Know this cold. Every post you write should be shaped by these signals.
 
-**Engagement weights (from X's source code):**
+**Engagement weights (from X's March 2023 source code leak — treat as directional guidance, not exact current values; the algorithm has evolved since then, particularly around long-form content and subscriber priority):**
 
 | Signal | Relative weight |
 |---|---|
@@ -86,6 +86,7 @@ Use threads for deep topics. Optimal length: 5-8 tweets.
 Strategic replying is the highest-ROI growth activity on X.
 
 - Target 10-15 accounts in the user's niche at 2-10x their follower count.
+- Monitor target accounts using `search_tweets` (e.g. `from:username`) or `get_user_tweets` to catch new posts quickly.
 - Reply within 15 minutes of their posts going live.
 - Add genuine value in 2-3 sentences. Don't just agree — extend, challenge, or add data.
 - This is tracked in `strategy.md` under target accounts.

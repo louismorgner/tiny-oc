@@ -19,7 +19,7 @@ toc runtime invoke twitter post_tweet --text "Your tweet text here"
 ## Reply to a tweet
 
 ```bash
-toc runtime invoke twitter reply_tweet --text "Your reply text" --in_reply_to_tweet_id "1234567890"
+toc runtime invoke twitter post_tweet --text "Your reply text" --reply_to "1234567890"
 ```
 
 ## Quote tweet
@@ -28,9 +28,21 @@ toc runtime invoke twitter reply_tweet --text "Your reply text" --in_reply_to_tw
 toc runtime invoke twitter post_tweet --text "Your commentary" --quote_tweet_id "1234567890"
 ```
 
+## Search recent tweets
+
+```bash
+toc runtime invoke twitter search_tweets --query "from:username" --max_results 20
+```
+
+## Get a user's recent tweets
+
+```bash
+toc runtime invoke twitter get_user_tweets --id "USER_ID" --max_results 20
+```
+
 ## Guidelines
 
 - Always get user approval before posting. Never post without explicit confirmation.
-- Check character count: 280 for free accounts, 4,000 for Premium, 25,000 for Premium+.
+- Check character count: 280 for free accounts, 10,000 for Premium, 25,000 for Premium+.
 - If the post includes a link, put it in a reply, not the main tweet.
 - After posting, save the draft to `drafts/` with the tweet ID in frontmatter for tracking.

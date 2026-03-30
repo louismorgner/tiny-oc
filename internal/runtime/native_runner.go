@@ -732,6 +732,7 @@ func runNativeLoop(client *openRouterClient, state *State, toolSpecs []NativeToo
 				if err := SaveStateInWorkspace(state.Workspace, state.SessionID, state); err != nil {
 					return err
 				}
+				i-- // Behavior re-entry should not consume an iteration from maxIterations
 				continue
 			}
 			// Reset pending changes so stale working-set data does not

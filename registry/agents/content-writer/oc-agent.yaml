@@ -9,6 +9,16 @@ context:
 compose:
   - BOOTSTRAP.md
   - voice.md
+triggers:
+  - name: voice-review
+    when:
+      file_written: "writing/*.md"
+    prompt: |
+      You just saved a new piece to writing/. Before moving on:
+      1. Re-read voice.md.
+      2. Does the piece match the user's voice? Be specific about what matches and what doesn't.
+      3. If it doesn't match, revise the piece now.
+      4. Update voice.md if you learned any new patterns about how the user writes.
 permissions:
   filesystem:
     read: "on"

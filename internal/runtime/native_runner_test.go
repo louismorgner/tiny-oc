@@ -375,6 +375,231 @@ func TestRunNativeSession_UsesTOCNativeBaseURL(t *testing.T) {
 	}
 }
 
+func TestRunNativeSession_ExecutesPostTurnTriggerOnce(t *testing.T) {
+	workDir := t.TempDir()
+	metaWorkspace := t.TempDir()
+
+	if err := os.MkdirAll(filepath.Join(workDir, ".toc-native"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(workDir, ".toc-native", "system-prompt.md"), []byte("You are a writing agent.\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := SaveSessionConfigInWorkspace(metaWorkspace, "sess-native-trigger", &SessionConfig{
+		Agent:   "native-agent",
+		Runtime: runtimeinfo.NativeRuntime,
+		Model:   "openai/gpt-4o-mini",
+		Triggers: []TurnTrigger{
+			{
+				Name:   "voice-review",
+				When:   TriggerCondition{FileWritten: "writing/*.md"},
+				Prompt: "You just saved a draft. Review it against voice.md now.",
+			},
+		},
+		RuntimeConfig: SessionRuntimeOptions{
+			EnabledTools: NativeToolNames(),
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	callCount := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		callCount++
+		var req chatRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+
+		w.Header().Set("Content-Type", "text/event-stream")
+		switch callCount {
+		case 1:
+			writeSSEChunk(t, w, map[string]interface{}{
+				"id":    "resp-trigger-1",
+				"model": req.Model,
+				"choices": []map[string]interface{}{
+					{
+						"index": 0,
+						"delta": map[string]interface{}{
+							"role":    "assistant",
+							"content": "",
+							"tool_calls": []map[string]interface{}{
+								{
+									"index": 0,
+									"id":    "call-trigger-1",
+									"type":  "function",
+									"function": map[string]interface{}{
+										"name":      "Write",
+										"arguments": `{"file_path":"writing/post.md","content":"draft\n"}`,
+									},
+								},
+							},
+						},
+					},
+				},
+			})
+			writeSSEChunk(t, w, map[string]interface{}{
+				"id":    "resp-trigger-1",
+				"model": req.Model,
+				"usage": map[string]interface{}{"prompt_tokens": 10, "completion_tokens": 4, "total_tokens": 14},
+				"choices": []map[string]interface{}{
+					{
+						"index":         0,
+						"delta":         map[string]interface{}{},
+						"finish_reason": "tool_calls",
+					},
+				},
+			})
+		case 2:
+			last := req.Messages[len(req.Messages)-1]
+			if last.Role != "tool" || last.ToolCallID != "call-trigger-1" {
+				t.Fatalf("expected write tool result, got %#v", last)
+			}
+			writeSSEChunk(t, w, map[string]interface{}{
+				"id":    "resp-trigger-2",
+				"model": req.Model,
+				"choices": []map[string]interface{}{
+					{
+						"index": 0,
+						"delta": map[string]interface{}{
+							"role":    "assistant",
+							"content": "Draft saved.",
+						},
+					},
+				},
+			})
+			writeSSEChunk(t, w, map[string]interface{}{
+				"id":    "resp-trigger-2",
+				"model": req.Model,
+				"usage": map[string]interface{}{"prompt_tokens": 11, "completion_tokens": 3, "total_tokens": 14},
+				"choices": []map[string]interface{}{
+					{
+						"index":         0,
+						"delta":         map[string]interface{}{},
+						"finish_reason": "stop",
+					},
+				},
+			})
+		case 3:
+			last := req.Messages[len(req.Messages)-1]
+			if last.Role != "user" || last.Content != "You just saved a draft. Review it against voice.md now." {
+				t.Fatalf("expected trigger prompt, got %#v", last)
+			}
+			writeSSEChunk(t, w, map[string]interface{}{
+				"id":    "resp-trigger-3",
+				"model": req.Model,
+				"choices": []map[string]interface{}{
+					{
+						"index": 0,
+						"delta": map[string]interface{}{
+							"role":    "assistant",
+							"content": "",
+							"tool_calls": []map[string]interface{}{
+								{
+									"index": 0,
+									"id":    "call-trigger-2",
+									"type":  "function",
+									"function": map[string]interface{}{
+										"name":      "Write",
+										"arguments": `{"file_path":"writing/post-reviewed.md","content":"reviewed draft\n"}`,
+									},
+								},
+							},
+						},
+					},
+				},
+			})
+			writeSSEChunk(t, w, map[string]interface{}{
+				"id":    "resp-trigger-3",
+				"model": req.Model,
+				"usage": map[string]interface{}{"prompt_tokens": 12, "completion_tokens": 4, "total_tokens": 16},
+				"choices": []map[string]interface{}{
+					{
+						"index":         0,
+						"delta":         map[string]interface{}{},
+						"finish_reason": "tool_calls",
+					},
+				},
+			})
+		case 4:
+			last := req.Messages[len(req.Messages)-1]
+			if last.Role != "tool" || last.ToolCallID != "call-trigger-2" {
+				t.Fatalf("expected review tool result, got %#v", last)
+			}
+			writeSSEChunk(t, w, map[string]interface{}{
+				"id":    "resp-trigger-4",
+				"model": req.Model,
+				"choices": []map[string]interface{}{
+					{
+						"index": 0,
+						"delta": map[string]interface{}{
+							"role":    "assistant",
+							"content": "Review complete.",
+						},
+					},
+				},
+			})
+			writeSSEChunk(t, w, map[string]interface{}{
+				"id":    "resp-trigger-4",
+				"model": req.Model,
+				"usage": map[string]interface{}{"prompt_tokens": 13, "completion_tokens": 3, "total_tokens": 16},
+				"choices": []map[string]interface{}{
+					{
+						"index":         0,
+						"delta":         map[string]interface{}{},
+						"finish_reason": "stop",
+					},
+				},
+			})
+		default:
+			t.Fatalf("unexpected extra model request %d", callCount)
+		}
+		_, _ = w.Write([]byte("data: [DONE]\n\n"))
+	}))
+	defer server.Close()
+
+	t.Setenv("OPENROUTER_API_KEY", "test-key")
+	t.Setenv("OPENROUTER_BASE_URL", server.URL)
+
+	var stdout bytes.Buffer
+	err := RunNativeSession(NativeRunOptions{
+		Mode:      "detached",
+		Dir:       workDir,
+		SessionID: "sess-native-trigger",
+		Agent:     "native-agent",
+		Workspace: metaWorkspace,
+		Model:     "openai/gpt-4o-mini",
+		Prompt:    "Draft a post and then review it.",
+	}, bytes.NewBuffer(nil), &stdout)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if got := stdout.String(); got != "Draft saved.\nReview complete.\n" {
+		t.Fatalf("stdout = %q", got)
+	}
+	if callCount != 4 {
+		t.Fatalf("callCount = %d, want 4", callCount)
+	}
+
+	state, err := LoadStateInWorkspace(metaWorkspace, "sess-native-trigger")
+	if err != nil {
+		t.Fatal(err)
+	}
+	triggerPrompts := 0
+	for _, msg := range state.Messages {
+		if msg.Role == "user" && msg.Content == "You just saved a draft. Review it against voice.md now." {
+			triggerPrompts++
+		}
+	}
+	if triggerPrompts != 1 {
+		t.Fatalf("trigger prompt count = %d, want 1", triggerPrompts)
+	}
+	if !containsString(state.WorkingSet.ToolsUsed, "Write") {
+		t.Fatalf("expected Write in tools used, got %#v", state.WorkingSet)
+	}
+}
+
 func TestRunNativeSession_ContinuesAfterSubAgentNotification(t *testing.T) {
 	workDir := t.TempDir()
 	metaWorkspace := t.TempDir()

@@ -300,3 +300,36 @@ func TestSubAgentPermission(t *testing.T) {
 		t.Errorf("SubAgentPermission(unknown) = %s, want off", got)
 	}
 }
+
+func TestValidate_Triggers(t *testing.T) {
+	cfg := &AgentConfig{
+		Name:    "test",
+		Runtime: "toc-native",
+		Model:   "openai/gpt-4o-mini",
+		Triggers: []TriggerConfig{
+			{
+				Name:   "post-write-review",
+				When:   TriggerConditionConfig{FileWritten: "writing/*.md"},
+				Prompt: "Review the draft.",
+			},
+		},
+	}
+	if problems := cfg.Validate(); len(problems) != 0 {
+		t.Fatalf("unexpected validation errors: %v", problems)
+	}
+}
+
+func TestValidate_TriggersMissingFields(t *testing.T) {
+	cfg := &AgentConfig{
+		Name:    "test",
+		Runtime: "toc-native",
+		Model:   "openai/gpt-4o-mini",
+		Triggers: []TriggerConfig{
+			{},
+		},
+	}
+	problems := cfg.Validate()
+	if len(problems) != 3 {
+		t.Fatalf("expected 3 trigger validation errors, got %v", problems)
+	}
+}

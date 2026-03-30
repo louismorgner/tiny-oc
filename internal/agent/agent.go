@@ -60,6 +60,18 @@ type ThinkingConfig struct {
 	Effort       string `yaml:"effort,omitempty"        json:"effort,omitempty"`
 }
 
+type TriggerConditionConfig struct {
+	FileWritten string `yaml:"file_written,omitempty" json:"file_written,omitempty"`
+	FileEdited  string `yaml:"file_edited,omitempty"  json:"file_edited,omitempty"`
+	ToolUsed    string `yaml:"tool_used,omitempty"    json:"tool_used,omitempty"`
+}
+
+type TriggerConfig struct {
+	Name   string                 `yaml:"name"              json:"name"`
+	When   TriggerConditionConfig `yaml:"when"              json:"when"`
+	Prompt string                 `yaml:"prompt,omitempty"  json:"prompt,omitempty"`
+}
+
 type AgentConfig struct {
 	Runtime                string          `yaml:"runtime"`
 	Name                   string          `yaml:"name"`
@@ -74,6 +86,7 @@ type AgentConfig struct {
 	OnEnd                  string          `yaml:"on_end,omitempty"`
 	Compose                []string        `yaml:"compose,omitempty"`
 	Thinking               *ThinkingConfig `yaml:"thinking,omitempty"`
+	Triggers               []TriggerConfig `yaml:"triggers,omitempty"`
 }
 
 // EffectivePermissions returns the resolved permission spec. If no permissions
@@ -232,6 +245,20 @@ func (cfg *AgentConfig) Validate() []string {
 		}
 		if cfg.Thinking.Effort != "" && !validEffortLevels[cfg.Thinking.Effort] {
 			problems = append(problems, fmt.Sprintf("thinking: invalid effort value %q (must be one of: xhigh, high, medium, low, minimal)", cfg.Thinking.Effort))
+		}
+	}
+	for i, trigger := range cfg.Triggers {
+		label := fmt.Sprintf("triggers[%d]", i)
+		if strings.TrimSpace(trigger.Name) == "" {
+			problems = append(problems, label+": missing name")
+		}
+		if strings.TrimSpace(trigger.Prompt) == "" {
+			problems = append(problems, label+": missing prompt")
+		}
+		if strings.TrimSpace(trigger.When.FileWritten) == "" &&
+			strings.TrimSpace(trigger.When.FileEdited) == "" &&
+			strings.TrimSpace(trigger.When.ToolUsed) == "" {
+			problems = append(problems, label+": when must define at least one condition")
 		}
 	}
 

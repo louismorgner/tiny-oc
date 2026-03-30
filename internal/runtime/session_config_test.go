@@ -53,6 +53,9 @@ func TestResolveSessionConfig(t *testing.T) {
 	if cfg.RuntimeConfig.CompactionKeepRecent != 12 {
 		t.Fatalf("CompactionKeepRecent = %d, want 12", cfg.RuntimeConfig.CompactionKeepRecent)
 	}
+	if len(cfg.Triggers) != 0 {
+		t.Fatalf("expected no triggers by default, got %#v", cfg.Triggers)
+	}
 }
 
 func TestSaveAndLoadSessionConfig(t *testing.T) {
@@ -174,6 +177,28 @@ func TestResolveSessionConfig_ThinkingNilWhenUnset(t *testing.T) {
 	})
 	if cfg.Thinking != nil {
 		t.Fatalf("expected nil thinking config when unset, got %+v", cfg.Thinking)
+	}
+}
+
+func TestResolveSessionConfig_TriggersPropagate(t *testing.T) {
+	cfg := ResolveSessionConfig(&agent.AgentConfig{
+		Name:                   "test-agent",
+		Runtime:                runtimeinfo.NativeRuntime,
+		Model:                  "openai/gpt-4o-mini",
+		AllowCustomNativeModel: true,
+		Triggers: []agent.TriggerConfig{
+			{
+				Name:   "voice-review",
+				When:   agent.TriggerConditionConfig{FileWritten: "writing/*.md"},
+				Prompt: "Review against voice.md.",
+			},
+		},
+	})
+	if len(cfg.Triggers) != 1 {
+		t.Fatalf("expected 1 trigger, got %#v", cfg.Triggers)
+	}
+	if cfg.Triggers[0].When.FileWritten != "writing/*.md" {
+		t.Fatalf("unexpected trigger condition %#v", cfg.Triggers[0])
 	}
 }
 

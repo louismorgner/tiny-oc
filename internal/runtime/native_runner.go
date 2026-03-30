@@ -595,6 +595,8 @@ func runNativeLoop(client *openRouterClient, state *State, toolSpecs []NativeToo
 	if toolCtx.Config != nil && toolCtx.Config.RuntimeConfig.MaxIterations > 0 {
 		maxIterations = toolCtx.Config.RuntimeConfig.MaxIterations
 	}
+	firedTriggers := make(map[string]bool)
+	pendingTriggerChanges := &WorkingSet{}
 	for i := 0; i < maxIterations; i++ {
 		compacted, err := maybeManageContext(state, sess, toolCtx.Config, profile, client)
 		if err != nil {
@@ -712,6 +714,21 @@ func runNativeLoop(client *openRouterClient, state *State, toolSpecs []NativeToo
 		}
 
 		if len(msg.ToolCalls) == 0 {
+			var triggers []TurnTrigger
+			if toolCtx.Config != nil {
+				triggers = toolCtx.Config.Triggers
+			}
+			if trigger := evaluateTriggers(pendingTriggerChanges, triggers, firedTriggers); trigger != nil {
+				firedTriggers[trigger.Name] = true
+				pendingTriggerChanges = &WorkingSet{}
+				triggerMsg := Message{Role: "user", Content: trigger.Prompt}
+				state.Messages = append(state.Messages, triggerMsg)
+				state.Transcript = append(state.Transcript, triggerMsg)
+				if err := SaveStateInWorkspace(state.Workspace, state.SessionID, state); err != nil {
+					return err
+				}
+				continue
+			}
 			return nil
 		}
 
@@ -723,6 +740,7 @@ func runNativeLoop(client *openRouterClient, state *State, toolSpecs []NativeToo
 				state.WorkingSet = &WorkingSet{}
 			}
 			state.WorkingSet.UpdateFromToolCall(call.Function.Name, call.Function.Arguments)
+			pendingTriggerChanges.UpdateFromToolCall(call.Function.Name, call.Function.Arguments)
 
 			if !detached {
 				var parsedArgs map[string]interface{}

@@ -185,8 +185,8 @@ func FormatToolCallRich(toolName, keyParam, output string, maxOutputLines int) s
 			truncated = true
 		}
 		for _, line := range lines {
-			if len(line) > 100 {
-				line = line[:97] + "..."
+			if lineRunes := []rune(line); len(lineRunes) > 100 {
+				line = string(lineRunes[:97]) + "..."
 			}
 			b.WriteString(toolOutputStyle.Render(line))
 			b.WriteByte('\n')
@@ -321,6 +321,27 @@ func formatToolStep(content string, meta StepMeta) string {
 		}
 	case "Glob", "Grep":
 		detail = content
+	case "TodoWrite":
+		// Show individual todo items on separate lines
+		header := fmt.Sprintf("  %s %s\n", toolHeaderStyle.Render(icon), toolNameStyle.Render(name))
+		lines := strings.Split(content, "\n")
+		truncated := len(lines) > 20
+		if truncated {
+			lines = lines[:20]
+		}
+		var b strings.Builder
+		b.WriteString(header)
+		for _, line := range lines {
+			if line != "" {
+				b.WriteString(toolOutputStyle.Render(line))
+				b.WriteByte('\n')
+			}
+		}
+		if truncated {
+			b.WriteString(toolOutputStyle.Render("..."))
+			b.WriteByte('\n')
+		}
+		return b.String()
 	default:
 		detail = name
 		if meta.Path != "" {

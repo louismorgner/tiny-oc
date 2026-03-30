@@ -197,17 +197,15 @@ func RunNativeSession(opts NativeRunOptions, stdin io.Reader, stdout io.Writer) 
 			readErr = r.err
 		case <-notifyTicker.C:
 			// Check for sub-agent completions while waiting for input.
-			// If the user is mid-typing, erase the current line first so
-			// notification output doesn't visually clobber partial input.
-			// After the notification, reprint the prompt on a fresh line.
-			if stdinReading && isTTY {
-				fmt.Fprint(stdout, "\033[2K\r") // erase line, cursor to col 1
-			}
+			// If a notification was handled and the user is mid-typing,
+			// erase the current line so notification output doesn't
+			// visually clobber partial input, then reprint the prompt.
 			handled, err := drainSessionNotifications(client, state, toolSpecs, profile, toolCtx, stdout, false)
 			if err != nil {
 				return err
 			}
 			if handled && stdinReading && isTTY {
+				fmt.Fprint(stdout, "\033[2K\r") // erase line, cursor to col 1
 				fmt.Fprint(stdout, ui.UserPromptPrefix(opts.Agent))
 			}
 			continue

@@ -14,6 +14,11 @@ import (
 
 var validName = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*$`)
 
+// validBehaviorEvents is the set of allowed values for BehaviorConfig.On.
+var validBehaviorEvents = map[string]bool{
+	"turn_complete": true,
+}
+
 // validEffortLevels is the set of allowed values for ThinkingConfig.Effort.
 var validEffortLevels = map[string]bool{
 	"xhigh":   true,
@@ -258,6 +263,9 @@ func (cfg *AgentConfig) Validate() []string {
 			problems = append(problems, fmt.Sprintf("behaviors[%d]: duplicate behavior name %q", i, name))
 		} else {
 			behaviorNames[name] = true
+		}
+		if on := strings.TrimSpace(b.On); on != "" && !validBehaviorEvents[on] {
+			problems = append(problems, fmt.Sprintf("%s: invalid on value %q (must be one of: turn_complete)", label, on))
 		}
 		if strings.TrimSpace(b.Prompt) == "" {
 			problems = append(problems, label+": missing prompt")

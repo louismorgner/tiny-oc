@@ -350,6 +350,52 @@ func TestValidate_BehaviorsDuplicateNames(t *testing.T) {
 	}
 }
 
+func TestValidate_BehaviorsInvalidOnValue(t *testing.T) {
+	cfg := &AgentConfig{
+		Name:    "test",
+		Runtime: "toc-native",
+		Model:   "openai/gpt-4o-mini",
+		Behaviors: []BehaviorConfig{
+			{
+				Name:   "voice-review",
+				On:     "turn_complet",
+				When:   BehaviorConditionConfig{FileWritten: "writing/*.md"},
+				Prompt: "Review the draft.",
+			},
+		},
+	}
+	problems := cfg.Validate()
+	found := false
+	for _, p := range problems {
+		if strings.Contains(p, "invalid on value") && strings.Contains(p, "turn_complet") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected invalid on value error, got %v", problems)
+	}
+}
+
+func TestValidate_BehaviorsValidOnValue(t *testing.T) {
+	cfg := &AgentConfig{
+		Name:    "test",
+		Runtime: "toc-native",
+		Model:   "openai/gpt-4o-mini",
+		Behaviors: []BehaviorConfig{
+			{
+				Name:   "voice-review",
+				On:     "turn_complete",
+				When:   BehaviorConditionConfig{FileWritten: "writing/*.md"},
+				Prompt: "Review the draft.",
+			},
+		},
+	}
+	if problems := cfg.Validate(); len(problems) != 0 {
+		t.Fatalf("unexpected validation errors: %v", problems)
+	}
+}
+
 func TestValidate_BehaviorsMissingFields(t *testing.T) {
 	cfg := &AgentConfig{
 		Name:    "test",

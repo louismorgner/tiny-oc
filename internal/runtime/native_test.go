@@ -280,8 +280,10 @@ func TestEnsureSystemPromptInjectsTodoWriteNotes(t *testing.T) {
 	if !strings.Contains(content, "TodoWrite tool") {
 		t.Fatalf("expected TodoWrite runtime notes in system prompt, got %q", content)
 	}
-	if !strings.Contains(content, "Skip TodoWrite for single-answer requests") {
-		t.Fatalf("expected prompt to discourage TodoWrite in short sessions, got %q", content)
+	for _, needle := range []string{"single-answer requests", "short sessions"} {
+		if !strings.Contains(content, needle) {
+			t.Fatalf("expected prompt to mention %q in TodoWrite guidance, got %q", needle, content)
+		}
 	}
 }
 

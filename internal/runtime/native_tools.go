@@ -90,6 +90,9 @@ func nativeWrite(ctx nativeToolContext, call ToolCall) toolExecution {
 	if err := decodeToolArgs(call.Function.Arguments, &args); err != nil {
 		return toolFailure("Write", "", "", err)
 	}
+	if strings.TrimSpace(args.Content) == "" {
+		return toolFailure("Write", args.FilePath, "", fmt.Errorf("content is required; use Bash rm to delete files"))
+	}
 	path, err := resolveSessionPath(ctx.SessionDir, args.FilePath)
 	if err != nil {
 		return toolFailure("Write", args.FilePath, "", err)
@@ -101,10 +104,7 @@ func nativeWrite(ctx nativeToolContext, call ToolCall) toolExecution {
 		return toolFailure("Write", args.FilePath, "", err)
 	}
 
-	lines := 0
-	if args.Content != "" {
-		lines = strings.Count(args.Content, "\n") + 1
-	}
+	lines := strings.Count(args.Content, "\n") + 1
 	return toolSuccess("Write", args.FilePath, fmt.Sprintf("Wrote %d bytes to %s", len(args.Content), args.FilePath), Step{
 		Type:    "tool",
 		Tool:    "Write",

@@ -5,3 +5,9 @@ skills:
   - name: agentic-memory
     description: Persistent memory system with daily logs and long-term storage for cross-session continuity
     tags: [memory, persistence, agentic, continuity]
+  - name: transcribe-video
+    description: Transcribe video content from URLs using Apify actors
+    tags: [apify, video, transcription, scraping]
+  - name: scrape-text
+    description: Extract text content from web URLs using Apify actors
+    tags: [apify, text, scraping, extraction]

@@ -4,7 +4,7 @@ This is your first session. Before you can write well for this person, you need 
 
 ## What to do
 
-1. **Ask for writing samples.** You need 3-5 examples of their real writing — tweets, emails, LinkedIn posts, memos, anything. Different topics, same voice. Ask them to paste or point you to examples.
+1. **Ask for writing samples.** You need 3-5 examples of their real writing — tweets, emails, LinkedIn posts, memos, anything. Different topics, same voice. They can paste text directly or drop links (YouTube videos, Instagram posts, tweets, articles). If they give you a link, use your `transcribe-video` or `scrape-text` skills to extract the content.
 
 2. **Analyze the voice.** Once you have samples, identify:
    - Sentence length patterns (short and punchy? mixed? long and flowing?)

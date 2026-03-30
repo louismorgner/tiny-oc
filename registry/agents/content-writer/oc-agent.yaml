@@ -6,6 +6,9 @@ context:
   - BOOTSTRAP.md
   - voice.md
   - writing/
+skills:
+  - transcribe-video
+  - scrape-text
 compose:
   - BOOTSTRAP.md
   - voice.md
@@ -16,3 +19,6 @@ permissions:
     execute: "off"
   network:
     web: "on"
+  integrations:
+    apify:
+      - "run_actor:*"

@@ -161,7 +161,24 @@ func RunNativeSession(opts NativeRunOptions, stdin io.Reader, stdout io.Writer) 
 	readCh := make(chan readResult, 1)
 	stdinReading := false
 
-	reader := bufio.NewReader(stdin)
+	// Use a raw-mode line editor for TTY input so that Alt+Backspace
+	// (ESC DEL) deletes the previous word, matching standard terminal
+	// behaviour. Non-TTY input (pipes, tests) uses the original
+	// bufio.NewReader path.
+	var lineEditor *ui.LineEditor
+	var reader *bufio.Reader
+	if isTTY {
+		if f, ok := stdin.(*os.File); ok {
+			lineEditor = &ui.LineEditor{
+				In:  f,
+				Out: stdout,
+			}
+		}
+	}
+	if lineEditor == nil {
+		reader = bufio.NewReader(stdin)
+	}
+
 	for {
 		// Drain any notifications that arrived since the last iteration.
 		if _, err := drainSessionNotifications(client, state, toolSpecs, profile, toolCtx, stdout, false); err != nil {
@@ -170,15 +187,21 @@ func RunNativeSession(opts NativeRunOptions, stdin io.Reader, stdout io.Writer) 
 
 		// Start a stdin read goroutine if one isn't already pending.
 		if !stdinReading {
-			if isTTY {
-				fmt.Fprint(stdout, ui.UserPromptPrefix(opts.Agent))
+			if lineEditor != nil {
+				prompt := ui.UserPromptPrefix(opts.Agent)
+				fmt.Fprint(stdout, prompt)
+				lineEditor.Prompt = prompt
+				go func() {
+					line, err := lineEditor.ReadLine()
+					readCh <- readResult{line, err}
+				}()
 			} else {
 				fmt.Fprint(stdout, ui.PlainPromptPrefix())
+				go func() {
+					line, err := reader.ReadString('\n')
+					readCh <- readResult{line, err}
+				}()
 			}
-			go func() {
-				line, err := reader.ReadString('\n')
-				readCh <- readResult{line, err}
-			}()
 			stdinReading = true
 		}
 
@@ -195,6 +218,10 @@ func RunNativeSession(opts NativeRunOptions, stdin io.Reader, stdout io.Writer) 
 			stdinReading = false
 			line = r.line
 			readErr = r.err
+			// The line editor returns errInterrupt on Ctrl+C.
+			if ui.IsInterrupt(readErr) {
+				return finalizeNativeSession(client, state, sessionCfg, toolSpecs, profile, toolCtx, stdout, false)
+			}
 		case <-notifyTicker.C:
 			// Check for sub-agent completions while waiting for input.
 			// If a notification was handled and the user is mid-typing,

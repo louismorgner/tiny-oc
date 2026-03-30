@@ -3,6 +3,7 @@ package runtime
 import (
 	"bytes"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -1251,5 +1252,187 @@ func TestMergeStreamChunk_CacheTokens(t *testing.T) {
 				t.Errorf("CacheWriteTokens = %d, want %d", d.CacheWriteTokens, tt.wantCacheW)
 			}
 		})
+	}
+}
+
+func TestRunNativeSession_InteractiveNotificationWhileWaiting(t *testing.T) {
+	// When an interactive session is blocked waiting for user input, a
+	// sub-agent completion notification should wake the loop, trigger a
+	// model turn with the notification content, and then resume waiting
+	// for user input.
+	workDir := t.TempDir()
+	metaWorkspace := t.TempDir()
+	agentDir := filepath.Join(metaWorkspace, ".toc", "agents", "notify-agent")
+	if err := os.MkdirAll(agentDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(workDir, ".toc-native"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(workDir, ".toc-native", "system-prompt.md"), []byte("You are a test agent.\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := SaveSessionConfigInWorkspace(metaWorkspace, "sess-notify-interactive", &SessionConfig{
+		Agent:   "notify-agent",
+		Runtime: runtimeinfo.NativeRuntime,
+		Model:   "openai/gpt-4o-mini",
+		RuntimeConfig: SessionRuntimeOptions{
+			EnabledTools: NativeToolNames(),
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	callCount := 0
+	callDone := make(chan int, 2) // signals after each model call completes
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		callCount++
+		n := callCount
+		var req chatRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		defer func() { callDone <- n }()
+		switch n {
+		case 1:
+			// Response to the initial prompt.
+			writeSSEChunk(t, w, map[string]interface{}{
+				"id":    "resp-n-1",
+				"model": req.Model,
+				"choices": []map[string]interface{}{
+					{
+						"index": 0,
+						"delta": map[string]interface{}{
+							"role":    "assistant",
+							"content": "Waiting for sub-agent.",
+						},
+					},
+				},
+			})
+			writeSSEChunk(t, w, map[string]interface{}{
+				"id":    "resp-n-1",
+				"model": req.Model,
+				"usage": map[string]interface{}{"prompt_tokens": 10, "completion_tokens": 3, "total_tokens": 13},
+				"choices": []map[string]interface{}{
+					{
+						"index":         0,
+						"delta":         map[string]interface{}{},
+						"finish_reason": "stop",
+					},
+				},
+			})
+		case 2:
+			// Response to the sub-agent completion notification.
+			last := req.Messages[len(req.Messages)-1]
+			if last.Role != "user" || !strings.Contains(last.Content, "Sub-agent completion update.") {
+				t.Fatalf("expected notification prompt, got role=%q content=%q", last.Role, last.Content)
+			}
+			if !strings.Contains(last.Content, "child output here") {
+				t.Fatalf("expected child output in prompt, got %q", last.Content)
+			}
+			writeSSEChunk(t, w, map[string]interface{}{
+				"id":    "resp-n-2",
+				"model": req.Model,
+				"choices": []map[string]interface{}{
+					{
+						"index": 0,
+						"delta": map[string]interface{}{
+							"role":    "assistant",
+							"content": "Got the result.",
+						},
+					},
+				},
+			})
+			writeSSEChunk(t, w, map[string]interface{}{
+				"id":    "resp-n-2",
+				"model": req.Model,
+				"usage": map[string]interface{}{"prompt_tokens": 20, "completion_tokens": 4, "total_tokens": 24},
+				"choices": []map[string]interface{}{
+					{
+						"index":         0,
+						"delta":         map[string]interface{}{},
+						"finish_reason": "stop",
+					},
+				},
+			})
+		default:
+			t.Fatalf("unexpected request count %d", callCount)
+		}
+		_, _ = w.Write([]byte("data: [DONE]\n\n"))
+	}))
+	defer server.Close()
+
+	t.Setenv("OPENROUTER_API_KEY", "test-key")
+	t.Setenv("OPENROUTER_BASE_URL", server.URL)
+
+	// Use a pipe for stdin so we control exactly when EOF arrives.
+	stdinR, stdinW := io.Pipe()
+
+	go func() {
+		// Send the first user message immediately so the session has
+		// work to do.
+		_, _ = stdinW.Write([]byte("Start working.\n"))
+
+		// Wait for the first model call to complete before writing the
+		// notification file, so the session is back in the select loop.
+		<-callDone
+
+		_, _ = WriteSubAgentCompletionNotification(metaWorkspace, "sess-notify-interactive", SessionNotification{
+			SessionID: "child-interactive-1",
+			Agent:     "cto",
+			Status:    session.StatusCompletedOK,
+			ExitCode:  0,
+			Prompt:    "Do the review.",
+			Output:    "child output here",
+		})
+
+		// Wait for the second model call (notification response) to
+		// complete, then close stdin to end the session.
+		<-callDone
+		stdinW.Close()
+	}()
+
+	var stdout bytes.Buffer
+	err := RunNativeSession(NativeRunOptions{
+		Dir:       workDir,
+		SessionID: "sess-notify-interactive",
+		Agent:     "notify-agent",
+		Workspace: metaWorkspace,
+		Model:     "openai/gpt-4o-mini",
+	}, stdinR, &stdout)
+	if err != nil {
+		t.Fatalf("RunNativeSession failed: %v", err)
+	}
+
+	if callCount != 2 {
+		t.Fatalf("expected 2 model calls (initial + notification), got %d", callCount)
+	}
+
+	out := stdout.String()
+	if !strings.Contains(out, "Waiting for sub-agent.") {
+		t.Fatalf("expected initial response in stdout, got %q", out)
+	}
+	if !strings.Contains(out, "Got the result.") {
+		t.Fatalf("expected notification response in stdout, got %q", out)
+	}
+
+	state, err := LoadStateInWorkspace(metaWorkspace, "sess-notify-interactive")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.Status != "completed" {
+		t.Fatalf("expected completed status, got %q", state.Status)
+	}
+	// Verify the notification prompt was injected into the message history.
+	foundNotification := false
+	for _, msg := range state.Messages {
+		if msg.Role == "user" && strings.Contains(msg.Content, "Sub-agent completion update.") {
+			foundNotification = true
+			break
+		}
+	}
+	if !foundNotification {
+		t.Fatal("expected notification prompt in message history")
 	}
 }

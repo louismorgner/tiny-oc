@@ -319,9 +319,11 @@ Actions:
 
 Output: All actions return JSON. Errors include descriptive messages about what went wrong (permission denied, session not found, invalid state, etc.).
 
+Completion notifications: When a sub-agent finishes, the system automatically delivers its result as a new message in your conversation. You do NOT need to poll for completion — just continue your work and you will be notified when the sub-agent is done. You can still use "status" and "output" to check progress manually if needed.
+
 Anti-patterns:
 - Do NOT spawn sub-agents for trivial tasks you can do faster yourself.
-- Do NOT poll status in a tight loop — give sub-agents time to work before checking.
+- Do NOT poll status in a tight loop — completion notifications are automatic, so polling is rarely needed.
 - Do NOT forget to read output after a sub-agent completes — the result is your deliverable.
 - Do NOT spawn agents you are not permitted to use — call "list" first to see what is available.`,
 			Parameters: map[string]interface{}{

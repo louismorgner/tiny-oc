@@ -108,9 +108,9 @@ toc agent spawn pr-reviewer
 │   └── usage/                 # Token usage parsing and formatting
 ├── registry/                  # Built-in skills, agents, workspaces, and integration definitions
 │   ├── agents/                # cto, mini-claw, superfounder-*, implementer
-│   ├── skills/                # open-source-cto, agentic-memory
+│   ├── skills/                # open-source-cto, agentic-memory, transcribe-audio
 │   ├── workspaces/            # superfounder (multi-agent workspace bundles)
-│   └── integrations/          # github, slack
+│   └── integrations/          # github, slack, groq
 ├── web/                       # OAuth callback worker (Cloudflare)
 ├── e2e/                       # End-to-end smoke tests
 ├── Makefile                   # build, test, lint, test-e2e targets

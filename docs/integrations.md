@@ -138,11 +138,11 @@ actions:
 |---|---|
 | `description` | What the action does |
 | `scopes` | Map of scope values to descriptions |
-| `params` | List of parameters (`name`, `required`, `default`) |
+| `params` | List of parameters (`name`, `required`, `default`, optional `wire_name` and `kind`) |
 | `method` | HTTP method: `GET`, `POST`, `PUT`, `DELETE`, `PATCH` |
 | `endpoint` | URL with `{{param}}` placeholders |
 | `auth_header` | Authorization header with `{{token}}` placeholder |
-| `body_format` | How non-URL params are sent: `json`, `query`, or `form` |
+| `body_format` | How non-URL params are sent: `json`, `query`, `form`, or `multipart` |
 | `rate_limit` | Optional `max` calls per `window` duration |
 | `returns` | Optional response field whitelist (dot notation, `[].field` for arrays) |
 
@@ -172,6 +172,15 @@ Auth: Bot User OAuth Token (`xoxb-`). Scopes: `channels:read`, `channels:history
 | `list_channels` | List public channels | `limit`, `types` |
 | `react` | Add an emoji reaction | `channel`, `timestamp`, `name` |
 
+### Groq
+
+Auth: API key from Groq Console.
+
+| Action | Description | Key params |
+|---|---|---|
+| `audio.transcribe` | Transcribe local audio/video files or direct media URLs | `file` or `url`, `model`, `response_format` |
+| `audio.translate` | Translate spoken audio into English text | `file` or `url`, `model`, `response_format` |
+
 ## Using integrations from agents
 
 During a session, agents call integrations through `toc runtime invoke`:
@@ -179,6 +188,7 @@ During a session, agents call integrations through `toc runtime invoke`:
 ```bash
 toc runtime invoke github issues.read --repo louismorgner/tiny-oc --state open
 toc runtime invoke slack send_message --channel "#engineering" --text "Deploy complete"
+toc runtime invoke groq audio.transcribe --file ./meeting.m4a --response_format verbose_json --timestamp_granularities word,segment
 ```
 
 The agent's CLAUDE.md or system prompt should document which integrations are available and how to use them. The gateway handles authentication and permission enforcement transparently.

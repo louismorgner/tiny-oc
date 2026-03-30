@@ -5,3 +5,21 @@ skills:
   - name: agentic-memory
     description: Persistent memory system with daily logs and long-term storage for cross-session continuity
     tags: [memory, persistence, agentic, continuity]
+  - name: transcribe-video
+    description: Transcribe YouTube video transcripts using Apify
+    tags: [apify, youtube, video, transcription]
+  - name: transcribe-audio
+    description: Transcribe local audio/video files or direct media URLs using Groq speech-to-text
+    tags: [groq, audio, video, transcription, speech-to-text]
+  - name: import-instagram
+    description: Scrape Instagram profiles, posts, and reels using Apify
+    tags: [apify, instagram, scraping]
+  - name: import-tiktok
+    description: Scrape TikTok video captions using Apify
+    tags: [apify, tiktok, scraping]
+  - name: import-twitter
+    description: Scrape tweets and threads from X/Twitter using Apify
+    tags: [apify, twitter, scraping]
+  - name: import-linkedin
+    description: Scrape LinkedIn posts and profiles using Apify
+    tags: [apify, linkedin, scraping]

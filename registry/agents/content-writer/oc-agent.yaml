@@ -6,6 +6,13 @@ context:
   - BOOTSTRAP.md
   - voice.md
   - writing/
+skills:
+  - transcribe-video
+  - transcribe-audio
+  - import-instagram
+  - import-tiktok
+  - import-twitter
+  - import-linkedin
 compose:
   - BOOTSTRAP.md
   - voice.md
@@ -16,3 +23,9 @@ permissions:
     execute: "off"
   network:
     web: "on"
+  integrations:
+    apify:
+      - "run_actor:*"
+    groq:
+      - "audio.transcribe:*"
+      - "audio.translate:*"

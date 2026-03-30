@@ -2,8 +2,14 @@ package e2e
 
 import (
 	"encoding/json"
+	"io"
+	"mime"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/tiny-oc/toc/internal/integration"
@@ -240,4 +246,166 @@ func TestSmoke_ExaIntegrationGateway(t *testing.T) {
 	if _, ok := data["requestId"]; ok {
 		t.Error("requestId should have been filtered out")
 	}
+}
+
+func TestSmoke_GroqMultipartIntegrationGateway(t *testing.T) {
+	tempDir := t.TempDir()
+	audioPath := filepath.Join(tempDir, "sample.wav")
+	if err := os.WriteFile(audioPath, []byte("fake audio bytes"), 0600); err != nil {
+		t.Fatalf("write temp audio: %v", err)
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer groq-test-key" {
+			t.Errorf("expected Bearer auth header, got: %s", r.Header.Get("Authorization"))
+		}
+
+		mediaType, params, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
+		if err != nil {
+			t.Fatalf("parse content type: %v", err)
+		}
+		if mediaType != "multipart/form-data" {
+			t.Fatalf("expected multipart/form-data, got %q", mediaType)
+		}
+
+		reader := multipart.NewReader(r.Body, params["boundary"])
+		fields := map[string][]string{}
+		fileContents := map[string]string{}
+		fileNames := map[string]string{}
+
+		for {
+			part, err := reader.NextPart()
+			if err == io.EOF {
+				break
+			}
+			if err != nil {
+				t.Fatalf("read multipart part: %v", err)
+			}
+			data, err := io.ReadAll(part)
+			if err != nil {
+				t.Fatalf("read multipart body: %v", err)
+			}
+			if part.FileName() != "" {
+				fileNames[part.FormName()] = part.FileName()
+				fileContents[part.FormName()] = string(data)
+				continue
+			}
+			fields[part.FormName()] = append(fields[part.FormName()], string(data))
+		}
+
+		if got := fileNames["file"]; got != "sample.wav" {
+			t.Errorf("expected uploaded file name sample.wav, got %q", got)
+		}
+		if got := fileContents["file"]; got != "fake audio bytes" {
+			t.Errorf("expected uploaded file contents, got %q", got)
+		}
+		if got := firstField(fields, "model"); got != "whisper-large-v3-turbo" {
+			t.Errorf("expected model whisper-large-v3-turbo, got %q", got)
+		}
+		if got := firstField(fields, "response_format"); got != "verbose_json" {
+			t.Errorf("expected response_format verbose_json, got %q", got)
+		}
+		if got := strings.Join(fields["timestamp_granularities[]"], ","); got != "word,segment" {
+			t.Errorf("expected timestamp granularities word,segment, got %q", got)
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"text":     "hello world",
+			"language": "en",
+			"duration": 1.23,
+			"segments": []map[string]interface{}{
+				{"id": 0, "start": 0.0, "end": 1.23, "text": "hello world", "ignored": true},
+			},
+			"x_groq": map[string]interface{}{"id": "req_123"},
+		})
+	}))
+	defer server.Close()
+
+	def := &integration.Definition{
+		Name:        "groq",
+		Description: "Groq API for e2e test",
+		Auth:        integration.AuthConfig{Method: "api_key"},
+		Actions: map[string]integration.Action{
+			"audio.transcribe": {
+				Description: "Transcribe audio",
+				Method:      "POST",
+				Endpoint:    server.URL + "/openai/v1/audio/transcriptions",
+				AuthHeader:  "Bearer {{token}}",
+				BodyFormat:  "multipart",
+				Params: []integration.Param{
+					{Name: "file", Kind: "file"},
+					{Name: "model"},
+					{Name: "response_format"},
+					{Name: "timestamp_granularities", WireName: "timestamp_granularities[]", Kind: "csv"},
+				},
+				Returns: []string{
+					"text",
+					"language",
+					"duration",
+					"segments[].id",
+					"segments[].start",
+					"segments[].end",
+					"segments[].text",
+				},
+			},
+		},
+	}
+
+	resp, err := integration.Invoke(&integration.InvokeRequest{
+		SessionID:   "test-session-groq",
+		Integration: "groq",
+		Action:      "audio.transcribe",
+		Params: map[string]string{
+			"file":                    audioPath,
+			"model":                   "whisper-large-v3-turbo",
+			"response_format":         "verbose_json",
+			"timestamp_granularities": "word,segment",
+		},
+		Credential: &integration.Credential{AccessToken: "groq-test-key"},
+		Definition: def,
+		WorkDir:    tempDir,
+	})
+	if err != nil {
+		t.Fatalf("Invoke failed: %v", err)
+	}
+
+	if resp.StatusCode != 200 {
+		t.Fatalf("expected status 200, got %d", resp.StatusCode)
+	}
+
+	data, ok := resp.Data.(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected map response, got %T", resp.Data)
+	}
+	if data["text"] != "hello world" {
+		t.Errorf("expected transcript text, got %v", data["text"])
+	}
+	if _, ok := data["x_groq"]; ok {
+		t.Error("unexpected unfiltered x_groq field")
+	}
+
+	segments, ok := data["segments"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected segments map, got %T", data["segments"])
+	}
+	if got := firstArrayValue(segments["text"]); got != "hello world" {
+		t.Errorf("expected segment text hello world, got %v", got)
+	}
+}
+
+func firstField(fields map[string][]string, key string) string {
+	values := fields[key]
+	if len(values) == 0 {
+		return ""
+	}
+	return values[0]
+}
+
+func firstArrayValue(v interface{}) interface{} {
+	values, ok := v.([]interface{})
+	if !ok || len(values) == 0 {
+		return nil
+	}
+	return values[0]
 }

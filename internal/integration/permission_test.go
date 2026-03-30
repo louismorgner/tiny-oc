@@ -437,3 +437,25 @@ func TestFilterArrayResponse(t *testing.T) {
 		}
 	})
 }
+
+func TestDeterminePermissionTarget_Groq(t *testing.T) {
+	target, err := DeterminePermissionTarget("groq", "audio.transcribe", map[string]string{
+		"file": "/tmp/meeting.m4a",
+	}, nil)
+	if err != nil {
+		t.Fatalf("DeterminePermissionTarget(file) returned error: %v", err)
+	}
+	if target.Exact != "/tmp/meeting.m4a" {
+		t.Fatalf("expected file path target, got %#v", target)
+	}
+
+	target, err = DeterminePermissionTarget("groq", "audio.transcribe", map[string]string{
+		"url": "https://cdn.example.com/meeting.mp4",
+	}, nil)
+	if err != nil {
+		t.Fatalf("DeterminePermissionTarget(url) returned error: %v", err)
+	}
+	if target.Exact != "https://cdn.example.com/meeting.mp4" {
+		t.Fatalf("expected URL target, got %#v", target)
+	}
+}

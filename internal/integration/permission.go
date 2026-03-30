@@ -516,6 +516,13 @@ func DeterminePermissionTarget(integrationName, actionName string, params map[st
 			target := "team/" + team
 			return PermissionTarget{Raw: target, Exact: target}, nil
 		}
+	case "groq":
+		if file, ok := params["file"]; ok && strings.TrimSpace(file) != "" {
+			return PermissionTarget{Raw: file, Exact: file}, nil
+		}
+		if rawURL, ok := params["url"]; ok && strings.TrimSpace(rawURL) != "" {
+			return PermissionTarget{Raw: rawURL, Exact: rawURL}, nil
+		}
 	}
 
 	return PermissionTarget{Raw: "*", Exact: "*"}, nil

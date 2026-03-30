@@ -174,6 +174,7 @@ Examples:
 			Credential:  cred,
 			Definition:  def,
 			Workspace:   ctx.Workspace,
+			WorkDir:     ctx.Workspace,
 		}
 
 		// Slack: re-use the permission-time resolver so channel IDs stay consistent.

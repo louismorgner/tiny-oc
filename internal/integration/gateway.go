@@ -6,9 +6,11 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"mime/multipart"
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -261,6 +263,7 @@ func buildHTTPRequest(action *Action, cred *Credential, params map[string]string
 	}
 
 	var bodyReader io.Reader
+	contentType := ""
 	switch action.BodyFormat {
 	case "json":
 		var data []byte
@@ -280,6 +283,48 @@ func buildHTTPRequest(action *Action, cred *Credential, params map[string]string
 			return nil, err
 		}
 		bodyReader = bytes.NewReader(data)
+		contentType = "application/json"
+
+	case "form":
+		values := url.Values{}
+		for _, formField := range formFieldsForAction(action, params, templateParams) {
+			values.Add(formField.Name, formField.Value)
+		}
+		bodyReader = strings.NewReader(values.Encode())
+		contentType = "application/x-www-form-urlencoded"
+
+	case "multipart":
+		var buf bytes.Buffer
+		writer := multipart.NewWriter(&buf)
+		for _, formField := range formFieldsForAction(action, params, templateParams) {
+			if formField.IsFile {
+				file, err := os.Open(formField.Value)
+				if err != nil {
+					return nil, fmt.Errorf("open %s: %w", formField.Value, err)
+				}
+				part, err := writer.CreateFormFile(formField.Name, filepath.Base(formField.Value))
+				if err != nil {
+					file.Close()
+					return nil, err
+				}
+				if _, err := io.Copy(part, file); err != nil {
+					file.Close()
+					return nil, err
+				}
+				if err := file.Close(); err != nil {
+					return nil, err
+				}
+				continue
+			}
+			if err := writer.WriteField(formField.Name, formField.Value); err != nil {
+				return nil, err
+			}
+		}
+		if err := writer.Close(); err != nil {
+			return nil, err
+		}
+		bodyReader = &buf
+		contentType = writer.FormDataContentType()
 
 	case "query", "":
 		u, err := url.Parse(endpoint)
@@ -311,13 +356,70 @@ func buildHTTPRequest(action *Action, cred *Credential, params map[string]string
 	}
 	req.Header.Set(headerName, authValue)
 
-	if action.BodyFormat == "json" {
-		req.Header.Set("Content-Type", "application/json")
+	if contentType != "" {
+		req.Header.Set("Content-Type", contentType)
 	}
 
 	req.Header.Set("User-Agent", "toc/1.0")
 
 	return req, nil
+}
+
+type requestFormField struct {
+	Name   string
+	Value  string
+	IsFile bool
+}
+
+func formFieldsForAction(action *Action, params map[string]string, templateParams map[string]bool) []requestFormField {
+	specs := make(map[string]Param, len(action.Params))
+	orderedNames := make([]string, 0, len(action.Params))
+	for _, param := range action.Params {
+		specs[param.Name] = param
+		orderedNames = append(orderedNames, param.Name)
+	}
+
+	fields := make([]requestFormField, 0, len(params))
+	seen := make(map[string]bool, len(params))
+
+	for _, name := range orderedNames {
+		value, ok := params[name]
+		if !ok || templateParams[name] {
+			continue
+		}
+		seen[name] = true
+		fields = append(fields, expandParamToFormFields(specs[name], value)...)
+	}
+
+	for name, value := range params {
+		if seen[name] || templateParams[name] {
+			continue
+		}
+		fields = append(fields, requestFormField{Name: name, Value: value})
+	}
+
+	return fields
+}
+
+func expandParamToFormFields(param Param, value string) []requestFormField {
+	name := param.Name
+	if param.WireName != "" {
+		name = param.WireName
+	}
+
+	switch param.Kind {
+	case "file":
+		return []requestFormField{{Name: name, Value: value, IsFile: true}}
+	case "csv":
+		values := splitCSV(value)
+		fields := make([]requestFormField, 0, len(values))
+		for _, item := range values {
+			fields = append(fields, requestFormField{Name: name, Value: item})
+		}
+		return fields
+	default:
+		return []requestFormField{{Name: name, Value: value}}
+	}
 }
 
 // filterAnyResponse filters either a map or array response through the whitelist.

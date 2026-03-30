@@ -1,0 +1,91 @@
+name: groq
+description: Groq Speech-to-Text API — transcribe or translate audio and video files
+auth:
+  method: api_key
+  setup_url: https://console.groq.com/keys
+  setup_instructions: |
+    1. Go to https://console.groq.com/keys
+    2. Create an API key
+    3. Run `toc integrate add groq` and paste the key when prompted
+
+capabilities:
+  transcribe:
+    description: Transcribe spoken audio from local files or direct media URLs
+    actions:
+      - audio.transcribe
+  translate:
+    description: Translate spoken audio into English text
+    actions:
+      - audio.translate
+
+actions:
+  audio.transcribe:
+    description: Transcribe a local audio/video file or a direct media URL. Provide either `file` or `url`.
+    scopes:
+      "*": any local file path or direct media URL
+    params:
+      - name: file
+        required: false
+        kind: file
+      - name: url
+        required: false
+      - name: model
+        required: false
+        default: whisper-large-v3-turbo
+      - name: language
+        required: false
+      - name: prompt
+        required: false
+      - name: response_format
+        required: false
+        default: json
+      - name: temperature
+        required: false
+        default: "0"
+      - name: timestamp_granularities
+        required: false
+        wire_name: timestamp_granularities[]
+        kind: csv
+    method: POST
+    endpoint: https://api.groq.com/openai/v1/audio/transcriptions
+    auth_header: "Bearer {{token}}"
+    body_format: multipart
+    returns:
+      - text
+      - language
+      - duration
+      - segments[].id
+      - segments[].start
+      - segments[].end
+      - segments[].text
+      - words[].word
+      - words[].start
+      - words[].end
+
+  audio.translate:
+    description: Translate a local audio/video file or a direct media URL into English text. Provide either `file` or `url`.
+    scopes:
+      "*": any local file path or direct media URL
+    params:
+      - name: file
+        required: false
+        kind: file
+      - name: url
+        required: false
+      - name: model
+        required: false
+        default: whisper-large-v3
+      - name: prompt
+        required: false
+      - name: response_format
+        required: false
+        default: json
+      - name: temperature
+        required: false
+        default: "0"
+    method: POST
+    endpoint: https://api.groq.com/openai/v1/audio/translations
+    auth_header: "Bearer {{token}}"
+    body_format: multipart
+    returns:
+      - text

@@ -115,6 +115,7 @@ The toc registry includes skills, agent templates, and workspaces:
 |---|---|---|
 | `open-source-cto` | skill | Technical decision-making and code quality standards from an open-source CTO perspective |
 | `agentic-memory` | skill | Persistent memory system with daily logs and long-term storage for cross-session continuity |
+| `transcribe-audio` | skill | Transcribe local audio/video files or direct media URLs using Groq speech-to-text |
 | `cto` | agent | Technical leadership agent — code quality, architecture, and open-source standards |
 | `mini-claw` | agent | Persistent agent with identity, memory, and session awareness — inspired by OpenClaw |
 | `superfounder` | workspace | Multi-agent startup team — CTO, SWE, PR reviewer, and product thinker |

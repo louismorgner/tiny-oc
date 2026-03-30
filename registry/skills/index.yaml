@@ -8,6 +8,9 @@ skills:
   - name: transcribe-video
     description: Transcribe YouTube video transcripts using Apify
     tags: [apify, youtube, video, transcription]
+  - name: transcribe-audio
+    description: Transcribe local audio/video files or direct media URLs using Groq speech-to-text
+    tags: [groq, audio, video, transcription, speech-to-text]
   - name: import-instagram
     description: Scrape Instagram profiles, posts, and reels using Apify
     tags: [apify, instagram, scraping]

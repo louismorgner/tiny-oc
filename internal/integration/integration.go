@@ -40,7 +40,7 @@ type Action struct {
 	Method      string            `yaml:"method"` // GET, POST, PUT, DELETE, PATCH
 	Endpoint    string            `yaml:"endpoint"`
 	AuthHeader  string            `yaml:"auth_header"`
-	BodyFormat  string            `yaml:"body_format"` // json, query, form
+	BodyFormat  string            `yaml:"body_format"` // json, query, form, multipart
 	RateLimit   *RateLimit        `yaml:"rate_limit,omitempty"`
 	Returns     []string          `yaml:"returns,omitempty"`
 }
@@ -56,6 +56,8 @@ type Param struct {
 	Name     string `yaml:"name"`
 	Required bool   `yaml:"required"`
 	Default  string `yaml:"default,omitempty"`
+	WireName string `yaml:"wire_name,omitempty"`
+	Kind     string `yaml:"kind,omitempty"` // "", "file", "csv"
 }
 
 // RateLimit defines per-action rate limiting.
@@ -186,6 +188,12 @@ func validateAction(integration, name string, a Action) error {
 	}
 	if a.AuthHeader == "" {
 		return fmt.Errorf("integration '%s' action '%s': missing auth_header", integration, name)
+	}
+	if a.BodyFormat != "" {
+		validBodyFormats := map[string]bool{"json": true, "query": true, "form": true, "multipart": true}
+		if !validBodyFormats[a.BodyFormat] {
+			return fmt.Errorf("integration '%s' action '%s': invalid body_format '%s'", integration, name, a.BodyFormat)
+		}
 	}
 	return nil
 }

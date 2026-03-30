@@ -1,0 +1,27 @@
+name: apify
+description: Apify API — run actors for web scraping, video transcription, and content extraction
+auth:
+  method: api_key
+  setup_url: https://console.apify.com/account/integrations
+  setup_instructions: |
+    1. Go to https://console.apify.com/account/integrations
+    2. Copy your personal API token
+    3. Run `toc integrate add apify` and paste the token when prompted
+
+actions:
+  run_actor:
+    description: Run any Apify actor synchronously and return the dataset items. Use this for scraping, transcription, or content extraction — pick the right actor for the job.
+    scopes:
+      "*": any actor
+    params:
+      - name: actorId
+        required: true
+      - name: input
+        required: true
+    method: POST
+    endpoint: https://api.apify.com/v2/acts/{{actorId}}/run-sync-get-dataset-items
+    auth_header: "Bearer {{token}}"
+    body_format: json
+    rate_limit:
+      max: 10
+      window: 60s

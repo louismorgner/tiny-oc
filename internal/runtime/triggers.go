@@ -7,6 +7,17 @@ import (
 	tocsync "github.com/tiny-oc/toc/internal/sync"
 )
 
+// TriggerCondition defines the matching criteria for a post-turn trigger.
+// When multiple fields are set, all must match (AND semantics).
+//
+// Conditions are evaluated against a scoped working set (pendingTriggerChanges)
+// that accumulates tool activity since the last trigger fired, not the full
+// session working set. The scoped set resets each time a trigger fires or when
+// the session loop returns to the caller.
+//
+// Because the working set deduplicates tool names, ToolUsed means "this tool
+// was invoked at least once since the last trigger evaluation" — not "this
+// tool was used in the most recent model turn."
 type TriggerCondition struct {
 	FileWritten string `json:"file_written,omitempty"`
 	FileEdited  string `json:"file_edited,omitempty"`

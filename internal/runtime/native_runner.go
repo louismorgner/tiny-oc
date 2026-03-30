@@ -729,6 +729,9 @@ func runNativeLoop(client *openRouterClient, state *State, toolSpecs []NativeToo
 				}
 				continue
 			}
+			// Reset pending changes so stale working-set data does not
+			// leak into the next user turn in interactive/resumed sessions.
+			pendingTriggerChanges = &WorkingSet{}
 			return nil
 		}
 

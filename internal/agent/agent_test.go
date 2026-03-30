@@ -319,6 +319,37 @@ func TestValidate_Triggers(t *testing.T) {
 	}
 }
 
+func TestValidate_TriggersDuplicateNames(t *testing.T) {
+	cfg := &AgentConfig{
+		Name:    "test",
+		Runtime: "toc-native",
+		Model:   "openai/gpt-4o-mini",
+		Triggers: []TriggerConfig{
+			{
+				Name:   "voice-review",
+				When:   TriggerConditionConfig{FileWritten: "writing/*.md"},
+				Prompt: "Review the draft.",
+			},
+			{
+				Name:   "voice-review",
+				When:   TriggerConditionConfig{ToolUsed: "Edit"},
+				Prompt: "Check edits.",
+			},
+		},
+	}
+	problems := cfg.Validate()
+	found := false
+	for _, p := range problems {
+		if strings.Contains(p, "duplicate trigger name") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected duplicate trigger name error, got %v", problems)
+	}
+}
+
 func TestValidate_TriggersMissingFields(t *testing.T) {
 	cfg := &AgentConfig{
 		Name:    "test",

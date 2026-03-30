@@ -172,7 +172,7 @@ For each iteration:
 4. Call OpenRouter with messages and tool definitions.
 5. Accumulate usage counters.
 6. Append the assistant message to state and transcript.
-7. If there are no tool calls, return turn completion.
+7. If there are no tool calls, evaluate post-turn triggers (see below). If a trigger matches, inject its prompt and continue the loop. Otherwise, return turn completion.
 8. If there are tool calls:
    - save a new `PendingTurn` checkpoint with phase `executing_tools`
    - execute each tool synchronously
@@ -182,6 +182,21 @@ For each iteration:
    - shrink the checkpoint as tools finish
 
 The runtime currently executes tool calls serially. There is no internal tool parallelism inside one model turn.
+
+### Post-turn trigger evaluation
+
+When the model produces a response with no tool calls (the "no-tool-call boundary"), the runtime evaluates declarative triggers defined in the agent config before returning.
+
+Triggers are evaluated against a scoped working set (`pendingTriggerChanges`) that tracks file and tool activity since the last trigger fired. This is separate from the session-level `WorkingSet` — it only captures changes relevant to trigger evaluation.
+
+Key behaviors:
+
+- Each trigger fires at most once per session loop invocation, tracked by name in a `firedTriggers` map.
+- When a trigger fires, its prompt is injected as a `user` message and the loop continues — the model gets another turn.
+- The scoped working set resets when a trigger fires, so subsequent triggers evaluate against fresh activity.
+- Conditions use AND semantics: if a trigger specifies both `file_written` and `tool_used`, both must match.
+
+This lives in `evaluateTriggers(...)` in [`internal/runtime/triggers.go`](/internal/runtime/triggers.go). See [Configuration reference](configuration.md#triggers) for the full trigger config surface.
 
 ### Transcript vs current message state
 

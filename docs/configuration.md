@@ -53,6 +53,7 @@ permissions:
 | `skills` | list | no | — | Skill names (local) or Git URLs (remote) |
 | `on_end` | string | no | — | End-of-session prompt or instruction for the selected runtime (see below) |
 | `compose` | list | no | — | Instruction-compose layers appended after `agent.md` when building the runtime instruction payload (see below) |
+| `triggers` | list | no | — | Declarative post-turn triggers for `toc-native` runtime (see below) |
 | `permissions` | object | no | — | Unified permission spec (see below) |
 
 ### Agent instructions
@@ -125,6 +126,39 @@ Both `agent.md` and compose files support template variables that are replaced a
 | `{{.SessionID}}` | Unique session UUID |
 | `{{.Date}}` | Today's date (`YYYY-MM-DD`) |
 | `{{.Model}}` | The model being used |
+
+## Triggers
+
+The `triggers` field defines declarative post-turn triggers for `toc-native` agents. After each model turn that produces no tool calls, the runtime evaluates trigger conditions against the working set of changes accumulated since the last trigger fired. If a trigger matches, its prompt is injected as a follow-up user message and the model continues.
+
+Each trigger fires at most once per session loop invocation. Trigger names must be unique within an agent.
+
+```yaml
+triggers:
+  - name: voice-review
+    when:
+      file_written: "writing/*.md"
+    prompt: |
+      You just saved a draft. Review it against voice.md now.
+```
+
+### Trigger fields
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `name` | string | yes | Unique identifier for the trigger. Used internally to track one-shot firing state |
+| `when` | object | yes | Condition block. Must define at least one condition. When multiple conditions are set, all must match (AND semantics) |
+| `when.file_written` | string | no | Glob pattern matched against files created via the `Write` tool since the last trigger evaluation |
+| `when.file_edited` | string | no | Glob pattern matched against files modified via the `Edit` tool since the last trigger evaluation |
+| `when.tool_used` | string | no | Tool name matched against tools invoked since the last trigger evaluation. Matches if the named tool was used at least once in the accumulated working set |
+| `prompt` | string | yes | The follow-up prompt injected as a user message when the trigger fires |
+
+### Condition semantics
+
+Trigger conditions are evaluated against a per-trigger-cycle working set (`pendingTriggerChanges`), not the full session working set. This scoped working set accumulates tool activity from the point the previous trigger fired (or from the start of the current session loop invocation if no trigger has fired). When a trigger fires, the scoped working set resets.
+
+- `file_written` and `file_edited` use glob matching against file paths recorded by the respective tools.
+- `tool_used` checks whether the named tool appears in the scoped working set. Because the working set deduplicates tool names, `tool_used` means "this tool was invoked at least once since the last trigger evaluation," not "this tool was invoked in the most recent model turn."
 
 ## Permissions
 

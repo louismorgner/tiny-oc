@@ -247,10 +247,16 @@ func (cfg *AgentConfig) Validate() []string {
 			problems = append(problems, fmt.Sprintf("thinking: invalid effort value %q (must be one of: xhigh, high, medium, low, minimal)", cfg.Thinking.Effort))
 		}
 	}
+	triggerNames := make(map[string]bool)
 	for i, trigger := range cfg.Triggers {
 		label := fmt.Sprintf("triggers[%d]", i)
-		if strings.TrimSpace(trigger.Name) == "" {
+		name := strings.TrimSpace(trigger.Name)
+		if name == "" {
 			problems = append(problems, label+": missing name")
+		} else if triggerNames[name] {
+			problems = append(problems, fmt.Sprintf("triggers[%d]: duplicate trigger name %q", i, name))
+		} else {
+			triggerNames[name] = true
 		}
 		if strings.TrimSpace(trigger.Prompt) == "" {
 			problems = append(problems, label+": missing prompt")

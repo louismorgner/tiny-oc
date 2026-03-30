@@ -18,6 +18,7 @@ actions:
         required: true
       - name: input
         required: true
+        kind: json
     method: POST
     endpoint: https://api.apify.com/v2/acts/{{actorId}}/run-sync-get-dataset-items
     auth_header: "Bearer {{token}}"

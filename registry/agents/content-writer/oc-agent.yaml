@@ -8,6 +8,7 @@ context:
   - writing/
 skills:
   - transcribe-video
+  - transcribe-audio
   - import-instagram
   - import-tiktok
   - import-twitter
@@ -25,3 +26,6 @@ permissions:
   integrations:
     apify:
       - "run_actor:*"
+    groq:
+      - "audio.transcribe:*"
+      - "audio.translate:*"

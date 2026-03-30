@@ -57,7 +57,7 @@ type Param struct {
 	Required bool   `yaml:"required"`
 	Default  string `yaml:"default,omitempty"`
 	WireName string `yaml:"wire_name,omitempty"`
-	Kind     string `yaml:"kind,omitempty"` // "", "file", "csv"
+	Kind     string `yaml:"kind,omitempty"` // "", "file", "csv", "json"
 }
 
 // RateLimit defines per-action rate limiting.

@@ -364,6 +364,7 @@ func TestSmoke_GroqMultipartIntegrationGateway(t *testing.T) {
 		},
 		Credential: &integration.Credential{AccessToken: "groq-test-key"},
 		Definition: def,
+		WorkDir:    tempDir,
 	})
 	if err != nil {
 		t.Fatalf("Invoke failed: %v", err)

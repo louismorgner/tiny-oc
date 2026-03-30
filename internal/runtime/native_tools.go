@@ -90,6 +90,9 @@ func nativeWrite(ctx nativeToolContext, call ToolCall) toolExecution {
 	if err := decodeToolArgs(call.Function.Arguments, &args); err != nil {
 		return toolFailure("Write", "", "", err)
 	}
+	if len(args.Content) == 0 {
+		return toolFailure("Write", args.FilePath, "", fmt.Errorf("content is required; use Bash rm to delete files"))
+	}
 	path, err := resolveSessionPath(ctx.SessionDir, args.FilePath)
 	if err != nil {
 		return toolFailure("Write", args.FilePath, "", err)

@@ -139,7 +139,7 @@ Each behavior has an `on` field that specifies which lifecycle event activates i
 
 Future events (e.g. `session_end`, `idle`) will extend this model to cover more parts of the agent lifecycle.
 
-Each behavior fires at most once per session loop invocation. Behavior names must be unique within an agent.
+Behaviors are evaluated in declaration order. At most one behavior fires per evaluation cycle: the runtime injects the first matching behavior prompt, resets the scoped working set, and continues the loop. One-shot firing state is in-memory for the current `runNativePrompt` invocation; it is not persisted across crash recovery or session resume. Behavior names must be unique within an agent.
 
 ```yaml
 behaviors:
@@ -169,6 +169,7 @@ Behavior conditions are evaluated against a per-behavior-cycle working set (`pen
 
 - `file_written` and `file_edited` use glob matching against file paths recorded by the respective tools.
 - `tool_used` checks whether the named tool appears in the scoped working set. Because the working set deduplicates tool names, `tool_used` means "this tool was invoked at least once since the last behavior evaluation," not "this tool was invoked in the most recent model turn."
+- If multiple behaviors match the same scoped working set, only the first matching behavior in config order fires during that evaluation cycle.
 
 ## Permissions
 

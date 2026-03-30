@@ -69,3 +69,28 @@ func TestEvaluateBehaviors_SkipsNonTurnComplete(t *testing.T) {
 		t.Fatalf("evaluateBehaviors() = %#v, want nil (wrong lifecycle event)", got)
 	}
 }
+
+func TestEvaluateBehaviors_ReturnsFirstMatchInDeclarationOrder(t *testing.T) {
+	changes := &WorkingSet{
+		FilesWritten: []string{"writing/post.md"},
+	}
+	behaviors := []Behavior{
+		{
+			Name:   "first",
+			On:     "turn_complete",
+			When:   BehaviorCondition{FileWritten: "writing/*.md"},
+			Prompt: "First match.",
+		},
+		{
+			Name:   "second",
+			On:     "turn_complete",
+			When:   BehaviorCondition{FileWritten: "writing/*.md"},
+			Prompt: "Second match.",
+		},
+	}
+
+	got := evaluateBehaviors(changes, behaviors, map[string]bool{})
+	if got == nil || got.Name != "first" {
+		t.Fatalf("evaluateBehaviors() = %#v, want first", got)
+	}
+}

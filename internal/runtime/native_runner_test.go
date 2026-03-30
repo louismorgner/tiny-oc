@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -596,7 +597,7 @@ func TestRunNativeSession_ExecutesBehaviorOnce(t *testing.T) {
 	if behaviorPrompts != 1 {
 		t.Fatalf("behavior prompt count = %d, want 1", behaviorPrompts)
 	}
-	if !containsString(state.WorkingSet.ToolsUsed, "Write") {
+	if !slices.Contains(state.WorkingSet.ToolsUsed, "Write") {
 		t.Fatalf("expected Write in tools used, got %#v", state.WorkingSet)
 	}
 }

@@ -18,11 +18,16 @@ type Options struct {
 // (patterns ending in /) and ** for recursive matching.
 func MatchesAny(relPath string, patterns []string) bool {
 	for _, pattern := range patterns {
-		if matchPattern(relPath, pattern) {
+		if MatchOne(relPath, pattern) {
 			return true
 		}
 	}
 	return false
+}
+
+// MatchOne checks whether a relative file path matches a single context pattern.
+func MatchOne(relPath, pattern string) bool {
+	return matchPattern(relPath, pattern)
 }
 
 func matchPattern(relPath, pattern string) bool {

@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"slices"
 	"strings"
 
 	"github.com/tiny-oc/toc/internal/agent"
@@ -58,6 +59,8 @@ func resolveBehaviors(cfg []agent.BehaviorConfig) []Behavior {
 	return behaviors
 }
 
+// evaluateBehaviors walks behaviors in declaration order and returns the first
+// matching turn_complete behavior that has not already fired in this prompt run.
 func evaluateBehaviors(changes *WorkingSet, behaviors []Behavior, fired map[string]bool) *Behavior {
 	if changes == nil || len(behaviors) == 0 {
 		return nil
@@ -96,7 +99,7 @@ func (b Behavior) matches(changes *WorkingSet) bool {
 	}
 	if toolName := strings.TrimSpace(b.When.ToolUsed); toolName != "" {
 		matched = true
-		if !containsString(changes.ToolsUsed, toolName) {
+		if !slices.Contains(changes.ToolsUsed, toolName) {
 			return false
 		}
 	}
@@ -105,16 +108,7 @@ func (b Behavior) matches(changes *WorkingSet) bool {
 
 func matchesAnyPath(paths []string, pattern string) bool {
 	for _, path := range paths {
-		if tocsync.MatchesAny(path, []string{pattern}) {
-			return true
-		}
-	}
-	return false
-}
-
-func containsString(values []string, needle string) bool {
-	for _, value := range values {
-		if value == needle {
+		if tocsync.MatchOne(path, pattern) {
 			return true
 		}
 	}

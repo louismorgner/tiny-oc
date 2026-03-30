@@ -7,6 +7,9 @@ agents:
     description: Persistent agent with identity, memory, and session awareness — inspired by OpenClaw
     model: sonnet
     skills: [agentic-memory]
+  - name: content-writer
+    description: Writing assistant — improves drafts, matches your voice, works across formats
+    model: anthropic/claude-opus-4.6
   - name: implementer
     description: Focused implementation agent — receives scoped tasks, executes precisely, reports results
     model: anthropic/claude-sonnet-4

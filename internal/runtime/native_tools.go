@@ -568,6 +568,8 @@ func summarizeTodos(todos []TodoItem) string {
 			icon = "○"
 		}
 		content := todo.Content
+		// Truncate at 90 runes — must stay below the 100-rune line limit in
+		// FormatToolCallRich so the outer truncation never re-slices these lines.
 		runes := []rune(content)
 		if len(runes) > 90 {
 			content = string(runes[:87]) + "..."

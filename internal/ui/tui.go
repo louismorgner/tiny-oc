@@ -185,8 +185,8 @@ func FormatToolCallRich(toolName, keyParam, output string, maxOutputLines int) s
 			truncated = true
 		}
 		for _, line := range lines {
-			if len(line) > 100 {
-				line = line[:97] + "..."
+			if lineRunes := []rune(line); len(lineRunes) > 100 {
+				line = string(lineRunes[:97]) + "..."
 			}
 			b.WriteString(toolOutputStyle.Render(line))
 			b.WriteByte('\n')

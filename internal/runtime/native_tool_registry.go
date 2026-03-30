@@ -242,7 +242,7 @@ Anti-patterns:
 			Name: "TodoWrite",
 			Description: `Replace the current session todo list with a new ordered list.
 
-Use TodoWrite for multi-step work, especially when you need to track progress across file edits, tests, and sub-agent coordination. Each call replaces the entire list, so always send the full current todo list.
+Use TodoWrite for multi-step work when progress tracking is genuinely helpful, especially across file edits, tests, and sub-agent coordination. Skip it for trivial one-shot tasks, short sessions with a single clear change, or work you can finish directly without a plan. Each call replaces the entire list, so always send the full current todo list.
 
 Parameters:
 - todos (required): Complete ordered todo list. Each item must include:
@@ -251,10 +251,12 @@ Parameters:
   - priority: high, medium, or low
 
 Guidelines:
-- Prefer using TodoWrite when the task has multiple meaningful steps.
+- Prefer using TodoWrite only when the task has multiple meaningful steps or coordination points.
+- Do not create or update todos for single-turn answers, obvious one-step fixes, or other short sessions where the list would add overhead.
 - Keep only one item in_progress at a time when possible.
 - Mark items completed immediately after finishing them.
 - If the plan changes, rewrite the full list to match the new reality.
+- If nothing changed, do not call TodoWrite again.
 
 Output: A short summary confirming the updated todo list.`,
 			Parameters: map[string]interface{}{

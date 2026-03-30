@@ -251,6 +251,71 @@ func TestNativeTodoWriteRejectsInvalidStatus(t *testing.T) {
 	}
 }
 
+func TestSummarizeTodosEmpty(t *testing.T) {
+	got := summarizeTodos(nil)
+	if got != "Cleared todo list." {
+		t.Fatalf("expected cleared message, got: %q", got)
+	}
+}
+
+func TestSummarizeTodosAllStatusIcons(t *testing.T) {
+	todos := []TodoItem{
+		{Content: "Done task", Status: "completed"},
+		{Content: "Active task", Status: "in_progress"},
+		{Content: "Waiting task", Status: "pending"},
+		{Content: "Dropped task", Status: "cancelled"},
+	}
+	got := summarizeTodos(todos)
+	lines := strings.Split(got, "\n")
+	if len(lines) != 4 {
+		t.Fatalf("expected 4 lines, got %d: %q", len(lines), got)
+	}
+	expects := []struct {
+		icon, text string
+	}{
+		{"✓", "Done task"},
+		{"→", "Active task"},
+		{"○", "Waiting task"},
+		{"✕", "Dropped task"},
+	}
+	for i, exp := range expects {
+		if !strings.HasPrefix(lines[i], exp.icon+" ") {
+			t.Errorf("line %d: expected icon %q, got: %q", i, exp.icon, lines[i])
+		}
+		if !strings.Contains(lines[i], exp.text) {
+			t.Errorf("line %d: expected text %q, got: %q", i, exp.text, lines[i])
+		}
+	}
+}
+
+func TestSummarizeTodosTruncatesMultiByteChars(t *testing.T) {
+	// Build a content string of 95 multi-byte runes (each '日' is 3 bytes)
+	runes := make([]rune, 95)
+	for i := range runes {
+		runes[i] = '日'
+	}
+	content := string(runes)
+
+	todos := []TodoItem{{Content: content, Status: "pending"}}
+	got := summarizeTodos(todos)
+
+	// Should be "○ " + 87 runes + "..."
+	line := strings.TrimPrefix(got, "○ ")
+	resultRunes := []rune(line)
+	if len(resultRunes) != 90 { // 87 + 3 for "..."
+		t.Fatalf("expected 90 runes after icon, got %d", len(resultRunes))
+	}
+	if !strings.HasSuffix(line, "...") {
+		t.Fatalf("expected trailing ellipsis, got: %q", line)
+	}
+	// Verify no broken UTF-8: every rune before "..." should be '日'
+	for i, r := range resultRunes[:87] {
+		if r != '日' {
+			t.Fatalf("rune %d is %q, expected '日'", i, r)
+		}
+	}
+}
+
 func TestNativeQuestionNonInteractiveAnswered(t *testing.T) {
 	dir := t.TempDir()
 	metaDir := MetadataDir(dir, "test-session")

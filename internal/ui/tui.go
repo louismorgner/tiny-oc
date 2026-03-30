@@ -325,6 +325,10 @@ func formatToolStep(content string, meta StepMeta) string {
 		// Show individual todo items on separate lines
 		header := fmt.Sprintf("  %s %s\n", toolHeaderStyle.Render(icon), toolNameStyle.Render(name))
 		lines := strings.Split(content, "\n")
+		truncated := len(lines) > 20
+		if truncated {
+			lines = lines[:20]
+		}
 		var b strings.Builder
 		b.WriteString(header)
 		for _, line := range lines {
@@ -332,6 +336,10 @@ func formatToolStep(content string, meta StepMeta) string {
 				b.WriteString(toolOutputStyle.Render(line))
 				b.WriteByte('\n')
 			}
+		}
+		if truncated {
+			b.WriteString(toolOutputStyle.Render("..."))
+			b.WriteByte('\n')
 		}
 		return b.String()
 	default:

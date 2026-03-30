@@ -568,8 +568,9 @@ func summarizeTodos(todos []TodoItem) string {
 			icon = "○"
 		}
 		content := todo.Content
-		if len(content) > 90 {
-			content = content[:87] + "..."
+		runes := []rune(content)
+		if len(runes) > 90 {
+			content = string(runes[:87]) + "..."
 		}
 		b.WriteString(fmt.Sprintf("%s %s\n", icon, content))
 	}

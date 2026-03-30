@@ -31,20 +31,21 @@ type SessionRuntimeOptions struct {
 // SessionConfig is the resolved, toc-owned session contract written at spawn
 // time. Sessions resume from this config rather than re-reading oc-agent.yaml.
 type SessionConfig struct {
-	Version                int                   `json:"version"`
-	Agent                  string                `json:"agent"`
-	Runtime                string                `json:"runtime"`
-	Model                  string                `json:"model"`
-	SmallModel             string                `json:"small_model,omitempty"`
-	AllowCustomNativeModel bool                  `json:"allow_custom_native_model,omitempty"`
-	Description            string                `json:"description,omitempty"`
-	Context                []string              `json:"context,omitempty"`
-	Skills                 []string              `json:"skills,omitempty"`
-	Compose                []string              `json:"compose,omitempty"`
-	OnEnd                  string                `json:"on_end,omitempty"`
-	Permissions            agent.Permissions     `json:"permissions,omitempty"`
-	RuntimeConfig          SessionRuntimeOptions `json:"runtime_config,omitempty"`
-	LLM                    SessionLLMConfig      `json:"llm,omitempty"`
+	Version                int                    `json:"version"`
+	Agent                  string                 `json:"agent"`
+	Runtime                string                 `json:"runtime"`
+	Model                  string                 `json:"model"`
+	SmallModel             string                 `json:"small_model,omitempty"`
+	AllowCustomNativeModel bool                   `json:"allow_custom_native_model,omitempty"`
+	Description            string                 `json:"description,omitempty"`
+	Context                []string               `json:"context,omitempty"`
+	Skills                 []string               `json:"skills,omitempty"`
+	Compose                []string               `json:"compose,omitempty"`
+	OnEnd                  string                 `json:"on_end,omitempty"`
+	Permissions            agent.Permissions      `json:"permissions,omitempty"`
+	RuntimeConfig          SessionRuntimeOptions  `json:"runtime_config,omitempty"`
+	LLM                    SessionLLMConfig       `json:"llm,omitempty"`
+	Thinking               *agent.ThinkingConfig  `json:"thinking,omitempty"`
 }
 
 // ResolveOptions contains optional overrides for session config resolution.
@@ -78,6 +79,7 @@ func ResolveSessionConfig(cfg *agent.AgentConfig, opts ...ResolveOptions) *Sessi
 		LLM: SessionLLMConfig{
 			Provider: resolvedLLMProvider(cfg.Runtime),
 		},
+		Thinking: cfg.Thinking,
 	}
 	if cfg.Runtime == runtimeinfo.NativeRuntime {
 		sessionCfg.RuntimeConfig.EnabledTools = NativeToolNames()

@@ -605,6 +605,18 @@ func runNativeLoop(client *openRouterClient, state *State, toolSpecs []NativeToo
 			Provider:     &providerPreference{RequireParameters: true},
 			CacheControl: &cacheControl{Type: "ephemeral"},
 		}
+		if profile.SupportsThinking && toolCtx.Config != nil && toolCtx.Config.Thinking != nil {
+			thinking := toolCtx.Config.Thinking
+			rc := &reasoningConfig{}
+			if thinking.BudgetTokens > 0 {
+				rc.MaxTokens = thinking.BudgetTokens
+			} else if thinking.Effort != "" {
+				rc.Effort = thinking.Effort
+			}
+			if rc.MaxTokens > 0 || rc.Effort != "" {
+				req.Reasoning = rc
+			}
+		}
 		var resp *chatResponse
 		if profile.SupportsStreaming {
 			req.Stream = true
@@ -620,6 +632,18 @@ func runNativeLoop(client *openRouterClient, state *State, toolSpecs []NativeToo
 		}
 		toolCtx.Trace.WriteTurn(i, req, resp)
 		accumulateUsage(state, resp)
+
+		if reasoning := resp.Choices[0].Reasoning; reasoning != "" {
+			if err := AppendEvent(sess, Event{
+				Timestamp: time.Now().UTC(),
+				Step: Step{
+					Type:    "thinking",
+					Content: reasoning,
+				},
+			}); err != nil {
+				return err
+			}
+		}
 
 		msg := resp.Choices[0].Message
 		state.Messages = append(state.Messages, msg)

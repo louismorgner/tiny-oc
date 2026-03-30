@@ -223,6 +223,64 @@ func TestValidate_SmallModelAllowedWithNativeOverride(t *testing.T) {
 	}
 }
 
+func TestValidate_ThinkingEffort_Valid(t *testing.T) {
+	for _, effort := range []string{"xhigh", "high", "medium", "low", "minimal"} {
+		cfg := &AgentConfig{
+			Name: "test", Runtime: "claude-code", Model: "sonnet",
+			Thinking: &ThinkingConfig{Effort: effort},
+		}
+		problems := cfg.Validate()
+		if len(problems) != 0 {
+			t.Errorf("effort=%q: unexpected validation errors: %v", effort, problems)
+		}
+	}
+}
+
+func TestValidate_ThinkingEffort_Invalid(t *testing.T) {
+	cfg := &AgentConfig{
+		Name: "test", Runtime: "claude-code", Model: "sonnet",
+		Thinking: &ThinkingConfig{Effort: "super-high"},
+	}
+	problems := cfg.Validate()
+	found := false
+	for _, p := range problems {
+		if strings.Contains(p, "invalid effort value") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected invalid effort error, got %v", problems)
+	}
+}
+
+func TestValidate_ThinkingMutuallyExclusive(t *testing.T) {
+	cfg := &AgentConfig{
+		Name: "test", Runtime: "claude-code", Model: "sonnet",
+		Thinking: &ThinkingConfig{BudgetTokens: 5000, Effort: "high"},
+	}
+	problems := cfg.Validate()
+	found := false
+	for _, p := range problems {
+		if strings.Contains(p, "mutually exclusive") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected mutually exclusive error, got %v", problems)
+	}
+}
+
+func TestValidate_ThinkingBudgetTokensOnly(t *testing.T) {
+	cfg := &AgentConfig{
+		Name: "test", Runtime: "claude-code", Model: "sonnet",
+		Thinking: &ThinkingConfig{BudgetTokens: 8000},
+	}
+	problems := cfg.Validate()
+	if len(problems) != 0 {
+		t.Errorf("unexpected validation errors: %v", problems)
+	}
+}
+
 func TestSubAgentPermission(t *testing.T) {
 	cfg := &AgentConfig{
 		Perms: &Permissions{

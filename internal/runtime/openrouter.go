@@ -136,6 +136,13 @@ type cacheControl struct {
 	Type string `json:"type"`
 }
 
+// reasoningConfig enables extended thinking/reasoning for models that support it.
+// Use MaxTokens for Anthropic models (token budget) or Effort for other models.
+type reasoningConfig struct {
+	MaxTokens int    `json:"max_tokens,omitempty"`
+	Effort    string `json:"effort,omitempty"`
+}
+
 type chatRequest struct {
 	Model        string              `json:"model"`
 	Messages     []Message           `json:"messages"`
@@ -143,6 +150,7 @@ type chatRequest struct {
 	Stream       bool                `json:"stream"`
 	Provider     *providerPreference `json:"provider,omitempty"`
 	CacheControl *cacheControl       `json:"cache_control,omitempty"`
+	Reasoning    *reasoningConfig    `json:"reasoning,omitempty"`
 }
 
 type providerPreference struct {
@@ -170,6 +178,7 @@ type chatResponse struct {
 	Model   string `json:"model,omitempty"`
 	Choices []struct {
 		Message      Message `json:"message"`
+		Reasoning    string  `json:"reasoning,omitempty"`
 		FinishReason string  `json:"finish_reason"`
 	} `json:"choices"`
 	Usage struct {
@@ -189,6 +198,7 @@ type chatStreamChunk struct {
 	Choices []struct {
 		Index        int             `json:"index"`
 		Delta        chatStreamDelta `json:"delta"`
+		Reasoning    string          `json:"reasoning,omitempty"`
 		FinishReason string          `json:"finish_reason"`
 	} `json:"choices"`
 	Usage struct {
@@ -205,6 +215,7 @@ type chatStreamChunk struct {
 type chatStreamDelta struct {
 	Role      string                `json:"role,omitempty"`
 	Content   json.RawMessage       `json:"content,omitempty"`
+	Reasoning string                `json:"reasoning,omitempty"`
 	ToolCalls []streamToolCallDelta `json:"tool_calls,omitempty"`
 }
 
@@ -484,6 +495,7 @@ func mergeStreamChunk(resp *chatResponse, chunk *chatStreamChunk) (string, error
 		for len(resp.Choices) <= choiceChunk.Index {
 			resp.Choices = append(resp.Choices, struct {
 				Message      Message `json:"message"`
+				Reasoning    string  `json:"reasoning,omitempty"`
 				FinishReason string  `json:"finish_reason"`
 			}{})
 		}
@@ -493,6 +505,14 @@ func mergeStreamChunk(resp *chatResponse, chunk *chatStreamChunk) (string, error
 		}
 		if choiceChunk.Delta.Role != "" {
 			choice.Message.Role = choiceChunk.Delta.Role
+		}
+		// Accumulate reasoning text (never streamed to stdout).
+		if choiceChunk.Delta.Reasoning != "" {
+			choice.Reasoning += choiceChunk.Delta.Reasoning
+		}
+		// Some providers put reasoning in the top-level chunk field.
+		if choiceChunk.Reasoning != "" {
+			choice.Reasoning += choiceChunk.Reasoning
 		}
 		text, err := normalizeOpenRouterContent(choiceChunk.Delta.Content)
 		if err != nil {
@@ -514,6 +534,7 @@ func mergeStreamChunk(resp *chatResponse, chunk *chatStreamChunk) (string, error
 
 func mergeToolCallDeltas(choice *struct {
 	Message      Message `json:"message"`
+	Reasoning    string  `json:"reasoning,omitempty"`
 	FinishReason string  `json:"finish_reason"`
 }, deltas []streamToolCallDelta) {
 	for _, delta := range deltas {

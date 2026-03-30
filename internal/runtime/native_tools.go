@@ -554,31 +554,27 @@ func summarizeTodos(todos []TodoItem) string {
 		return "Cleared todo list."
 	}
 
-	counts := map[string]int{
-		"pending":     0,
-		"in_progress": 0,
-		"completed":   0,
-		"cancelled":   0,
-	}
+	var b strings.Builder
 	for _, todo := range todos {
-		counts[todo.Status]++
+		var icon string
+		switch todo.Status {
+		case "completed":
+			icon = "✓"
+		case "in_progress":
+			icon = "→"
+		case "cancelled":
+			icon = "✕"
+		default:
+			icon = "○"
+		}
+		content := todo.Content
+		runes := []rune(content)
+		if len(runes) > 90 {
+			content = string(runes[:87]) + "..."
+		}
+		b.WriteString(fmt.Sprintf("%s %s\n", icon, content))
 	}
-
-	parts := []string{}
-	if counts["in_progress"] > 0 {
-		parts = append(parts, fmt.Sprintf("%d in progress", counts["in_progress"]))
-	}
-	if counts["pending"] > 0 {
-		parts = append(parts, fmt.Sprintf("%d pending", counts["pending"]))
-	}
-	if counts["completed"] > 0 {
-		parts = append(parts, fmt.Sprintf("%d completed", counts["completed"]))
-	}
-	if counts["cancelled"] > 0 {
-		parts = append(parts, fmt.Sprintf("%d cancelled", counts["cancelled"]))
-	}
-
-	return fmt.Sprintf("Updated %d todos: %s.", len(todos), strings.Join(parts, ", "))
+	return strings.TrimRight(b.String(), "\n")
 }
 
 func toolSuccess(toolName, path, message string, step Step) toolExecution {

@@ -728,11 +728,15 @@ func runNativeLoop(client *openRouterClient, state *State, toolSpecs []NativeToo
 				var parsedArgs map[string]interface{}
 				_ = json.Unmarshal([]byte(call.Function.Arguments), &parsedArgs)
 				keyParam := ui.ToolCallKeyParam(call.Function.Name, parsedArgs)
+				maxLines := 5
+				if call.Function.Name == "TodoWrite" {
+					maxLines = 20
+				}
 				var viz string
 				if ui.IsTTY(os.Stdout) {
-					viz = ui.FormatToolCallRich(call.Function.Name, keyParam, result.Message, 5)
+					viz = ui.FormatToolCallRich(call.Function.Name, keyParam, result.Message, maxLines)
 				} else {
-					viz = ui.FormatToolCall(call.Function.Name, keyParam, result.Message, 5)
+					viz = ui.FormatToolCall(call.Function.Name, keyParam, result.Message, maxLines)
 				}
 				fmt.Fprint(stdout, viz)
 			}

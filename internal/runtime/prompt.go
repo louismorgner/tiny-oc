@@ -5,6 +5,9 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/tiny-oc/toc/internal/agent"
+	"github.com/tiny-oc/toc/internal/runtimeinfo"
 )
 
 // ComposePrompt renders the runtime-neutral instruction payload from agent.md
@@ -42,6 +45,60 @@ func ComposePrompt(workDir string, cfg *SessionConfig, sessionID string) (string
 		"{{.SessionID}}", sessionID,
 		"{{.Date}}", now.Format("2006-01-02"),
 		"{{.Model}}", cfg.Model,
+		"{{.SubAgentInstructions}}", subAgentInstructions(cfg.Runtime, cfg.Permissions),
 	)
 	return replacer.Replace(content), nil
 }
+
+// subAgentInstructions returns runtime-specific sub-agent guidance. If the
+// agent has no sub-agent permissions the placeholder resolves to empty string
+// so agent.md authors can include {{.SubAgentInstructions}} unconditionally.
+func subAgentInstructions(runtimeName string, perms agent.Permissions) string {
+	if !perms.HasAnySubAgent() {
+		return ""
+	}
+
+	switch runtimeName {
+	case runtimeinfo.DefaultRuntime:
+		return claudeCodeSubAgentInstructions
+	case runtimeinfo.NativeRuntime:
+		return nativeSubAgentInstructions
+	default:
+		// Unknown runtime — return empty rather than guessing wrong instructions.
+		// ValidateRuntime gates earlier in the flow, so this should not be reachable.
+		return ""
+	}
+}
+
+const claudeCodeSubAgentInstructions = `## Sub-agents
+
+You can delegate work to other agents in the workspace.
+
+` + "```bash" + `
+toc runtime list                                    # see what agents you can spawn
+toc runtime spawn <agent> --prompt "task description"  # spawn in background
+toc runtime status                                  # check all sub-agent progress
+toc runtime output <session-id>                     # read completed output
+` + "```" + `
+
+Delegate when the task is self-contained and has a clear deliverable. Don't delegate when you need tight back-and-forth iteration — do it yourself.
+
+Write detailed prompts. Include full context: URLs, specific feedback items, line references. The sub-agent has no context beyond what you give it.
+
+Spawn multiple sub-agents in parallel when tasks are independent. Check status periodically, then read the output when complete.`
+
+const nativeSubAgentInstructions = `## Sub-agents
+
+You can delegate work to other agents in the workspace using the SubAgent tool.
+
+**Workflow:**
+1. Call SubAgent with action "list" to see available agents
+2. Call SubAgent with action "spawn", providing the agent name and a detailed prompt
+3. Call SubAgent with action "status" to check progress (omit session_id to check all)
+4. Call SubAgent with action "output" with the session_id to read the result
+
+Delegate when the task is self-contained and has a clear deliverable. Don't delegate when you need tight back-and-forth iteration — do it yourself.
+
+Write detailed prompts. Include full context: URLs, specific feedback items, line references. The sub-agent has no context beyond what you give it.
+
+Spawn multiple sub-agents in parallel when tasks are independent. Check status periodically, then read the output when complete.`

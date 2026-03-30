@@ -128,15 +128,20 @@ func (cfg *AgentConfig) CanSpawn(target string) bool {
 	return false
 }
 
-// CanSpawnAny returns true if the agent has any sub-agent permissions.
-func (cfg *AgentConfig) CanSpawnAny() bool {
-	perms := cfg.EffectivePermissions()
-	for _, level := range perms.SubAgents {
+// HasAnySubAgent returns true if any sub-agent permission is not PermOff.
+// PermAsk counts as "has permissions" — the agent can spawn, it just needs confirmation.
+func (p Permissions) HasAnySubAgent() bool {
+	for _, level := range p.SubAgents {
 		if level != PermOff {
 			return true
 		}
 	}
 	return false
+}
+
+// CanSpawnAny returns true if the agent has any sub-agent permissions.
+func (cfg *AgentConfig) CanSpawnAny() bool {
+	return cfg.EffectivePermissions().HasAnySubAgent()
 }
 
 // SubAgentPermission returns the permission level for spawning a specific sub-agent.

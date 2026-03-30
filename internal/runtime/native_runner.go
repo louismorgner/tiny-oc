@@ -165,6 +165,10 @@ func RunNativeSession(opts NativeRunOptions, stdin io.Reader, stdout io.Writer) 
 	// (ESC DEL) deletes the previous word, matching standard terminal
 	// behaviour. Non-TTY input (pipes, tests) uses the original
 	// bufio.NewReader path.
+	//
+	// Terminal raw mode is managed here (not inside ReadLine) so that
+	// the deferred restore fires even if the main loop exits via sigCh
+	// while the ReadLine goroutine is still blocked on stdin.
 	var lineEditor *ui.LineEditor
 	var reader *bufio.Reader
 	if isTTY {
@@ -173,6 +177,10 @@ func RunNativeSession(opts NativeRunOptions, stdin io.Reader, stdout io.Writer) 
 				In:  f,
 				Out: stdout,
 			}
+			if err := lineEditor.EnterRawMode(); err != nil {
+				return fmt.Errorf("interactive: %w", err)
+			}
+			defer lineEditor.RestoreMode()
 		}
 	}
 	if lineEditor == nil {
@@ -234,6 +242,9 @@ func RunNativeSession(opts NativeRunOptions, stdin io.Reader, stdout io.Writer) 
 			if handled && stdinReading && isTTY {
 				fmt.Fprint(stdout, "\033[2K\r") // erase line, cursor to col 1
 				fmt.Fprint(stdout, ui.UserPromptPrefix(opts.Agent))
+				if lineEditor != nil {
+					stdout.Write(lineEditor.Buffer())
+				}
 			}
 			continue
 		}

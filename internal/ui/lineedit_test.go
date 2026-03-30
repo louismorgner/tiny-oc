@@ -10,7 +10,7 @@ func TestReadLineRawSimpleInput(t *testing.T) {
 	in := bytes.NewReader([]byte("hello\r"))
 	var out bytes.Buffer
 
-	line, err := readLineRaw(in, &out, "")
+	line, err := readLineRaw(in, &out, "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -23,7 +23,7 @@ func TestReadLineRawBackspace(t *testing.T) {
 	in := bytes.NewReader([]byte("helloo\x7f\r"))
 	var out bytes.Buffer
 
-	line, err := readLineRaw(in, &out, "")
+	line, err := readLineRaw(in, &out, "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -36,7 +36,7 @@ func TestReadLineRawAltBackspaceDeletesWord(t *testing.T) {
 	in := bytes.NewReader([]byte("hello world\x1b\x7f\r"))
 	var out bytes.Buffer
 
-	line, err := readLineRaw(in, &out, "")
+	line, err := readLineRaw(in, &out, "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -49,7 +49,7 @@ func TestReadLineRawCtrlWDeletesWord(t *testing.T) {
 	in := bytes.NewReader([]byte("hello world\x17\r"))
 	var out bytes.Buffer
 
-	line, err := readLineRaw(in, &out, "")
+	line, err := readLineRaw(in, &out, "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -62,7 +62,7 @@ func TestReadLineRawCtrlC(t *testing.T) {
 	in := bytes.NewReader([]byte("hello\x03"))
 	var out bytes.Buffer
 
-	_, err := readLineRaw(in, &out, "")
+	_, err := readLineRaw(in, &out, "", nil)
 	if !IsInterrupt(err) {
 		t.Errorf("expected interrupt error, got %v", err)
 	}
@@ -72,7 +72,7 @@ func TestReadLineRawCtrlDEmpty(t *testing.T) {
 	in := bytes.NewReader([]byte("\x04"))
 	var out bytes.Buffer
 
-	_, err := readLineRaw(in, &out, "")
+	_, err := readLineRaw(in, &out, "", nil)
 	if err != io.EOF {
 		t.Errorf("expected io.EOF, got %v", err)
 	}
@@ -82,7 +82,7 @@ func TestReadLineRawCtrlU(t *testing.T) {
 	in := bytes.NewReader([]byte("hello world\x15new\r"))
 	var out bytes.Buffer
 
-	line, err := readLineRaw(in, &out, "")
+	line, err := readLineRaw(in, &out, "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -95,12 +95,29 @@ func TestReadLineRawMultipleAltBackspace(t *testing.T) {
 	in := bytes.NewReader([]byte("hello world foo\x1b\x7f\x1b\x7f\r"))
 	var out bytes.Buffer
 
-	line, err := readLineRaw(in, &out, "")
+	line, err := readLineRaw(in, &out, "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if line != "hello " {
 		t.Errorf("got %q, want %q", line, "hello ")
+	}
+}
+
+func TestReadLineRawTruncatedCSIDoesNotBlock(t *testing.T) {
+	// ESC [ with no final byte followed by normal input — the truncated
+	// CSI must not block the reader.
+	in := bytes.NewReader([]byte("ab\x1b[cd\r"))
+	var out bytes.Buffer
+
+	line, err := readLineRaw(in, &out, "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// After ESC [ the 'c' (0x63) is in the final-byte range and terminates
+	// the sequence; 'd' is normal input.
+	if line != "abd" {
+		t.Errorf("got %q, want %q", line, "abd")
 	}
 }
 

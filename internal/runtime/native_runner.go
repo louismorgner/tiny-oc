@@ -426,7 +426,7 @@ func buildNativeRuntimeNotes(sessionCfg *SessionConfig) string {
 	if !toolEnabled(sessionCfg.RuntimeConfig.EnabledTools, "TodoWrite") {
 		return ""
 	}
-	return todoWriteRuntimeNotes()
+	return todoWriteRuntimeNotes
 }
 
 func toolEnabled(enabled []string, name string) bool {

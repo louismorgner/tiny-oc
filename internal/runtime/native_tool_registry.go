@@ -248,7 +248,6 @@ Use TodoWrite for multi-step work when progress tracking is genuinely helpful, e
 
 Guidelines:
 - Prefer using TodoWrite only when the task has multiple meaningful steps or coordination points.
-- Do not create or update todos for single-turn answers, obvious one-step fixes, or other short sessions where the list would add overhead.
 - Keep only one item in_progress at a time when possible.
 - Mark items completed immediately after finishing them.
 - If the plan changes, rewrite the full list to match the new reality.

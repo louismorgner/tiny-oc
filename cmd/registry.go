@@ -8,5 +8,5 @@ func init() {
 
 var registryCmd = &cobra.Command{
 	Use:   "registry",
-	Short: "Browse the skills and agent registry",
+	Short: "Browse skills, agents, and workspaces in the registry",
 }

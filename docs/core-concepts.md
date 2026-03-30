@@ -108,6 +108,19 @@ Current permission areas include:
 - integrations
 - sub-agents
 
+## Registry workspace
+
+A `registry workspace` is a named collection of agents (and their skills) published in the registry as a single installable unit.
+
+A registry workspace consists of:
+
+- a name and description
+- a list of agent references (pointers to agents in `registry/agents/`)
+
+Installing a registry workspace installs all referenced agents and their skills in one command. Agents that already exist locally are skipped.
+
+Note: this is distinct from the local `.toc/` workspace, which is the project-local control plane. A registry workspace is a curated bundle for bootstrapping a multi-agent setup.
+
 ## Skill
 
 A `skill` is a reusable capability bundle provisioned into a session by toc.

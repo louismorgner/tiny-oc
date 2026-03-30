@@ -92,8 +92,8 @@ When you run `toc agent spawn`, it:
 | `toc skill add <name-or-url>` | Install a skill from a Git URL or the registry |
 | `toc skill remove <name>` | Remove a skill |
 | `toc agent add <name>` | Install an agent template from the registry |
-| `toc registry search [query]` | Browse skills and agent templates |
-| `toc registry install <name>` | Install a skill or agent from the registry |
+| `toc registry search [query]` | Browse skills, agents, and workspaces |
+| `toc registry install <name>` | Install a skill, agent, or workspace from the registry |
 | `toc integrate add <name>` | Add an integration (GitHub, Slack) |
 | `toc integrate list` | List configured integrations |
 | `toc integrate test <name>` | Test an integration connection |
@@ -140,7 +140,7 @@ toc inspect compare <claude-session> <native-session>
 - [x] Snapshot sync — persist selected session outputs back to agent templates
 - [x] Audit log — append-only JSON Lines log for compliance and traceability
 - [x] Skills — reusable, shareable agent capabilities
-- [x] Registry — unified catalog of skills and agent templates with search and install
+- [x] Registry — unified catalog of skills, agents, and workspaces with search and install
 - [x] Sub-agents — agents that spawn and coordinate other agents
 - [x] Integrations — API gateway with scoped permissions, credential vault, and rate limiting
 - [x] Native runtime (beta) — built-in agent loop via OpenRouter with pluggable models

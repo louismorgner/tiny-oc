@@ -1,0 +1,7 @@
+name: superfounder
+description: Multi-agent startup team — CTO, SWE, PR reviewer, and product thinker
+agents:
+  - superfounder-cto
+  - superfounder-swe
+  - superfounder-pr-reviewer
+  - superfounder-product-thinker

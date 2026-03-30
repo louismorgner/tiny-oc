@@ -93,7 +93,7 @@ toc agent spawn pr-reviewer
 │   ├── audit/                 # Append-only JSON Lines audit log
 │   ├── config/                # Workspace config, paths, secrets
 │   ├── integration/           # API gateway: definitions, credentials, permissions, rate limiting
-│   ├── registry/              # Remote registry: fetch, search, install skills and agents
+│   ├── registry/              # Remote registry: fetch, search, install skills, agents, and workspaces
 │   ├── runtime/               # Provider interface, Claude Code + native implementations
 │   ├── runtimeinfo/           # Runtime metadata, native model profiles
 │   ├── session/               # Session tracking (sessions.yaml), parent-child relationships
@@ -106,9 +106,10 @@ toc agent spawn pr-reviewer
 │   ├── gitutil/               # Safe git clone (HTTPS only, hooks disabled)
 │   ├── naming/                # Session name generation from prompts
 │   └── usage/                 # Token usage parsing and formatting
-├── registry/                  # Built-in skills, agents, and integration definitions
-│   ├── agents/                # cto, mini-claw
+├── registry/                  # Built-in skills, agents, workspaces, and integration definitions
+│   ├── agents/                # cto, mini-claw, superfounder-*, implementer
 │   ├── skills/                # open-source-cto, agentic-memory
+│   ├── workspaces/            # superfounder (multi-agent workspace bundles)
 │   └── integrations/          # github, slack
 ├── web/                       # OAuth callback worker (Cloudflare)
 ├── e2e/                       # End-to-end smoke tests

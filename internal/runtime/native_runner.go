@@ -595,6 +595,8 @@ func runNativeLoop(client *openRouterClient, state *State, toolSpecs []NativeToo
 	if toolCtx.Config != nil && toolCtx.Config.RuntimeConfig.MaxIterations > 0 {
 		maxIterations = toolCtx.Config.RuntimeConfig.MaxIterations
 	}
+	// One-shot behavior state is intentionally scoped to this runNativePrompt
+	// invocation. It is not persisted across resume/recovery.
 	firedBehaviors := make(map[string]bool)
 	pendingBehaviorChanges := &WorkingSet{}
 	for i := 0; i < maxIterations; i++ {
@@ -721,6 +723,9 @@ func runNativeLoop(client *openRouterClient, state *State, toolSpecs []NativeToo
 			if b := evaluateBehaviors(pendingBehaviorChanges, behaviors, firedBehaviors); b != nil {
 				firedBehaviors[b.Name] = true
 				pendingBehaviorChanges = &WorkingSet{}
+				// Behavior prompts come from trusted agent config, not external
+				// user input. If we later add runtime interpolation here, revisit
+				// this trust boundary before injecting model-visible content.
 				behaviorMsg := Message{Role: "user", Content: b.Prompt}
 				state.Messages = append(state.Messages, behaviorMsg)
 				state.Transcript = append(state.Transcript, behaviorMsg)

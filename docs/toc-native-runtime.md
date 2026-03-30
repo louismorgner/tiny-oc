@@ -191,7 +191,8 @@ Behaviors are evaluated against a scoped working set (`pendingBehaviorChanges`) 
 
 Key details:
 
-- Each behavior fires at most once per session loop invocation, tracked by name in a `firedBehaviors` map.
+- Behaviors are evaluated in declaration order, and only the first matching behavior fires in a given evaluation cycle.
+- Each behavior fires at most once per `runNativePrompt` invocation, tracked by name in an in-memory `firedBehaviors` map. That one-shot state is not persisted across crash recovery or session resume.
 - When a behavior fires, its prompt is injected as a `user` message and the loop continues — the model gets another turn.
 - The scoped working set resets when a behavior fires, so subsequent behaviors evaluate against fresh activity.
 - Conditions use AND semantics: if a behavior specifies both `file_written` and `tool_used`, both must match.

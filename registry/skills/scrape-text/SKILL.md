@@ -20,9 +20,7 @@ Pick the right actor for the content type:
 
 - **Twitter/X**: `apidojo/tweet-scraper` — input: `{"startUrls": [{"url": "<url>"}]}`
 - **LinkedIn**: `anchor/linkedin-scraper` — input: `{"urls": ["<url>"]}`
-- **Generic article/blog**: `apify/website-content-crawler` — input: `{"startUrls": [{"url": "<url>"}], "maxPagesPerCrawl": 1}`
-
-For anything else, `apify/website-content-crawler` is a good default — it extracts readable text from any page.
+For generic articles or blogs, use the native `WebFetch` tool instead of Apify — it's built into the toc runtime and doesn't need an integration.
 
 ## What to do with the output
 

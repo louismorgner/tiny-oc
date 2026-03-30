@@ -75,6 +75,21 @@ func (tw *traceWriter) WriteTurn(turn int, req chatRequest, resp *chatResponse) 
 	_ = tw.enc.Encode(entry)
 }
 
+// WriteEvent appends a freeform event entry to the trace log. Safe to call on a nil receiver.
+func (tw *traceWriter) WriteEvent(event string, data map[string]string) {
+	if tw == nil {
+		return
+	}
+	entry := map[string]interface{}{
+		"event":     event,
+		"timestamp": time.Now().UTC(),
+		"data":      data,
+	}
+	tw.mu.Lock()
+	defer tw.mu.Unlock()
+	_ = tw.enc.Encode(entry)
+}
+
 // Close releases the underlying file handle. Safe to call on a nil receiver.
 func (tw *traceWriter) Close() {
 	if tw == nil {

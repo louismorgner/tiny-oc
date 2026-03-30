@@ -42,6 +42,18 @@ var registryInstallCmd = &cobra.Command{
 		switch entry.Type {
 		case "workspace":
 			result, err := registry.InstallWorkspace(entry, index)
+
+			// Show what was installed even on partial failure.
+			if len(result.InstalledAgents) > 0 {
+				ui.Info("Agents installed: %s", ui.Bold(strings.Join(result.InstalledAgents, ", ")))
+			}
+			if len(result.SkippedAgents) > 0 {
+				ui.Info("Agents skipped (already exist): %s", ui.Dim(strings.Join(result.SkippedAgents, ", ")))
+			}
+			if len(result.InstalledSkills) > 0 {
+				ui.Info("Skills installed: %s", ui.Dim(strings.Join(result.InstalledSkills, ", ")))
+			}
+
 			if err != nil {
 				return err
 			}
@@ -53,15 +65,6 @@ var registryInstallCmd = &cobra.Command{
 			})
 
 			ui.Success("Installed workspace %s", ui.Bold(entry.Name))
-			if len(result.InstalledAgents) > 0 {
-				ui.Info("Agents installed: %s", ui.Bold(strings.Join(result.InstalledAgents, ", ")))
-			}
-			if len(result.SkippedAgents) > 0 {
-				ui.Info("Agents skipped (already exist): %s", ui.Dim(strings.Join(result.SkippedAgents, ", ")))
-			}
-			if len(result.InstalledSkills) > 0 {
-				ui.Info("Skills installed: %s", ui.Dim(strings.Join(result.InstalledSkills, ", ")))
-			}
 			fmt.Println()
 			ui.Info("Spawn any agent with: %s", ui.Bold("toc agent spawn <agent-name>"))
 

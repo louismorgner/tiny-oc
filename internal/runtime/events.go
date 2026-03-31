@@ -131,6 +131,37 @@ func AppendEvent(sess *session.Session, event Event) error {
 	return err
 }
 
+// LoadEventLogInWorkspace loads the event log directly from a workspace path
+// without requiring a full session object.
+func LoadEventLogInWorkspace(workspace, sessionID string) (*ParsedLog, error) {
+	path := EventLogPathInWorkspace(workspace, sessionID)
+
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+
+	result := &ParsedLog{}
+	scanner := bufio.NewScanner(f)
+	scanner.Buffer(make([]byte, 0, 256*1024), 4*1024*1024)
+	for scanner.Scan() {
+		var event Event
+		if err := json.Unmarshal(scanner.Bytes(), &event); err != nil {
+			continue
+		}
+		result.Events = append(result.Events, event)
+		result.Steps = append(result.Steps, event.Step)
+		if !event.Timestamp.IsZero() {
+			if result.FirstTS.IsZero() {
+				result.FirstTS = event.Timestamp
+			}
+			result.LastTS = event.Timestamp
+		}
+	}
+	return result, nil
+}
+
 func EventCount(sess *session.Session) int {
 	parsed, err := LoadEventLog(sess)
 	if err != nil {

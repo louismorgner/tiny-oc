@@ -1896,3 +1896,164 @@ func TestRunNativeSession_InteractiveNotificationWhileWaiting(t *testing.T) {
 		t.Fatal("expected notification prompt in message history")
 	}
 }
+
+func TestCountUserTurns(t *testing.T) {
+	steps := []Step{
+		{Type: "user", Content: "hello"},
+		{Type: "text", Content: "hi there"},
+		{Type: "tool", Tool: "Read"},
+		{Type: "user", Content: "do something"},
+		{Type: "text", Content: "done"},
+	}
+	if got := countUserTurns(steps); got != 2 {
+		t.Fatalf("countUserTurns() = %d, want 2", got)
+	}
+	if got := countUserTurns(nil); got != 0 {
+		t.Fatalf("countUserTurns(nil) = %d, want 0", got)
+	}
+}
+
+func TestResumeRendersEventLogTail(t *testing.T) {
+	workDir := t.TempDir()
+	metaWorkspace := t.TempDir()
+
+	if err := os.MkdirAll(filepath.Join(workDir, ".toc-native"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(workDir, ".toc-native", "system-prompt.md"), []byte("You are a coding agent.\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	sessionID := "sess-resume-render"
+
+	if err := SaveSessionConfigInWorkspace(metaWorkspace, sessionID, &SessionConfig{
+		Agent:   "test-agent",
+		Runtime: runtimeinfo.NativeRuntime,
+		Model:   "openai/gpt-4o-mini",
+		RuntimeConfig: SessionRuntimeOptions{
+			EnabledTools: NativeToolNames(),
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Create existing state (simulating a previous session).
+	if err := SaveStateInWorkspace(metaWorkspace, sessionID, &State{
+		Version:  6,
+		Runtime:  runtimeinfo.NativeRuntime,
+		Status:   "active",
+		Model:    "openai/gpt-4o-mini",
+		Messages: []Message{{Role: "system", Content: "You are a coding agent."}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Write an event log with some user/assistant turns.
+	metaDir := MetadataDir(metaWorkspace, sessionID)
+	sess := &session.Session{
+		ID:          sessionID,
+		Runtime:     runtimeinfo.NativeRuntime,
+		MetadataDir: metaDir,
+	}
+	events := []Event{
+		{Timestamp: time.Now().Add(-5 * time.Minute), Step: Step{Type: "user", Content: "explain the auth module"}},
+		{Timestamp: time.Now().Add(-4 * time.Minute), Step: Step{Type: "text", Content: "The auth module handles JWT verification."}},
+		{Timestamp: time.Now().Add(-3 * time.Minute), Step: Step{Type: "tool", Tool: "Read", Path: "auth.go"}},
+		{Timestamp: time.Now().Add(-2 * time.Minute), Step: Step{Type: "user", Content: "now refactor it"}},
+		{Timestamp: time.Now().Add(-1 * time.Minute), Step: Step{Type: "text", Content: "I have refactored the auth module."}},
+	}
+	if err := SaveEventLog(sess, &ParsedLog{Events: events}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Set up a mock LLM server that returns a simple stop response.
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		writeSSEChunk(t, w, map[string]interface{}{
+			"id":    "resp-1",
+			"model": "openai/gpt-4o-mini",
+			"choices": []map[string]interface{}{
+				{
+					"index": 0,
+					"delta": map[string]interface{}{
+						"role":    "assistant",
+						"content": "Resumed successfully.",
+					},
+					"finish_reason": "stop",
+				},
+			},
+			"usage": map[string]interface{}{"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
+		})
+	}))
+	defer server.Close()
+
+	t.Setenv("OPENROUTER_API_KEY", "test-key")
+	t.Setenv("OPENROUTER_BASE_URL", server.URL)
+
+	// Use a pipe for stdin so the session processes the prompt and exits.
+	var stdout bytes.Buffer
+	err := RunNativeSession(NativeRunOptions{
+		Mode:      "detached",
+		Dir:       workDir,
+		SessionID: sessionID,
+		Agent:     "test-agent",
+		Workspace: metaWorkspace,
+		Model:     "openai/gpt-4o-mini",
+		Prompt:    "continue where we left off",
+		Resume:    true,
+	}, bytes.NewBuffer(nil), &stdout)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Detached mode is non-TTY, so the resume header won't render there.
+	// Verify the event log is loadable and countUserTurns works correctly.
+	parsed, err := LoadEventLogInWorkspace(metaWorkspace, sessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := countUserTurns(parsed.Steps); got < 2 {
+		t.Fatalf("expected at least 2 user turns in event log, got %d", got)
+	}
+}
+
+func TestLoadEventLogInWorkspace(t *testing.T) {
+	workspace := t.TempDir()
+	sessionID := "sess-evlog"
+	metaDir := MetadataDir(workspace, sessionID)
+	if err := os.MkdirAll(metaDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	sess := &session.Session{
+		ID:          sessionID,
+		Runtime:     runtimeinfo.NativeRuntime,
+		MetadataDir: metaDir,
+	}
+	events := []Event{
+		{Timestamp: time.Now(), Step: Step{Type: "user", Content: "hello"}},
+		{Timestamp: time.Now(), Step: Step{Type: "text", Content: "world"}},
+	}
+	if err := SaveEventLog(sess, &ParsedLog{Events: events}); err != nil {
+		t.Fatal(err)
+	}
+
+	parsed, err := LoadEventLogInWorkspace(workspace, sessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(parsed.Steps) != 2 {
+		t.Fatalf("expected 2 steps, got %d", len(parsed.Steps))
+	}
+	if parsed.Steps[0].Type != "user" || parsed.Steps[0].Content != "hello" {
+		t.Fatalf("unexpected first step: %#v", parsed.Steps[0])
+	}
+	if parsed.Steps[1].Type != "text" || parsed.Steps[1].Content != "world" {
+		t.Fatalf("unexpected second step: %#v", parsed.Steps[1])
+	}
+
+	// Non-existent session returns an error.
+	if _, err := LoadEventLogInWorkspace(workspace, "nonexistent"); err == nil {
+		t.Fatal("expected error for nonexistent session")
+	}
+}

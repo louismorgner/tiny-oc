@@ -117,6 +117,11 @@ func SessionBanner(agentName, sessionID, model string) string {
 	return "\n  " + strings.Join(parts, sessionInfoStyle.Render(" · ")) + "\n\n"
 }
 
+// ResumedSessionHeader returns a dim header indicating a resumed session.
+func ResumedSessionHeader(turnCount int) string {
+	return sessionInfoStyle.Render(fmt.Sprintf("  — resumed session (%d previous turns) —", turnCount)) + "\n\n"
+}
+
 // TurnSeparator returns a blank line between conversation turns.
 func TurnSeparator() string {
 	return ""

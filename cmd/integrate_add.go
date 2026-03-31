@@ -189,8 +189,15 @@ func runOAuth2Flow(name string, def *integration.Definition, manual bool, flagCl
 		}
 	}
 
-	// For non-slack integrations, fall back to PAT until we add provider-specific configs
-	if name != "slack" {
+	var oauth2Cfg *integration.OAuth2Config
+
+	switch name {
+	case "slack":
+		oauth2Cfg = integration.SlackOAuth2Config(clientID, clientSecret, def.Auth.RequiredScopes, def.Auth.UserScopes)
+	case "twitter":
+		oauth2Cfg = integration.TwitterOAuth2Config(clientID, clientSecret, def.Auth.UserScopes)
+	default:
+		// Fall back to PAT for integrations without a provider-specific OAuth config
 		token := flagToken
 		if token == "" {
 			ui.Info("Generic OAuth2 flow — enter a personal access token instead.")
@@ -205,8 +212,6 @@ func runOAuth2Flow(name string, def *integration.Definition, manual bool, flagCl
 		}
 		return &integration.Credential{AccessToken: token}, nil
 	}
-
-	oauth2Cfg := integration.SlackOAuth2Config(clientID, clientSecret, def.Auth.RequiredScopes, def.Auth.UserScopes)
 	state, err := integration.NewOAuthState()
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize OAuth state: %w", err)
@@ -288,7 +293,7 @@ func showSetupWizard(def *integration.Definition) {
 
 		for _, line := range sec.lines {
 			// Highlight the redirect URL line
-			if strings.Contains(line, integration.SlackOAuthCallbackURL) {
+			if strings.Contains(line, integration.SlackOAuthCallbackURL) || strings.Contains(line, integration.TwitterOAuthCallbackURL) {
 				fmt.Println("  " + ui.Yellow(line))
 				ui.Warn("OAuth will fail if the redirect URL is not added exactly as shown.")
 			} else if strings.HasPrefix(line, "-") || strings.HasPrefix(line, "  -") {

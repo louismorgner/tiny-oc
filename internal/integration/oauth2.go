@@ -3,6 +3,8 @@ package integration
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -16,15 +18,20 @@ import (
 
 // OAuth2Config holds the configuration for an OAuth2 flow.
 type OAuth2Config struct {
-	ClientID     string
-	ClientSecret string
-	AuthURL      string
-	TokenURL     string
-	Scopes       []string // bot scopes — sent as "scope" param
-	UserScopes   []string // user scopes — sent as "user_scope" param (Slack user tokens)
-	RedirectPort int      // used only for localhost callback fallback
-	RedirectURL  string   // if set, overrides the localhost redirect URI
-	State        string
+	ClientID      string
+	ClientSecret  string
+	AuthURL       string
+	TokenURL      string
+	Scopes        []string // bot scopes — sent as "scope" param
+	UserScopes    []string // user scopes — sent as "user_scope" param (Slack user tokens)
+	RedirectPort  int      // used only for localhost callback fallback
+	RedirectURL   string   // if set, overrides the localhost redirect URI
+	State         string
+	UsePKCE       bool   // use PKCE (required by Twitter)
+	ScopeSep      string // scope separator: "," for Slack, " " for standard OAuth2
+	CodeVerifier  string // PKCE code verifier (generated automatically when UsePKCE is true)
+	UseBasicAuth  bool   // send client credentials via HTTP Basic Auth header
+	UseGrantType  bool   // include grant_type=authorization_code in token exchange
 }
 
 // OAuth2TokenResponse represents the response from a token exchange.
@@ -47,9 +54,15 @@ type OAuth2TokenResponse struct {
 	} `json:"authed_user,omitempty"`
 }
 
-// SlackOAuthCallbackURL is the hosted HTTPS endpoint that receives Slack OAuth
-// callbacks and displays the authorization code for the user to copy.
-const SlackOAuthCallbackURL = "https://toc-auth-callback.dev-f64.workers.dev/slack/callback"
+// OAuthCallbackBaseURL is the hosted HTTPS endpoint that relays OAuth callbacks
+// back to the CLI's localhost server. Provider-specific paths are appended.
+const OAuthCallbackBaseURL = "https://toc-auth-callback.dev-f64.workers.dev"
+
+// SlackOAuthCallbackURL is the Slack-specific OAuth callback URL.
+const SlackOAuthCallbackURL = OAuthCallbackBaseURL + "/slack/callback"
+
+// TwitterOAuthCallbackURL is the Twitter/X-specific OAuth callback URL.
+const TwitterOAuthCallbackURL = OAuthCallbackBaseURL + "/twitter/callback"
 
 // SlackOAuth2Config returns a pre-configured OAuth2Config for Slack.
 // When userScopes is non-empty, the flow requests user tokens (xoxp) via user_scope.
@@ -62,8 +75,27 @@ func SlackOAuth2Config(clientID, clientSecret string, scopes, userScopes []strin
 		TokenURL:     "https://slack.com/api/oauth.v2.access",
 		Scopes:       scopes,
 		UserScopes:   userScopes,
+		ScopeSep:     ",",
 		RedirectPort: 8976,
 		RedirectURL:  SlackOAuthCallbackURL,
+	}
+}
+
+// TwitterOAuth2Config returns a pre-configured OAuth2Config for Twitter/X.
+// Twitter OAuth 2.0 requires PKCE and uses space-separated scopes per RFC 6749.
+func TwitterOAuth2Config(clientID, clientSecret string, userScopes []string) *OAuth2Config {
+	return &OAuth2Config{
+		ClientID:     clientID,
+		ClientSecret: clientSecret,
+		AuthURL:      "https://twitter.com/i/oauth2/authorize",
+		TokenURL:     "https://api.x.com/2/oauth2/token",
+		Scopes:       userScopes,
+		ScopeSep:     " ",
+		UsePKCE:      true,
+		UseBasicAuth: true,
+		UseGrantType: true,
+		RedirectPort: 8976,
+		RedirectURL:  TwitterOAuthCallbackURL,
 	}
 }
 
@@ -78,19 +110,30 @@ func (c *OAuth2Config) RedirectURI() string {
 
 // AuthorizationURL builds the URL to redirect the user to for OAuth consent.
 // For Slack user tokens, scopes are sent as "user_scope" (comma-separated).
+// For Twitter, response_type=code and PKCE challenge are included.
 func (c *OAuth2Config) AuthorizationURL() string {
+	sep := c.ScopeSep
+	if sep == "" {
+		sep = ","
+	}
+
 	params := url.Values{
 		"client_id":    {c.ClientID},
 		"redirect_uri": {c.RedirectURI()},
 	}
 	if len(c.Scopes) > 0 {
-		params.Set("scope", strings.Join(c.Scopes, ","))
+		params.Set("scope", strings.Join(c.Scopes, sep))
 	}
 	if len(c.UserScopes) > 0 {
-		params.Set("user_scope", strings.Join(c.UserScopes, ","))
+		params.Set("user_scope", strings.Join(c.UserScopes, sep))
 	}
 	if c.State != "" {
 		params.Set("state", c.State)
+	}
+	if c.UsePKCE {
+		params.Set("response_type", "code")
+		params.Set("code_challenge", c.pkceChallenge())
+		params.Set("code_challenge_method", "S256")
 	}
 	return c.AuthURL + "?" + params.Encode()
 }
@@ -153,13 +196,31 @@ func (c *OAuth2Config) RunCallbackServer(ctx context.Context) (string, error) {
 // the authed_user field in the response.
 func (c *OAuth2Config) ExchangeCode(code string) (*Credential, error) {
 	data := url.Values{
-		"client_id":     {c.ClientID},
-		"client_secret": {c.ClientSecret},
-		"code":          {code},
-		"redirect_uri":  {c.RedirectURI()},
+		"code":         {code},
+		"redirect_uri": {c.RedirectURI()},
+	}
+	if c.UseGrantType {
+		data.Set("grant_type", "authorization_code")
+	}
+	if c.UsePKCE && c.CodeVerifier != "" {
+		data.Set("code_verifier", c.CodeVerifier)
+	}
+	if !c.UseBasicAuth {
+		data.Set("client_id", c.ClientID)
+		data.Set("client_secret", c.ClientSecret)
 	}
 
-	resp, err := http.PostForm(c.TokenURL, data)
+	req, err := http.NewRequest("POST", c.TokenURL, strings.NewReader(data.Encode()))
+	if err != nil {
+		return nil, fmt.Errorf("failed to build token exchange request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	if c.UseBasicAuth {
+		req.SetBasicAuth(url.QueryEscape(c.ClientID), url.QueryEscape(c.ClientSecret))
+	}
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("token exchange request failed: %w", err)
 	}
@@ -175,11 +236,16 @@ func (c *OAuth2Config) ExchangeCode(code string) (*Credential, error) {
 		return nil, fmt.Errorf("failed to parse token response: %w", err)
 	}
 
-	if !tokenResp.OK {
+	// Slack returns {"ok": false, "error": "..."} on failure.
+	// Standard OAuth2 (Twitter) returns HTTP 4xx with {"error": "..."}.
+	if tokenResp.Error != "" {
 		return nil, fmt.Errorf("token exchange failed: %s", tokenResp.Error)
 	}
+	if !tokenResp.OK && tokenResp.AccessToken == "" {
+		return nil, fmt.Errorf("token exchange failed: unexpected response (HTTP %d)", resp.StatusCode)
+	}
 
-	// Prefer user token from authed_user when user_scopes were requested.
+	// Prefer user token from authed_user when user_scopes were requested (Slack).
 	accessToken := tokenResp.AccessToken
 	refreshToken := tokenResp.RefreshToken
 	expiresIn := tokenResp.ExpiresIn
@@ -317,4 +383,25 @@ func NewOAuthState() (string, error) {
 		return "", err
 	}
 	return hex.EncodeToString(buf), nil
+}
+
+// GeneratePKCE creates a code verifier and stores it on the config.
+// Must be called before AuthorizationURL when UsePKCE is true.
+func (c *OAuth2Config) GeneratePKCE() error {
+	buf := make([]byte, 32)
+	if _, err := rand.Read(buf); err != nil {
+		return err
+	}
+	c.CodeVerifier = base64.RawURLEncoding.EncodeToString(buf)
+	return nil
+}
+
+// pkceChallenge returns the S256 code challenge derived from the code verifier.
+func (c *OAuth2Config) pkceChallenge() string {
+	if c.CodeVerifier == "" {
+		// Auto-generate if not already set
+		_ = c.GeneratePKCE()
+	}
+	h := sha256.Sum256([]byte(c.CodeVerifier))
+	return base64.RawURLEncoding.EncodeToString(h[:])
 }

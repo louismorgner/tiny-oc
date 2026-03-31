@@ -16,15 +16,18 @@ auth:
     Posting requires user-context authentication. App-only bearer tokens are
     read-only and cannot create tweets.
 
+    === Create your Twitter/X app ===
     1. Go to https://developer.x.com/en/portal/dashboard
     2. Create a project and app with OAuth 2.0 (User Authentication)
     3. Set permissions to Read and Write
     4. Set the OAuth 2.0 type to "Confidential client"
-    5. Add the callback URL shown by `toc integrate add twitter`
+
+    === Set the callback URL ===
+    5. Add this exact Redirect URI: https://toc-auth-callback.dev-f64.workers.dev/twitter/callback
     6. Copy your Client ID and Client Secret
-    7. Run `toc integrate add twitter` and paste the Client ID and Client Secret when prompted
-    8. Complete the OAuth 2.0 authorization flow in the browser to get your access token
-       (the token will be refreshed automatically when it expires)
+
+    === Complete the flow ===
+    7. Come back here and paste the Client ID and Client Secret when prompted
 
 actions:
   post_tweet:

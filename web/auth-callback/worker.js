@@ -1,15 +1,17 @@
 // Cloudflare Worker: OAuth callback relay for toc CLI
-// Receives the authorization code from Slack's HTTPS redirect and bounces
-// the user back to the CLI's localhost server where the code is captured
-// automatically. No codes are stored or logged.
+// Receives the authorization code from OAuth providers' HTTPS redirects and
+// bounces the user back to the CLI's localhost server where the code is
+// captured automatically. No codes are stored or logged.
 
 const LOCALHOST_CALLBACK = "http://localhost:8976/callback";
+
+const ALLOWED_PATHS = new Set(["/slack/callback", "/twitter/callback"]);
 
 export default {
   async fetch(request) {
     const url = new URL(request.url);
 
-    if (url.pathname !== "/slack/callback") {
+    if (!ALLOWED_PATHS.has(url.pathname)) {
       return new Response("Not found", { status: 404 });
     }
 

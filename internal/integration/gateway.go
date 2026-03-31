@@ -313,6 +313,9 @@ func buildHTTPRequest(action *Action, cred *Credential, params map[string]string
 					bodyPathByName[p.Name] = p.BodyPath
 				}
 			}
+			// Check if any param declares body_path "." — meaning its parsed
+			// value should be the entire request body (not nested under a key).
+			var rootBody interface{}
 			bodyMap := make(map[string]interface{})
 			for k, v := range params {
 				if !templateParams[k] {
@@ -327,13 +330,21 @@ func buildHTTPRequest(action *Action, cred *Credential, params map[string]string
 						val = v
 					}
 					if bp, ok := bodyPathByName[k]; ok {
-						setNestedKey(bodyMap, bp, val)
+						if bp == "." {
+							rootBody = val
+						} else {
+							setNestedKey(bodyMap, bp, val)
+						}
 					} else {
 						bodyMap[k] = val
 					}
 				}
 			}
-			data, err = json.Marshal(bodyMap)
+			if rootBody != nil {
+				data, err = json.Marshal(rootBody)
+			} else {
+				data, err = json.Marshal(bodyMap)
+			}
 		}
 		if err != nil {
 			return nil, err

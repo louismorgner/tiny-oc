@@ -34,6 +34,14 @@ toc runtime invoke twitter post_tweet --text "Your commentary" --quote_tweet_id 
 toc runtime invoke twitter search_tweets --query "from:username" --max_results 20
 ```
 
+## Look up a user by @username
+
+Use this to resolve an @username to the numeric user ID required by `get_user_tweets`.
+
+```bash
+toc runtime invoke twitter lookup_user --username "elonmusk"
+```
+
 ## Get a user's recent tweets
 
 ```bash

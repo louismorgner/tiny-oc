@@ -29,5 +29,6 @@ permissions:
       - "search_tweets:*"
       - "get_user_tweets:*"
       - "get_me:*"
+      - "lookup_user:*"
     apify:
       - "run_actor:*"

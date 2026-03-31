@@ -10,7 +10,7 @@ import (
 
 func TestNativeToolNames(t *testing.T) {
 	got := NativeToolNames()
-	want := []string{"Read", "Write", "Edit", "Glob", "Grep", "Bash", "WebFetch", "Skill", "TodoWrite", "Question", "SubAgent"}
+	want := []string{"Read", "Write", "Edit", "Glob", "Grep", "Bash", "WebFetch", "Skill", "TodoWrite", "Question", "SubAgent", "Invoke"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("NativeToolNames() = %#v, want %#v", got, want)
 	}

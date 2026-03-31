@@ -16,6 +16,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/tiny-oc/toc/internal/agent"
 	"github.com/tiny-oc/toc/internal/integration"
 	tocsync "github.com/tiny-oc/toc/internal/sync"
 	"github.com/tiny-oc/toc/internal/ui"
@@ -732,6 +733,117 @@ func dedupeStrings(items []string) []string {
 		result = append(result, item)
 	}
 	return result
+}
+
+func nativeInvoke(ctx nativeToolContext, call ToolCall) toolExecution {
+	var args struct {
+		Integration string            `json:"integration"`
+		Action      string            `json:"action"`
+		Params      map[string]string `json:"params"`
+	}
+	if err := decodeToolArgs(call.Function.Arguments, &args); err != nil {
+		return toolFailure("Invoke", "", "", err)
+	}
+	if args.Integration == "" {
+		return toolFailure("Invoke", "", "", fmt.Errorf("integration is required"))
+	}
+	if args.Action == "" {
+		return toolFailure("Invoke", "", "", fmt.Errorf("action is required"))
+	}
+	if args.Params == nil {
+		args.Params = make(map[string]string)
+	}
+
+	manifest := ctx.Manifest
+	if manifest == nil {
+		return toolFailure("Invoke", "", "", fmt.Errorf("no permission manifest available"))
+	}
+
+	integrationPerms, ok := manifest.Integrations[args.Integration]
+	if !ok {
+		return toolFailure("Invoke", "", "", integration.NewNoIntegrationPermError(ctx.Agent, args.Integration))
+	}
+
+	def, err := integration.LoadFromRegistry(args.Integration)
+	if err != nil {
+		return toolFailure("Invoke", "", "", fmt.Errorf("unknown integration '%s': %w", args.Integration, err))
+	}
+
+	if err := integration.ValidatePermissionsAgainstDefinition(integrationPerms, def); err != nil {
+		return toolFailure("Invoke", "", "", fmt.Errorf("invalid permissions in manifest: %w", err))
+	}
+
+	// Slack: set up conversation resolver for permission checks and invocation.
+	var cred *integration.Credential
+	var resolver *integration.SlackChannelResolver
+	if args.Integration == "slack" {
+		cred, err = integration.LoadCredentialFromWorkspace(ctx.Workspace, args.Integration)
+		if err != nil {
+			return toolFailure("Invoke", "", "", integration.NewCredentialError(args.Integration, err))
+		}
+		resolver = integration.NewSlackChannelResolver(cred.AccessToken)
+	}
+
+	target, err := integration.DeterminePermissionTarget(args.Integration, args.Action, args.Params, resolver)
+	if err != nil {
+		return toolFailure("Invoke", "", "", err)
+	}
+	decision := integration.EvaluatePermission(def, integrationPerms, args.Action, target)
+	if decision.Level != agent.PermOn {
+		return toolFailure("Invoke", "", "", integration.NewPermissionDeniedError(ctx.Agent, args.Integration, args.Action))
+	}
+
+	// Use the canonical conversation ID for Slack once permission evaluation succeeded.
+	if args.Integration == "slack" && target.ID != "" {
+		if _, ok := args.Params["channel"]; ok {
+			args.Params["channel"] = target.ID
+		}
+	}
+
+	// Load credentials for non-Slack integrations after permission checks pass.
+	if cred == nil {
+		cred, err = integration.LoadCredentialFromWorkspace(ctx.Workspace, args.Integration)
+		if err != nil {
+			return toolFailure("Invoke", "", "", integration.NewCredentialError(args.Integration, err))
+		}
+	}
+
+	// Check rate limit
+	actionDef, err := def.GetAction(args.Action)
+	if err != nil {
+		available := def.ActionNames()
+		return toolFailure("Invoke", "", "", integration.NewActionNotFoundError(args.Integration, args.Action, available))
+	}
+	rateLimitPath := filepath.Join(ctx.Workspace, ".toc", "sessions", ctx.SessionID, "rate_limits.json")
+	rl := integration.NewRateLimiter(rateLimitPath)
+	if !rl.Allow(ctx.SessionID, args.Integration+"."+args.Action, actionDef.RateLimit) {
+		return toolFailure("Invoke", "", "", fmt.Errorf("rate limit exceeded for %s.%s — try again later", args.Integration, args.Action))
+	}
+
+	invokeReq := &integration.InvokeRequest{
+		SessionID:   ctx.SessionID,
+		Integration: args.Integration,
+		Action:      args.Action,
+		Params:      args.Params,
+		Credential:  cred,
+		Definition:  def,
+		Workspace:   ctx.Workspace,
+		WorkDir:     ctx.Workspace,
+	}
+	if args.Integration == "slack" {
+		invokeReq.ChannelResolver = resolver
+	}
+
+	resp, err := integration.Invoke(invokeReq)
+	if err != nil {
+		return toolFailure("Invoke", "", "", fmt.Errorf("invocation failed: %w", err))
+	}
+
+	output, _ := json.MarshalIndent(resp, "", "  ")
+	return toolSuccess("Invoke", "", string(output), Step{
+		Tool:    "Invoke",
+		Success: boolPtr(true),
+	})
 }
 
 func boolPtr(v bool) *bool {

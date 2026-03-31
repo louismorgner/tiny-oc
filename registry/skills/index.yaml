@@ -23,6 +23,12 @@ skills:
   - name: import-linkedin
     description: Scrape LinkedIn posts and profiles using Apify
     tags: [apify, linkedin, scraping]
+  - name: post-to-x
+    description: Post tweets and replies to X/Twitter using the Twitter API v2
+    tags: [twitter, posting, x]
+  - name: analyze-x
+    description: Scrape and analyze X/Twitter profiles and tweets for growth strategy
+    tags: [apify, twitter, analytics, x]
   - name: yc-thinking
     description: Core YC and Paul Graham frameworks for startup thinking
     tags: [strategy, yc, frameworks, startup]

@@ -1,0 +1,176 @@
+name: twitter
+description: X/Twitter API v2 — post tweets, reply to tweets, search tweets, and read account info
+
+auth:
+  method: oauth2
+  setup_url: https://developer.x.com/en/portal/dashboard
+  token_type: user
+  token_refresh: true
+  user_scopes:
+    - tweet.read
+    - tweet.write
+    - users.read
+    - offline.access
+  setup_instructions: |
+    === IMPORTANT: You need OAuth 2.0 USER tokens, not app-only bearer tokens ===
+    Posting requires user-context authentication. App-only bearer tokens are
+    read-only and cannot create tweets.
+
+    1. Go to https://developer.x.com/en/portal/dashboard
+    2. Create a project and app with OAuth 2.0 (User Authentication)
+    3. Set permissions to Read and Write
+    4. Set the OAuth 2.0 type to "Confidential client"
+    5. Add the callback URL shown by `toc integrate add twitter`
+    6. Copy your Client ID and Client Secret
+    7. Run `toc integrate add twitter` and paste the Client ID and Client Secret when prompted
+    8. Complete the OAuth 2.0 authorization flow in the browser to get your access token
+       (the token will be refreshed automatically when it expires)
+
+actions:
+  post_tweet:
+    description: Post a new tweet, reply, or quote tweet to the authenticated account
+    scopes:
+      "*": any tweet
+    params:
+      - name: text
+        required: true
+      - name: reply_to
+        required: false
+        description: Tweet ID to reply to (makes this a reply)
+        body_path: reply.in_reply_to_tweet_id
+      - name: quote_tweet_id
+        required: false
+        description: Tweet ID to quote
+    method: POST
+    endpoint: https://api.x.com/2/tweets
+    auth_header: "Bearer {{token}}"
+    body_format: json
+    rate_limit:
+      max: 17
+      window: 86400s
+      note: "Free tier: 17/24h. Basic: 100/24h. Pro: 500K/month."
+    returns:
+      - data.id
+      - data.text
+
+  search_tweets:
+    description: Search recent tweets (last 7 days) matching a query
+    scopes:
+      "*": any search query
+    params:
+      - name: query
+        required: true
+        description: "Search query (e.g. 'from:username' or keyword search)"
+      - name: max_results
+        required: false
+        default: "10"
+        description: Number of results (10-100)
+      - name: tweet.fields
+        required: false
+        default: "created_at,public_metrics,author_id,conversation_id"
+    method: GET
+    endpoint: https://api.x.com/2/tweets/search/recent
+    auth_header: "Bearer {{token}}"
+    body_format: query
+    rate_limit:
+      max: 1
+      window: 900s
+      note: "Free tier: 1 req/15min with user tokens. Basic: 60/15min. Pro: 300/15min."
+    returns:
+      - data[].id
+      - data[].text
+      - data[].created_at
+      - data[].public_metrics.like_count
+      - data[].public_metrics.retweet_count
+      - data[].public_metrics.reply_count
+      - data[].public_metrics.bookmark_count
+      - data[].author_id
+      - data[].conversation_id
+      - meta.result_count
+      - meta.next_token
+
+  get_user_tweets:
+    description: Get recent tweets from a specific user by their user ID
+    scopes:
+      "*": any user's tweets
+    params:
+      - name: id
+        required: true
+        description: The user ID to fetch tweets for
+      - name: max_results
+        required: false
+        default: "10"
+        description: Number of results (5-100)
+      - name: tweet.fields
+        required: false
+        default: "created_at,public_metrics,conversation_id"
+    method: GET
+    endpoint: https://api.x.com/2/users/{{id}}/tweets
+    auth_header: "Bearer {{token}}"
+    body_format: query
+    rate_limit:
+      max: 1
+      window: 900s
+      note: "Free tier: 1 req/15min with user tokens. Basic: 900/15min. Pro: 900/15min."
+    returns:
+      - data[].id
+      - data[].text
+      - data[].created_at
+      - data[].public_metrics.like_count
+      - data[].public_metrics.retweet_count
+      - data[].public_metrics.reply_count
+      - data[].public_metrics.bookmark_count
+      - data[].conversation_id
+      - meta.result_count
+      - meta.next_token
+
+  get_me:
+    description: Get the authenticated user's profile info
+    scopes:
+      "*": own profile
+    params:
+      - name: user.fields
+        required: false
+        default: "public_metrics,description"
+    method: GET
+    endpoint: https://api.x.com/2/users/me
+    auth_header: "Bearer {{token}}"
+    body_format: query
+    rate_limit:
+      max: 75
+      window: 900s
+    returns:
+      - data.id
+      - data.name
+      - data.username
+      - data.description
+      - data.public_metrics.followers_count
+      - data.public_metrics.following_count
+      - data.public_metrics.tweet_count
+
+  lookup_user:
+    description: Look up a user by their @username to get their numeric user ID and profile info
+    scopes:
+      "*": any username
+    params:
+      - name: username
+        required: true
+        description: "The @username to look up (without the @ symbol)"
+      - name: user.fields
+        required: false
+        default: "public_metrics,description"
+    method: GET
+    endpoint: https://api.x.com/2/users/by/username/{{username}}
+    auth_header: "Bearer {{token}}"
+    body_format: query
+    rate_limit:
+      max: 300
+      window: 900s
+    returns:
+      - data.id
+      - data.name
+      - data.username
+      - data.description
+      - data.public_metrics.followers_count
+      - data.public_metrics.following_count
+      - data.public_metrics.tweet_count

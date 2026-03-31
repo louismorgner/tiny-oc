@@ -262,6 +262,8 @@ func refreshCredentialForIntegration(integrationName string, cred *Credential, w
 	switch integrationName {
 	case "slack":
 		tokenURL = "https://slack.com/api/oauth.v2.access"
+	case "twitter":
+		tokenURL = "https://api.x.com/2/oauth2/token"
 	default:
 		return nil, fmt.Errorf("token refresh not supported for integration '%s'", integrationName)
 	}
@@ -302,22 +304,32 @@ func buildHTTPRequest(action *Action, cred *Credential, params map[string]string
 		if customBody != nil {
 			data, err = json.Marshal(customBody)
 		} else {
-			// Build a map of param kind specs for JSON parsing.
+			// Build a map of param kind specs and body_path overrides for JSON parsing.
 			kindByName := make(map[string]string, len(action.Params))
+			bodyPathByName := make(map[string]string, len(action.Params))
 			for _, p := range action.Params {
 				kindByName[p.Name] = p.Kind
+				if p.BodyPath != "" {
+					bodyPathByName[p.Name] = p.BodyPath
+				}
 			}
 			bodyMap := make(map[string]interface{})
 			for k, v := range params {
 				if !templateParams[k] {
+					var val interface{}
 					if kindByName[k] == "json" {
 						var parsed interface{}
 						if err := json.Unmarshal([]byte(v), &parsed); err != nil {
 							return nil, fmt.Errorf("param %q: invalid JSON value: %w", k, err)
 						}
-						bodyMap[k] = parsed
+						val = parsed
 					} else {
-						bodyMap[k] = v
+						val = v
+					}
+					if bp, ok := bodyPathByName[k]; ok {
+						setNestedKey(bodyMap, bp, val)
+					} else {
+						bodyMap[k] = val
 					}
 				}
 			}
@@ -608,7 +620,25 @@ func extractField(data map[string]interface{}, path string) interface{} {
 	return current
 }
 
-// setField sets a value in a nested map structure.
+// setNestedKey sets a value at a dot-separated path in a nested map,
+// creating intermediate maps as needed (e.g. "reply.in_reply_to_tweet_id").
+func setNestedKey(data map[string]interface{}, path string, value interface{}) {
+	parts := strings.Split(path, ".")
+	current := data
+	for i, part := range parts {
+		if i == len(parts)-1 {
+			current[part] = value
+			return
+		}
+		next, ok := current[part].(map[string]interface{})
+		if !ok {
+			next = make(map[string]interface{})
+			current[part] = next
+		}
+		current = next
+	}
+}
+
 func setField(data map[string]interface{}, path string, value interface{}) {
 	// Flatten array notation for output
 	cleanPath := strings.ReplaceAll(path, "[]", "")

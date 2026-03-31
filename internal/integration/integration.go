@@ -57,7 +57,8 @@ type Param struct {
 	Required bool   `yaml:"required"`
 	Default  string `yaml:"default,omitempty"`
 	WireName string `yaml:"wire_name,omitempty"`
-	Kind     string `yaml:"kind,omitempty"` // "", "file", "csv", "json"
+	Kind     string `yaml:"kind,omitempty"`      // "", "file", "csv", "json"
+	BodyPath string `yaml:"body_path,omitempty"` // dot-separated path for nested JSON body keys (e.g. "reply.in_reply_to_tweet_id")
 }
 
 // RateLimit defines per-action rate limiting.

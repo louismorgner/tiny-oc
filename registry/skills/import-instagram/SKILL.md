@@ -13,7 +13,7 @@ Scrape content from Instagram — profiles, posts, reels, hashtags — using the
 ## How to use
 
 ```bash
-toc runtime invoke apify run_actor --actorId "apidojo/instagram-scraper-api" --input '<input_json>'
+toc runtime invoke apify run_actor --actorId "apidojo~instagram-scraper-api" --input '<input_json>'
 ```
 
 The actor auto-detects what to scrape based on the URL. Pass URLs in `startUrls`:

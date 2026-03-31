@@ -13,7 +13,7 @@ Scrape content from LinkedIn — posts and profiles — using the Apify integrat
 ## How to use
 
 ```bash
-toc runtime invoke apify run_actor --actorId "anchor/linkedin-scraper" --input '{"urls": ["<url>"]}'
+toc runtime invoke apify run_actor --actorId "anchor~linkedin-scraper" --input '{"urls": ["<url>"]}'
 ```
 
 ## What to do with the output

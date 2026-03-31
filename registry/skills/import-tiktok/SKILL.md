@@ -13,7 +13,7 @@ Scrape content from TikTok videos using the Apify integration.
 ## How to use
 
 ```bash
-toc runtime invoke apify run_actor --actorId "clockworks/tiktok-scraper" --input '{"postURLs": ["<url>"]}'
+toc runtime invoke apify run_actor --actorId "clockworks~tiktok-scraper" --input '{"postURLs": ["<url>"]}'
 ```
 
 ## What to do with the output

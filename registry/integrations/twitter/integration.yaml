@@ -6,7 +6,7 @@ auth:
   setup_url: https://developer.x.com/en/portal/dashboard
   token_type: user
   token_refresh: true
-  scopes:
+  user_scopes:
     - tweet.read
     - tweet.write
     - users.read
@@ -73,9 +73,9 @@ actions:
     auth_header: "Bearer {{token}}"
     body_format: query
     rate_limit:
-      max: 180
+      max: 1
       window: 900s
-      note: "App-level rate limit. User tokens also work for this endpoint."
+      note: "Free tier: 1 req/15min with user tokens. Basic: 60/15min. Pro: 300/15min."
     returns:
       - data[].id
       - data[].text
@@ -85,6 +85,7 @@ actions:
       - data[].public_metrics.reply_count
       - data[].public_metrics.bookmark_count
       - data[].author_id
+      - data[].conversation_id
       - meta.result_count
       - meta.next_token
 
@@ -108,8 +109,9 @@ actions:
     auth_header: "Bearer {{token}}"
     body_format: query
     rate_limit:
-      max: 900
+      max: 1
       window: 900s
+      note: "Free tier: 1 req/15min with user tokens. Basic: 900/15min. Pro: 900/15min."
     returns:
       - data[].id
       - data[].text

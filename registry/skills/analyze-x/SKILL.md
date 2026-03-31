@@ -3,7 +3,7 @@ name: analyze-x
 description: Scrape and analyze X/Twitter profiles and tweets using Apify
 metadata:
   version: "0.1"
-  requires_integration: apify
+  requires_integration: [apify, twitter]
 ---
 
 # analyze-x
@@ -20,6 +20,26 @@ toc runtime invoke apify run_actor --actorId "apidojo/tweet-scraper" --input '{"
 
 ```bash
 toc runtime invoke apify run_actor --actorId "apidojo/tweet-scraper" --input '{"startUrls": [{"url": "https://x.com/<username>/status/<tweet_id>"}]}'
+```
+
+## Search recent tweets via API
+
+```bash
+toc runtime invoke twitter search_tweets --query "from:username" --max_results 20
+```
+
+## Look up a user by @username
+
+Use this to resolve an @username to the numeric user ID required by `get_user_tweets`.
+
+```bash
+toc runtime invoke twitter lookup_user --username "elonmusk"
+```
+
+## Get a user's recent tweets via API
+
+```bash
+toc runtime invoke twitter get_user_tweets --id "USER_ID" --max_results 20
 ```
 
 ## What to analyze

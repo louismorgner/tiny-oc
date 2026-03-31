@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.3] - 2026-03-30
+
+### Fixed
+
+- Fix staircase/waterfall rendering in raw-mode interactive TUI — newlines now correctly return to column 0 (#191).
+
 ## [0.7.2] - 2026-03-30
 
 ### Added
@@ -302,7 +308,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `toc completion` for bash, zsh, and fish with dynamic completion of agent names and session IDs.
 - `install.sh` for building and symlinking the binary to PATH.
 
-[unreleased]: https://github.com/louismorgner/tiny-oc/compare/v0.7.2...HEAD
+[unreleased]: https://github.com/louismorgner/tiny-oc/compare/v0.7.3...HEAD
+[0.7.3]: https://github.com/louismorgner/tiny-oc/compare/v0.7.2...v0.7.3
 [0.7.2]: https://github.com/louismorgner/tiny-oc/compare/v0.7.1...v0.7.2
 [0.7.1]: https://github.com/louismorgner/tiny-oc/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/louismorgner/tiny-oc/compare/v0.6.5...v0.7.0

@@ -162,6 +162,30 @@ func RunNativeSession(opts NativeRunOptions, stdin io.Reader, stdout io.Writer) 
 		fmt.Fprint(stdout, ui.SessionBanner(opts.Agent, opts.SessionID, modelName))
 	}
 
+	// On resume, render a condensed tail of the previous conversation so
+	// the user has context. The model already sees state.Messages; this
+	// fills the visual gap in the TUI.
+	if opts.Resume && isTTY {
+		if parsed, err := LoadEventLogInWorkspace(opts.Workspace, opts.SessionID); err == nil && len(parsed.Steps) > 0 {
+			userTurns := countUserTurns(parsed.Steps)
+			fmt.Fprint(stdout, ui.ResumedSessionHeader(userTurns))
+
+			// Show the last ~10 user/assistant steps.
+			tail := parsed.Steps
+			if len(tail) > 10 {
+				tail = tail[len(tail)-10:]
+			}
+			for _, step := range tail {
+				if step.Type != "user" && step.Type != "text" {
+					continue
+				}
+				meta := ui.StepMeta{}
+				fmt.Fprint(stdout, ui.FormatStepRich(step.Type, step.Content, meta))
+			}
+			fmt.Fprintln(stdout)
+		}
+	}
+
 	// Intercept SIGINT so Ctrl+C doesn't kill the process. Instead we
 	// treat it as a graceful exit and finalize the session, allowing
 	// post-session hooks (context sync, resume message) to run.
@@ -1144,6 +1168,17 @@ func applyCacheBreakpoint(messages []Message) {
 	// Set breakpoint on the last message before the upcoming API call.
 	// This is typically a tool result or the last assistant message.
 	messages[len(messages)-1].CacheControl = &cacheControl{Type: "ephemeral"}
+}
+
+// countUserTurns counts the number of "user" type steps in an event log.
+func countUserTurns(steps []Step) int {
+	n := 0
+	for _, s := range steps {
+		if s.Type == "user" {
+			n++
+		}
+	}
+	return n
 }
 
 func latestUserPrompt(messages []Message) string {

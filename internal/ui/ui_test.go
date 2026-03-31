@@ -124,3 +124,61 @@ func TestKeyDecodingAltBackspace(t *testing.T) {
 		t.Errorf("alt+backspace bytes (0x1b 0x7f) did not match DeleteWordBackward; key=%q", msg.String())
 	}
 }
+
+func TestResumedSessionHeader(t *testing.T) {
+	tests := []struct {
+		turns int
+		want  string
+	}{
+		{0, "0 previous turns"},
+		{1, "1 previous turns"},
+		{5, "5 previous turns"},
+	}
+	for _, tt := range tests {
+		got := ui.ResumedSessionHeader(tt.turns)
+		if got == "" {
+			t.Fatalf("ResumedSessionHeader(%d) returned empty string", tt.turns)
+		}
+		// The output contains ANSI codes, so check the raw content is embedded.
+		if !containsPlain(got, tt.want) {
+			t.Errorf("ResumedSessionHeader(%d) = %q, want substring %q", tt.turns, got, tt.want)
+		}
+		if !containsPlain(got, "resumed session") {
+			t.Errorf("ResumedSessionHeader(%d) missing 'resumed session'", tt.turns)
+		}
+	}
+}
+
+// containsPlain strips ANSI escape codes and checks for a substring.
+func containsPlain(s, substr string) bool {
+	// Strip ANSI codes: \x1b[...m
+	clean := ""
+	inEsc := false
+	for _, r := range s {
+		if r == '\x1b' {
+			inEsc = true
+			continue
+		}
+		if inEsc {
+			if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') {
+				inEsc = false
+			}
+			continue
+		}
+		clean += string(r)
+	}
+	return len(clean) > 0 && len(substr) > 0 && containsStr(clean, substr)
+}
+
+func containsStr(s, substr string) bool {
+	return len(s) >= len(substr) && findSubstr(s, substr)
+}
+
+func findSubstr(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
+}

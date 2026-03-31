@@ -18,6 +18,10 @@ agents:
     description: Strategic thinking partner for founders — fundraising, product, GTM, people, and hard decisions
     model: anthropic/claude-opus-4.6
     skills: [yc-thinking, fundraising, product, positioning, gtm, pricing, people-ops, storytelling, company-research, person-research, market-research]
+  - name: second-brain
+    description: Capture thoughts freely, retrieve them intelligently — a second brain for founders with too many ideas
+    model: sonnet
+    skills: [agentic-memory]
   - name: implementer
     description: Focused implementation agent — receives scoped tasks, executes precisely, reports results
     model: anthropic/claude-sonnet-4

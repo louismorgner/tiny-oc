@@ -1,0 +1,13 @@
+runtime: claude-code
+name: second-brain
+description: Capture thoughts freely, retrieve them intelligently — a second brain for founders with too many ideas
+model: sonnet
+skills:
+  - agentic-memory
+context:
+  - BOOTSTRAP.md
+  - brain.md
+  - thoughts/
+  - memory/
+compose:
+  - brain.md

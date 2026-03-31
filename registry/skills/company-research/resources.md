@@ -1,7 +1,8 @@
 # Resources
 
-## Search tools
+## Data tools
 
+- Apollo `organizations.enrich` (primary structured data) — funding, headcount, industry, tech stack, founding year via domain lookup
 - Exa (primary search) — used via integration for finding recent articles, blog posts, funding announcements
 - Company website — always check directly for product, pricing, team, blog
 

@@ -339,6 +339,39 @@ Anti-patterns:
 			},
 			Handler: nativeSubAgent,
 		},
+		{
+			Name: "Invoke",
+			Description: `Invoke an integration action through the toc gateway.
+
+Use Invoke to call external APIs (Slack, GitHub, Linear, etc.) that are configured in the session's permission manifest. The gateway enforces permissions, loads encrypted credentials, checks rate limits, makes the HTTP call, and returns a filtered JSON response.
+
+This tool does NOT require filesystem execute permission — it uses the integration permission model instead. Use this instead of running "toc runtime invoke" via Bash when the agent does not have shell execution access.
+
+Parameters:
+- integration (required): The integration name (e.g., "slack", "github", "linear").
+- action (required): The action to perform (e.g., "send_message", "issues.read").
+- params (required): A map of action parameters as key-value string pairs (e.g., {"channel": "#general", "text": "hello"}).
+
+Output: The filtered JSON response from the integration API. Returns an error if permissions are denied, credentials are missing, or the API call fails.
+
+Anti-patterns:
+- Do NOT use Bash to run "toc runtime invoke" — use this tool instead.
+- Do NOT call actions the agent is not permitted to use — check integration permissions first.`,
+			Parameters: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"integration": map[string]interface{}{"type": "string", "description": "The integration name (e.g., slack, github, linear)"},
+					"action":      map[string]interface{}{"type": "string", "description": "The action to perform (e.g., send_message, issues.read)"},
+					"params": map[string]interface{}{
+						"type":                 "object",
+						"description":          "Action parameters as key-value string pairs",
+						"additionalProperties": map[string]interface{}{"type": "string"},
+					},
+				},
+				"required": []string{"integration", "action", "params"},
+			},
+			Handler: nativeInvoke,
+		},
 	}
 }
 

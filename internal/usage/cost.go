@@ -77,6 +77,18 @@ var modelPricing = map[string]ModelPricing{
 		CacheReadPerToken:  0.39 / 1_000_000,
 		CacheWritePerToken: 0.39 / 1_000_000,
 	},
+	"anthropic/claude-haiku-4.5": {
+		InputPerToken:      0.80 / 1_000_000,
+		OutputPerToken:     4.00 / 1_000_000,
+		CacheReadPerToken:  0.08 / 1_000_000,
+		CacheWritePerToken: 1.00 / 1_000_000,
+	},
+	"anthropic/claude-haiku-4.6": {
+		InputPerToken:      0.80 / 1_000_000,
+		OutputPerToken:     4.00 / 1_000_000,
+		CacheReadPerToken:  0.08 / 1_000_000,
+		CacheWritePerToken: 1.00 / 1_000_000,
+	},
 }
 
 // EstimateCost returns the estimated USD cost for the given token usage

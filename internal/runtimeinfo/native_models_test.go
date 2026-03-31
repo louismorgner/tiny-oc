@@ -73,6 +73,38 @@ func TestLookupNativeProfileClaudeOpus46(t *testing.T) {
 	}
 }
 
+func TestLookupNativeProfileClaudeHaiku45(t *testing.T) {
+	profile, ok := LookupNativeProfile("anthropic/claude-haiku-4.5")
+	if !ok {
+		t.Fatal("expected to find anthropic/claude-haiku-4.5 profile")
+	}
+	if profile.Label != "Claude Haiku 4.5" {
+		t.Fatalf("Label = %q, want %q", profile.Label, "Claude Haiku 4.5")
+	}
+	if profile.ContextWindow != 200000 {
+		t.Fatalf("ContextWindow = %d, want 200000", profile.ContextWindow)
+	}
+	if !profile.SupportsTools {
+		t.Fatal("expected SupportsTools = true")
+	}
+}
+
+func TestLookupNativeProfileClaudeHaiku46(t *testing.T) {
+	profile, ok := LookupNativeProfile("anthropic/claude-haiku-4.6")
+	if !ok {
+		t.Fatal("expected to find anthropic/claude-haiku-4.6 profile")
+	}
+	if profile.Label != "Claude Haiku 4.6" {
+		t.Fatalf("Label = %q, want %q", profile.Label, "Claude Haiku 4.6")
+	}
+	if profile.ContextWindow != 200000 {
+		t.Fatalf("ContextWindow = %d, want 200000", profile.ContextWindow)
+	}
+	if !profile.SupportsTools {
+		t.Fatal("expected SupportsTools = true")
+	}
+}
+
 func TestValidateNativeModel_RejectsUnknownWithoutOverride(t *testing.T) {
 	err := ValidateNativeModel("meta-llama/unknown", false)
 	if err == nil {

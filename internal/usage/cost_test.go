@@ -90,6 +90,26 @@ func TestEstimateCostClaudeOpus46(t *testing.T) {
 	}
 }
 
+func TestEstimateCostClaudeHaiku45(t *testing.T) {
+	tokens := TokenUsage{
+		InputTokens:  1_000_000,
+		OutputTokens: 100_000,
+		CacheRead:    500_000,
+		CacheCreate:  50_000,
+	}
+	cost := EstimateCost("anthropic/claude-haiku-4.5", tokens)
+	// claude-haiku-4.5: input=$0.80/M, output=$4/M, cache_read=$0.08/M, cache_write=$1/M
+	// non-cached: (1M - 500k - 50k) * 0.80/M = 0.36
+	// output: 100k * 4/M = 0.40
+	// cache_read: 500k * 0.08/M = 0.04
+	// cache_write: 50k * 1/M = 0.05
+	// total = 0.85
+	expected := 0.85
+	if math.Abs(cost-expected) > 0.001 {
+		t.Fatalf("cost = %f, expected %f", cost, expected)
+	}
+}
+
 func TestLookupPricing(t *testing.T) {
 	if _, ok := LookupPricing("openai/gpt-5.4"); !ok {
 		t.Fatal("expected pricing for gpt-5.4")

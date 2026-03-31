@@ -168,6 +168,17 @@ var nativeModelProfiles = []NativeModelProfile{
 		ReservedBuffer:    4096,
 	},
 	{
+		ID:                "anthropic/claude-haiku-4.6",
+		Label:             "Claude Haiku 4.6",
+		Description:       "fast Anthropic model with 200k context for summarization, extraction, and utility tasks",
+		SupportsTools:     true,
+		SupportsStreaming: true,
+		SupportsThinking:  true,
+		ContextWindow:     200000,
+		MaxOutputTokens:   64000,
+		ReservedBuffer:    4096,
+	},
+	{
 		ID:                "google/gemini-2.5-flash",
 		Label:             "Gemini 2.5 Flash",
 		Description:       "fast Google model for summarization and utility tasks",

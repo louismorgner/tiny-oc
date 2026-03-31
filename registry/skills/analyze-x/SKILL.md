@@ -3,7 +3,7 @@ name: analyze-x
 description: Scrape and analyze X/Twitter profiles and tweets using Apify
 metadata:
   version: "0.1"
-  requires_integration: [apify, twitter]
+  requires_integration: "apify, twitter"
 ---
 
 # analyze-x

@@ -3,6 +3,9 @@ name: people-ops
 description: People — hiring, firing, feedback, conflict, and leading small teams without the HR fluff
 license: MIT
 compatibility: toc-native
+metadata:
+  version: "0.1"
+  requires_integration: none
 ---
 
 # People

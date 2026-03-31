@@ -3,6 +3,9 @@ name: positioning
 description: Product positioning — how to define what you are, who it's for, and why they should care
 license: MIT
 compatibility: toc-native
+metadata:
+  version: "0.1"
+  requires_integration: none
 ---
 
 # Positioning

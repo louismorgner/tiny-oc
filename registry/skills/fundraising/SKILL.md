@@ -3,6 +3,9 @@ name: fundraising
 description: Fundraising strategy — rounds, mechanics, investor dynamics, and when not to raise
 license: MIT
 compatibility: toc-native
+metadata:
+  version: "0.1"
+  requires_integration: none
 ---
 
 # Fundraising

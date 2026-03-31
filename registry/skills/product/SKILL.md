@@ -3,6 +3,9 @@ name: product
 description: Product thinking — PMF assessment, user research, prioritization, MVP scoping, and build decisions
 license: MIT
 compatibility: toc-native
+metadata:
+  version: "0.1"
+  requires_integration: none
 ---
 
 # Product

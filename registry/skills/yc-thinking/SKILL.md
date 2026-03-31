@@ -3,6 +3,9 @@ name: yc-thinking
 description: Core YC and Paul Graham frameworks for startup thinking — curated, opinionated, anti-BS
 license: MIT
 compatibility: toc-native
+metadata:
+  version: "0.1"
+  requires_integration: none
 ---
 
 # YC Thinking

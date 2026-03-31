@@ -3,6 +3,9 @@ name: storytelling
 description: Narrative and storytelling — for investors, customers, and your own team
 license: MIT
 compatibility: toc-native
+metadata:
+  version: "0.1"
+  requires_integration: none
 ---
 
 # Storytelling

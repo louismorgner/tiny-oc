@@ -5,7 +5,8 @@ license: MIT
 compatibility: toc-native
 metadata:
   version: "0.1"
-  requires_integration: exa
+  requires_integration:
+    - exa
 ---
 
 # Company Research

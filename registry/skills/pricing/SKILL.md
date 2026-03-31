@@ -3,6 +3,9 @@ name: pricing
 description: Pricing strategy — how to price, package, and capture value without leaving money on the table
 license: MIT
 compatibility: toc-native
+metadata:
+  version: "0.1"
+  requires_integration: none
 ---
 
 # Pricing

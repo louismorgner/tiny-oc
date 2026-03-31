@@ -5,7 +5,8 @@ license: MIT
 compatibility: toc-native
 metadata:
   version: "0.1"
-  requires_integration: exa
+  requires_integration:
+    - exa
 ---
 
 # Market Research
@@ -19,7 +20,7 @@ Structured market analysis for a given space. Not top-down "the market is $50B" 
 2. **Search with Exa** for:
    - `"[market/category] market size"` — analyst estimates (use as cross-reference, not source of truth)
    - `"[market/category] startups"` — who's playing here
-   - `"[market/category] trends 2024 2025"` — what's changing
+   - `"[market/category] trends"` — what's changing (use Exa's recency filters to scope to the last 12 months)
    - `"[specific competitor] funding"` — what investors are betting on in this space
 
 3. **Build the market map.** Who are the players? How do they segment? Where are the gaps?

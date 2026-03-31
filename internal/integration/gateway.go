@@ -262,6 +262,8 @@ func refreshCredentialForIntegration(integrationName string, cred *Credential, w
 	switch integrationName {
 	case "slack":
 		tokenURL = "https://slack.com/api/oauth.v2.access"
+	case "twitter":
+		tokenURL = "https://api.x.com/2/oauth2/token"
 	default:
 		return nil, fmt.Errorf("token refresh not supported for integration '%s'", integrationName)
 	}
@@ -618,7 +620,6 @@ func extractField(data map[string]interface{}, path string) interface{} {
 	return current
 }
 
-// setField sets a value in a nested map structure.
 // setNestedKey sets a value at a dot-separated path in a nested map,
 // creating intermediate maps as needed (e.g. "reply.in_reply_to_tweet_id").
 func setNestedKey(data map[string]interface{}, path string, value interface{}) {

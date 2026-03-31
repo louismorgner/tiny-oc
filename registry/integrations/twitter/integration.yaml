@@ -120,6 +120,7 @@ actions:
       - data[].public_metrics.retweet_count
       - data[].public_metrics.reply_count
       - data[].public_metrics.bookmark_count
+      - data[].conversation_id
       - meta.result_count
       - meta.next_token
 

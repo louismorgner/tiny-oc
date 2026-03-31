@@ -21,6 +21,10 @@ import (
 const (
 	maxRetryAttempts = 3
 	retryBaseDelay   = 1 * time.Second
+
+	// HTTP status code 529 is used by some providers (e.g. Cloudflare) for
+	// "Site Overloaded" — treat it as retryable alongside standard 5xx codes.
+	httpStatusSiteOverloaded = 529
 )
 
 // isRetryableStatusCode returns true for HTTP status codes that indicate
@@ -31,8 +35,51 @@ func isRetryableStatusCode(code int) bool {
 		http.StatusInternalServerError,
 		http.StatusBadGateway,
 		http.StatusServiceUnavailable,
-		http.StatusGatewayTimeout:
+		http.StatusGatewayTimeout,
+		httpStatusSiteOverloaded:
 		return true
+	}
+	return false
+}
+
+// streamError is a sentinel error indicating the SSE stream delivered an
+// error payload instead of (or mid-way through) content. It carries enough
+// detail from the OpenRouter error envelope to decide whether to retry.
+type streamError struct {
+	Code      int
+	Message   string
+	ErrorType string // from metadata.error_type
+}
+
+func (e *streamError) Error() string {
+	if e.ErrorType != "" {
+		return fmt.Sprintf("openrouter stream error (code=%d, type=%s): %s", e.Code, e.ErrorType, e.Message)
+	}
+	return fmt.Sprintf("openrouter stream error (code=%d): %s", e.Code, e.Message)
+}
+
+// isRetryableStreamError returns true when an in-stream error represents a
+// transient provider-side failure that is safe to retry with the same request.
+func isRetryableStreamError(err error) bool {
+	var se *streamError
+	if !errors.As(err, &se) {
+		return false
+	}
+	// Retryable by HTTP-style status code embedded in the error envelope.
+	if se.Code > 0 && isRetryableStatusCode(se.Code) {
+		return true
+	}
+	// Retryable by error_type metadata.
+	switch se.ErrorType {
+	case "provider_unavailable", "provider_overloaded", "rate_limited":
+		return true
+	}
+	// Retryable by message content (some providers only set message).
+	lower := strings.ToLower(se.Message)
+	for _, keyword := range []string{"overloaded", "temporarily unavailable", "capacity"} {
+		if strings.Contains(lower, keyword) {
+			return true
+		}
 	}
 	return false
 }
@@ -173,6 +220,16 @@ type promptTokensDetails struct {
 	CacheWriteTokens int64 `json:"cache_write_tokens,omitempty"`
 }
 
+// openRouterError captures the error envelope that OpenRouter embeds in both
+// non-streaming JSON responses and SSE stream chunks.
+type openRouterError struct {
+	Code     int    `json:"code,omitempty"`
+	Message  string `json:"message"`
+	Metadata struct {
+		ErrorType string `json:"error_type,omitempty"`
+	} `json:"metadata,omitempty"`
+}
+
 type chatResponse struct {
 	ID      string `json:"id,omitempty"`
 	Model   string `json:"model,omitempty"`
@@ -187,9 +244,7 @@ type chatResponse struct {
 		TotalTokens         int64                `json:"total_tokens"`
 		PromptTokensDetails *promptTokensDetails `json:"prompt_tokens_details,omitempty"`
 	} `json:"usage"`
-	Error *struct {
-		Message string `json:"message"`
-	} `json:"error,omitempty"`
+	Error *openRouterError `json:"error,omitempty"`
 }
 
 type chatStreamChunk struct {
@@ -207,9 +262,7 @@ type chatStreamChunk struct {
 		TotalTokens         int64                `json:"total_tokens"`
 		PromptTokensDetails *promptTokensDetails `json:"prompt_tokens_details,omitempty"`
 	} `json:"usage"`
-	Error *struct {
-		Message string `json:"message"`
-	} `json:"error,omitempty"`
+	Error *openRouterError `json:"error,omitempty"`
 }
 
 type chatStreamDelta struct {
@@ -340,11 +393,10 @@ func (c *openRouterClient) ChatStream(ctx context.Context, req chatRequest, onTe
 	}
 
 	endpoint := c.baseURL + "/chat/completions"
-	var resp *http.Response
 	var lastErr error
 	for attempt := 0; attempt < maxRetryAttempts; attempt++ {
 		if attempt > 0 {
-			delay := retryDelay(attempt-1, resp)
+			delay := retryDelay(attempt-1, nil)
 			fmt.Fprintf(os.Stderr, "OpenRouter error (model=%s, endpoint=%s): %v; retrying in %s (attempt %d/%d)...\n",
 				req.Model, endpoint, lastErr, delay, attempt+1, maxRetryAttempts)
 			select {
@@ -354,54 +406,78 @@ func (c *openRouterClient) ChatStream(ctx context.Context, req chatRequest, onTe
 			}
 		}
 
-		httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
-		if err != nil {
-			return nil, err
-		}
-		httpReq.Header.Set("Authorization", "Bearer "+c.apiKey)
-		httpReq.Header.Set("Content-Type", "application/json")
-		if c.title != "" {
-			httpReq.Header.Set("X-OpenRouter-Title", c.title)
-		}
-		if c.referer != "" {
-			httpReq.Header.Set("HTTP-Referer", c.referer)
+		assembled, streamErr := c.doStreamRequest(ctx, endpoint, body, onText)
+		if streamErr == nil {
+			return assembled, nil
 		}
 
-		resp, err = c.httpClient.Do(httpReq)
-		if err != nil {
-			if isRetryableNetworkError(err) {
-				lastErr = fmt.Errorf("network error: %w", err)
-				continue
-			}
-			return nil, err
+		// Determine whether this error is retryable.
+		if isRetryableStreamError(streamErr) || isRetryableNetworkError(streamErr) {
+			lastErr = streamErr
+			continue
+		}
+		// Check for wrapped HTTP-level retryable errors.
+		var apiErr *httpAPIError
+		if errors.As(streamErr, &apiErr) && isRetryableStatusCode(apiErr.StatusCode) {
+			lastErr = streamErr
+			continue
 		}
 
-		if resp.StatusCode >= 400 {
-			data, readErr := io.ReadAll(resp.Body)
-			resp.Body.Close()
-			if readErr != nil {
-				return nil, readErr
-			}
-			serverMsg := extractOpenRouterErrorMessage(data)
-			if isRetryableStatusCode(resp.StatusCode) {
-				lastErr = openRouterAPIError(resp.StatusCode, serverMsg, false)
-				continue
-			}
-			return nil, openRouterAPIError(resp.StatusCode, serverMsg, false)
-		}
-
-		// Success — break out of retry loop and proceed to stream parsing.
-		lastErr = nil
-		break
+		// Non-retryable error — fail immediately.
+		return nil, streamErr
 	}
 
+	// All retries exhausted.
 	if lastErr != nil {
-		if isRetryableNetworkError(lastErr) {
-			return nil, fmt.Errorf("OpenRouter unreachable after %d attempts (model=%s): %w. Your session is saved and can be resumed.", maxRetryAttempts, req.Model, lastErr)
-		}
 		return nil, fmt.Errorf("OpenRouter error after %d attempts (model=%s): %w. Your session is saved and can be resumed.", maxRetryAttempts, req.Model, lastErr)
 	}
+	return nil, fmt.Errorf("OpenRouter request failed after %d attempts (model=%s)", maxRetryAttempts, req.Model)
+}
+
+// httpAPIError wraps an HTTP-level error with the status code preserved, so
+// the retry loop can inspect it.
+type httpAPIError struct {
+	StatusCode int
+	Err        error
+}
+
+func (e *httpAPIError) Error() string { return e.Err.Error() }
+func (e *httpAPIError) Unwrap() error { return e.Err }
+
+// doStreamRequest performs a single streaming request and reads the SSE body.
+// It returns a *chatResponse on success, or an error that the caller can
+// classify as retryable or fatal.
+func (c *openRouterClient) doStreamRequest(ctx context.Context, endpoint string, body []byte, onText func(string) error) (*chatResponse, error) {
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	httpReq.Header.Set("Authorization", "Bearer "+c.apiKey)
+	httpReq.Header.Set("Content-Type", "application/json")
+	if c.title != "" {
+		httpReq.Header.Set("X-OpenRouter-Title", c.title)
+	}
+	if c.referer != "" {
+		httpReq.Header.Set("HTTP-Referer", c.referer)
+	}
+
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return nil, err
+	}
 	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		data, readErr := io.ReadAll(resp.Body)
+		if readErr != nil {
+			return nil, readErr
+		}
+		serverMsg := extractOpenRouterErrorMessage(data)
+		return nil, &httpAPIError{
+			StatusCode: resp.StatusCode,
+			Err:        openRouterAPIError(resp.StatusCode, serverMsg, false),
+		}
+	}
 
 	scanner := bufio.NewScanner(resp.Body)
 	scanner.Buffer(make([]byte, 0, 256*1024), 4*1024*1024)
@@ -426,7 +502,11 @@ func (c *openRouterClient) ChatStream(ctx context.Context, req chatRequest, onTe
 			return fmt.Errorf("failed to decode OpenRouter stream chunk: %w", err)
 		}
 		if chunk.Error != nil && chunk.Error.Message != "" {
-			return fmt.Errorf("openrouter stream failed: %s", chunk.Error.Message)
+			return &streamError{
+				Code:      chunk.Error.Code,
+				Message:   chunk.Error.Message,
+				ErrorType: chunk.Error.Metadata.ErrorType,
+			}
 		}
 		text, err := mergeStreamChunk(assembled, &chunk)
 		if err != nil {

@@ -5,6 +5,57 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0] - 2026-03-30
+
+### Added
+
+- X-grower agent template for X/Twitter growth automation (#188).
+- Co-founder agent with skills and Apollo integration (#186).
+- Runtime-enforced post-turn triggers — agents can declare hooks that fire after every assistant turn (#184).
+- Runtime-aware sub-agent instructions template (#185).
+- Apify integration and link import skills for content-writer agent (#181).
+- Network web access for content-writer agent (#174).
+- Show individual todo items in TodoWrite CLI output (#176).
+
+### Improved
+
+- Summarize WebFetch content via small model to reduce context usage (#183).
+- Reduce TodoWrite overhead in short sessions (#182).
+
+### Fixed
+
+- Alt+Backspace word deletion in interactive CLI (#175).
+- Write tool permission bypass on 0-byte writes (#177).
+
+## [0.6.5] - 2026-03-29
+
+### Added
+
+- Content-writer agent template to registry (#173).
+- Registry workspaces for multi-agent installs (#170).
+- Poll for sub-agent notifications in interactive loop (#169).
+- Thinking/reasoning support for toc-native runtime (#165).
+- Official toc-native support for anthropic/claude-opus-4.6 (#168) and anthropic/claude-sonnet-4.6 (#167).
+- Native runtime profiles for GLM-5, Kimi K2.5, MiMo-V2-Flash, and Qwen 3.5 397B (#159).
+- Session inspect and compare tooling (#153).
+- WebFetch native tool with network permission gate (#155).
+- Show estimated cost next to token count in toc status (#161).
+- Detached question CLI workflow (#148).
+- toc-native runtime architecture doc (#150).
+- Research folder with coding agent system prompts (#151).
+
+### Changed
+
+- Switch superfounder agents to open-source models via OpenRouter (#158).
+- Tighten superfounder agent handoffs and review loops (#162).
+
+### Fixed
+
+- GLM-5 MaxOutputTokens exceeding context window, add InputBudget guard (#163).
+- Fix toc stop: write PID files for interactive sessions (#164).
+- Native runner self-recovery from tool execution timeouts (#166).
+- Inspect: gzip capture and Anthropic cache token counting (#157).
+
 ## [0.6.0] - 2026-03-27
 
 ### Added
@@ -235,7 +286,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `toc completion` for bash, zsh, and fish with dynamic completion of agent names and session IDs.
 - `install.sh` for building and symlinking the binary to PATH.
 
-[unreleased]: https://github.com/louismorgner/tiny-oc/compare/v0.6.0...HEAD
+[unreleased]: https://github.com/louismorgner/tiny-oc/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/louismorgner/tiny-oc/compare/v0.6.5...v0.7.0
+[0.6.5]: https://github.com/louismorgner/tiny-oc/compare/v0.6.0...v0.6.5
 [0.6.0]: https://github.com/louismorgner/tiny-oc/compare/v0.5.2...v0.6.0
 [0.5.2]: https://github.com/louismorgner/tiny-oc/compare/v0.5.1...v0.5.2
 [0.5.1]: https://github.com/louismorgner/tiny-oc/compare/v0.5.0...v0.5.1

@@ -53,6 +53,7 @@ permissions:
 | `skills` | list | no | — | Skill names (local) or Git URLs (remote) |
 | `on_end` | string | no | — | End-of-session prompt or instruction for the selected runtime (see below) |
 | `compose` | list | no | — | Instruction-compose layers appended after `agent.md` when building the runtime instruction payload (see below) |
+| `behaviors` | list | no | — | Declarative agent behaviors for `toc-native` runtime (see below) |
 | `permissions` | object | no | — | Unified permission spec (see below) |
 
 ### Agent instructions
@@ -125,6 +126,50 @@ Both `agent.md` and compose files support template variables that are replaced a
 | `{{.SessionID}}` | Unique session UUID |
 | `{{.Date}}` | Today's date (`YYYY-MM-DD`) |
 | `{{.Model}}` | The model being used |
+
+## Behaviors
+
+The `behaviors` field defines declarative agent behaviors for `toc-native` agents. Behaviors are the general mechanism for the runtime to inject follow-up prompts in response to lifecycle events and working-set conditions.
+
+Each behavior has an `on` field that specifies which lifecycle event activates it. Currently supported:
+
+| Event | Description |
+|---|---|
+| `turn_complete` | Evaluated after each model turn that produces no tool calls. This is the default if `on` is omitted |
+
+Future events (e.g. `session_end`, `idle`) will extend this model to cover more parts of the agent lifecycle.
+
+Behaviors are evaluated in declaration order. At most one behavior fires per evaluation cycle: the runtime injects the first matching behavior prompt, resets the scoped working set, and continues the loop. One-shot firing state is in-memory for the current `runNativePrompt` invocation; it is not persisted across crash recovery or session resume. Behavior names must be unique within an agent.
+
+```yaml
+behaviors:
+  - name: voice-review
+    on: turn_complete
+    when:
+      file_written: "writing/*.md"
+    prompt: |
+      You just saved a draft. Review it against voice.md now.
+```
+
+### Behavior fields
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `name` | string | yes | Unique identifier for the behavior. Used internally to track one-shot firing state |
+| `on` | string | no | Lifecycle event that activates evaluation. Defaults to `turn_complete` |
+| `when` | object | yes | Condition block. Must define at least one condition. When multiple conditions are set, all must match (AND semantics) |
+| `when.file_written` | string | no | Glob pattern matched against files created via the `Write` tool since the last behavior evaluation |
+| `when.file_edited` | string | no | Glob pattern matched against files modified via the `Edit` tool since the last behavior evaluation |
+| `when.tool_used` | string | no | Tool name matched against tools invoked since the last behavior evaluation. Matches if the named tool was used at least once in the accumulated working set |
+| `prompt` | string | yes | The follow-up prompt injected as a user message when the behavior fires |
+
+### Condition semantics
+
+Behavior conditions are evaluated against a per-behavior-cycle working set (`pendingBehaviorChanges`), not the full session working set. This scoped working set accumulates tool activity from the point the previous behavior fired (or from the start of the current session loop invocation if no behavior has fired). When a behavior fires, the scoped working set resets.
+
+- `file_written` and `file_edited` use glob matching against file paths recorded by the respective tools.
+- `tool_used` checks whether the named tool appears in the scoped working set. Because the working set deduplicates tool names, `tool_used` means "this tool was invoked at least once since the last behavior evaluation," not "this tool was invoked in the most recent model turn."
+- If multiple behaviors match the same scoped working set, only the first matching behavior in config order fires during that evaluation cycle.
 
 ## Permissions
 

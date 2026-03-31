@@ -138,6 +138,11 @@ func getTestRequest(name string, def *integration.Definition, cred *integration.
 			headerName: "x-api-key", headerValue: cred.AccessToken,
 			body: []byte(`{"query":"test","numResults":1}`),
 		}
+	case "apollo":
+		return testRequest{
+			method: "GET", url: "https://api.apollo.io/api/v1/organizations/enrich?domain=google.com",
+			headerName: "x-api-key", headerValue: cred.AccessToken,
+		}
 	default:
 		// Find the first GET action and use that
 		for _, action := range def.Actions {

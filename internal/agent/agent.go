@@ -14,6 +14,11 @@ import (
 
 var validName = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*$`)
 
+// validBehaviorEvents is the set of allowed values for BehaviorConfig.On.
+var validBehaviorEvents = map[string]bool{
+	"turn_complete": true,
+}
+
 // validEffortLevels is the set of allowed values for ThinkingConfig.Effort.
 var validEffortLevels = map[string]bool{
 	"xhigh":   true,
@@ -60,6 +65,19 @@ type ThinkingConfig struct {
 	Effort       string `yaml:"effort,omitempty"        json:"effort,omitempty"`
 }
 
+type BehaviorConditionConfig struct {
+	FileWritten string `yaml:"file_written,omitempty" json:"file_written,omitempty"`
+	FileEdited  string `yaml:"file_edited,omitempty"  json:"file_edited,omitempty"`
+	ToolUsed    string `yaml:"tool_used,omitempty"    json:"tool_used,omitempty"`
+}
+
+type BehaviorConfig struct {
+	Name   string                  `yaml:"name"              json:"name"`
+	On     string                  `yaml:"on,omitempty"      json:"on,omitempty"`
+	When   BehaviorConditionConfig `yaml:"when"              json:"when"`
+	Prompt string                  `yaml:"prompt,omitempty"  json:"prompt,omitempty"`
+}
+
 type AgentConfig struct {
 	Runtime                string          `yaml:"runtime"`
 	Name                   string          `yaml:"name"`
@@ -74,6 +92,7 @@ type AgentConfig struct {
 	OnEnd                  string          `yaml:"on_end,omitempty"`
 	Compose                []string        `yaml:"compose,omitempty"`
 	Thinking               *ThinkingConfig `yaml:"thinking,omitempty"`
+	Behaviors              []BehaviorConfig `yaml:"behaviors,omitempty"`
 }
 
 // EffectivePermissions returns the resolved permission spec. If no permissions
@@ -237,6 +256,29 @@ func (cfg *AgentConfig) Validate() []string {
 		}
 		if cfg.Thinking.Effort != "" && !validEffortLevels[cfg.Thinking.Effort] {
 			problems = append(problems, fmt.Sprintf("thinking: invalid effort value %q (must be one of: xhigh, high, medium, low, minimal)", cfg.Thinking.Effort))
+		}
+	}
+	behaviorNames := make(map[string]bool)
+	for i, b := range cfg.Behaviors {
+		label := fmt.Sprintf("behaviors[%d]", i)
+		name := strings.TrimSpace(b.Name)
+		if name == "" {
+			problems = append(problems, label+": missing name")
+		} else if behaviorNames[name] {
+			problems = append(problems, fmt.Sprintf("behaviors[%d]: duplicate behavior name %q", i, name))
+		} else {
+			behaviorNames[name] = true
+		}
+		if on := strings.TrimSpace(b.On); on != "" && !validBehaviorEvents[on] {
+			problems = append(problems, fmt.Sprintf("%s: invalid on value %q (must be one of: turn_complete)", label, on))
+		}
+		if strings.TrimSpace(b.Prompt) == "" {
+			problems = append(problems, label+": missing prompt")
+		}
+		if strings.TrimSpace(b.When.FileWritten) == "" &&
+			strings.TrimSpace(b.When.FileEdited) == "" &&
+			strings.TrimSpace(b.When.ToolUsed) == "" {
+			problems = append(problems, label+": when must define at least one condition")
 		}
 	}
 

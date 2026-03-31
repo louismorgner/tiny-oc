@@ -631,6 +631,10 @@ func runNativeLoop(client *openRouterClient, state *State, toolSpecs []NativeToo
 	if toolCtx.Config != nil && toolCtx.Config.RuntimeConfig.MaxIterations > 0 {
 		maxIterations = toolCtx.Config.RuntimeConfig.MaxIterations
 	}
+	// One-shot behavior state is intentionally scoped to this runNativePrompt
+	// invocation. It is not persisted across resume/recovery.
+	firedBehaviors := make(map[string]bool)
+	pendingBehaviorChanges := &WorkingSet{}
 	for i := 0; i < maxIterations; i++ {
 		compacted, err := maybeManageContext(state, sess, toolCtx.Config, profile, client)
 		if err != nil {
@@ -748,6 +752,28 @@ func runNativeLoop(client *openRouterClient, state *State, toolSpecs []NativeToo
 		}
 
 		if len(msg.ToolCalls) == 0 {
+			var behaviors []Behavior
+			if toolCtx.Config != nil {
+				behaviors = toolCtx.Config.Behaviors
+			}
+			if b := evaluateBehaviors(pendingBehaviorChanges, behaviors, firedBehaviors); b != nil {
+				firedBehaviors[b.Name] = true
+				pendingBehaviorChanges = &WorkingSet{}
+				// Behavior prompts come from trusted agent config, not external
+				// user input. If we later add runtime interpolation here, revisit
+				// this trust boundary before injecting model-visible content.
+				behaviorMsg := Message{Role: "user", Content: b.Prompt}
+				state.Messages = append(state.Messages, behaviorMsg)
+				state.Transcript = append(state.Transcript, behaviorMsg)
+				if err := SaveStateInWorkspace(state.Workspace, state.SessionID, state); err != nil {
+					return err
+				}
+				i-- // Behavior re-entry should not consume an iteration from maxIterations
+				continue
+			}
+			// Reset pending changes so stale working-set data does not
+			// leak into the next user turn in interactive/resumed sessions.
+			pendingBehaviorChanges = &WorkingSet{}
 			return nil
 		}
 
@@ -759,6 +785,7 @@ func runNativeLoop(client *openRouterClient, state *State, toolSpecs []NativeToo
 				state.WorkingSet = &WorkingSet{}
 			}
 			state.WorkingSet.UpdateFromToolCall(call.Function.Name, call.Function.Arguments)
+			pendingBehaviorChanges.UpdateFromToolCall(call.Function.Name, call.Function.Arguments)
 
 			if !detached {
 				var parsedArgs map[string]interface{}

@@ -14,6 +14,10 @@ agents:
     description: X/Twitter growth agent — drafts posts, replies strategically, tracks what works
     model: anthropic/claude-opus-4.6
     skills: [import-twitter, post-to-x, analyze-x, agentic-memory]
+  - name: co-founder
+    description: Strategic thinking partner for founders — fundraising, product, GTM, people, and hard decisions
+    model: anthropic/claude-opus-4.6
+    skills: [yc-thinking, fundraising, product, positioning, gtm, pricing, people-ops, storytelling, company-research, person-research, market-research]
   - name: implementer
     description: Focused implementation agent — receives scoped tasks, executes precisely, reports results
     model: anthropic/claude-sonnet-4

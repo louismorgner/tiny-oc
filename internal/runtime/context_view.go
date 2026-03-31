@@ -30,6 +30,7 @@ type WorkingSet struct {
 	FilesRead    []string `json:"files_read,omitempty"`
 	FilesEdited  []string `json:"files_edited,omitempty"`
 	FilesWritten []string `json:"files_written,omitempty"`
+	ToolsUsed    []string `json:"tools_used,omitempty"`
 	RecentBash   []string `json:"recent_bash,omitempty"`
 	SubAgents    []string `json:"sub_agents,omitempty"`
 }
@@ -38,12 +39,15 @@ const maxWorkingSetEntries = 50
 
 // UpdateFromToolCall updates the working set based on a completed tool call.
 func (ws *WorkingSet) UpdateFromToolCall(toolName, argsJSON string) {
-	if argsJSON == "" {
-		return
+	if toolName != "" {
+		ws.ToolsUsed = appendUnique(ws.ToolsUsed, toolName, maxWorkingSetEntries)
 	}
+
 	var args map[string]interface{}
-	if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
-		return
+	if argsJSON != "" {
+		if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
+			return
+		}
 	}
 
 	switch toolName {

@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -22,6 +23,27 @@ import (
 	"github.com/tiny-oc/toc/internal/skill"
 	"github.com/tiny-oc/toc/internal/ui"
 )
+
+// crlfWriter wraps an io.Writer and converts lone \n to \r\n.
+// This is needed when the terminal is in raw mode, where \n only moves the
+// cursor down without returning to column 0.
+// Existing \r\n sequences are left untouched.
+type crlfWriter struct {
+	w io.Writer
+}
+
+func (c *crlfWriter) Write(p []byte) (int, error) {
+	var buf bytes.Buffer
+	for i := 0; i < len(p); i++ {
+		if p[i] == '\n' && (i == 0 || p[i-1] != '\r') {
+			buf.WriteString("\r\n")
+		} else {
+			buf.WriteByte(p[i])
+		}
+	}
+	_, err := c.w.Write(buf.Bytes())
+	return len(p), err
+}
 
 type NativeRunOptions struct {
 	Mode      string
@@ -182,6 +204,9 @@ func RunNativeSession(opts NativeRunOptions, stdin io.Reader, stdout io.Writer) 
 				return fmt.Errorf("interactive: %w", err)
 			}
 			defer lineEditor.RestoreMode()
+			// In raw mode the terminal does not translate \n to \r\n,
+			// so wrap stdout to avoid the staircase rendering artifact.
+			stdout = &crlfWriter{w: stdout}
 		}
 	}
 	if lineEditor == nil {

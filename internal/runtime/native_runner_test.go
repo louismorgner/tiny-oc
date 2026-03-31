@@ -17,6 +17,37 @@ import (
 	"github.com/tiny-oc/toc/internal/session"
 )
 
+func TestCRLFWriter(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{"bare newline", "hello\nworld\n", "hello\r\nworld\r\n"},
+		{"existing crlf", "hello\r\nworld\r\n", "hello\r\nworld\r\n"},
+		{"no newlines", "hello world", "hello world"},
+		{"mixed", "a\nb\r\nc\n", "a\r\nb\r\nc\r\n"},
+		{"empty", "", ""},
+		{"only newline", "\n", "\r\n"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var buf bytes.Buffer
+			w := &crlfWriter{w: &buf}
+			n, err := w.Write([]byte(tt.input))
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if n != len(tt.input) {
+				t.Fatalf("Write returned %d, want %d", n, len(tt.input))
+			}
+			if got := buf.String(); got != tt.want {
+				t.Fatalf("got %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestRunNativeSession_DetachedToolLoop(t *testing.T) {
 	workDir := t.TempDir()
 	metaWorkspace := t.TempDir()

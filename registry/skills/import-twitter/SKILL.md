@@ -13,7 +13,7 @@ Scrape tweets and threads from X/Twitter using the Apify integration.
 ## How to use
 
 ```bash
-toc runtime invoke apify run_actor --actorId "apidojo/tweet-scraper" --input '{"startUrls": [{"url": "<url>"}]}'
+toc runtime invoke apify run_actor --actorId "apidojo~tweet-scraper" --input '{"startUrls": [{"url": "<url>"}]}'
 ```
 
 ## What to do with the output

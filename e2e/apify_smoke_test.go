@@ -70,7 +70,7 @@ func TestSmoke_ApifyRunActor(t *testing.T) {
 		Integration: "apify",
 		Action:      "run_actor",
 		Params: map[string]string{
-			"actorId": "apidojo/tweet-scraper",
+			"actorId": "apidojo~tweet-scraper",
 			"input":   `{"startUrls":[{"url":"https://x.com/elonmusk"}],"maxTweets":5}`,
 		},
 		Credential: &integration.Credential{AccessToken: "apft_test-key-123"},
@@ -81,7 +81,8 @@ func TestSmoke_ApifyRunActor(t *testing.T) {
 	}
 
 	// 1. Verify actorId was templated into the URL path.
-	expectedPath := "/v2/acts/apidojo/tweet-scraper/run-sync-get-dataset-items"
+	//    Apify uses "~" as the namespace separator in API URLs.
+	expectedPath := "/v2/acts/apidojo~tweet-scraper/run-sync-get-dataset-items"
 	if gotPath != expectedPath {
 		t.Errorf("expected path %q, got %q", expectedPath, gotPath)
 	}
@@ -172,7 +173,7 @@ func TestSmoke_ApifyRunActor_LiveAPI(t *testing.T) {
 		Integration: "apify",
 		Action:      "run_actor",
 		Params: map[string]string{
-			"actorId": "apidojo/tweet-scraper",
+			"actorId": "apidojo~tweet-scraper",
 			"input":   `{"startUrls":[{"url":"https://x.com/elonmusk"}],"maxItems":2}`,
 		},
 		Credential: &integration.Credential{AccessToken: token},
@@ -182,8 +183,9 @@ func TestSmoke_ApifyRunActor_LiveAPI(t *testing.T) {
 		t.Fatalf("Invoke failed: %v", err)
 	}
 
-	if resp.StatusCode != 200 {
-		t.Fatalf("expected 200, got %d — error: %s", resp.StatusCode, resp.Error)
+	// Apify returns 201 for newly created actor runs.
+	if resp.StatusCode != 200 && resp.StatusCode != 201 {
+		t.Fatalf("expected 200 or 201, got %d — error: %s", resp.StatusCode, resp.Error)
 	}
 
 	// Apify returns dataset items as a top-level JSON array.

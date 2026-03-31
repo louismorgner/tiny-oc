@@ -13,7 +13,7 @@ Extract transcripts from YouTube videos using the Apify integration.
 ## How to use
 
 ```bash
-toc runtime invoke apify run_actor --actorId "pintostudio/youtube-transcript-scraper" --input '{"videoUrls": ["<url>"], "language": "en"}'
+toc runtime invoke apify run_actor --actorId "pintostudio~youtube-transcript-scraper" --input '{"videoUrls": ["<url>"], "language": "en"}'
 ```
 
 ## What to do with the output

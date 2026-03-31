@@ -13,13 +13,13 @@ Scrape X/Twitter accounts and tweets to analyze content strategy, engagement pat
 ## Scrape a user's recent tweets
 
 ```bash
-toc runtime invoke apify run_actor --actorId "apidojo/tweet-scraper" --input '{"startUrls": [{"url": "https://x.com/<username>"}], "maxTweets": 50}'
+toc runtime invoke apify run_actor --actorId "apidojo~tweet-scraper" --input '{"startUrls": [{"url": "https://x.com/<username>"}], "maxTweets": 50}'
 ```
 
 ## Scrape a specific tweet and its replies
 
 ```bash
-toc runtime invoke apify run_actor --actorId "apidojo/tweet-scraper" --input '{"startUrls": [{"url": "https://x.com/<username>/status/<tweet_id>"}]}'
+toc runtime invoke apify run_actor --actorId "apidojo~tweet-scraper" --input '{"startUrls": [{"url": "https://x.com/<username>/status/<tweet_id>"}]}'
 ```
 
 ## Search recent tweets via API

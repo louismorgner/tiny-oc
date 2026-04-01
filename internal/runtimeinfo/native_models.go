@@ -135,6 +135,17 @@ var nativeModelProfiles = []NativeModelProfile{
 		MaxOutputTokens:   65536,
 		ReservedBuffer:    8192,
 	},
+	{
+		ID:                "liquid/lfm-2.5-1.2b-thinking:free",
+		Label:             "Liquid LFM 2.5 1.2B Thinking",
+		Description:       "free 1.2B reasoning model from Liquid AI — lightweight for agentic utility tasks",
+		SupportsTools:     true,
+		SupportsStreaming: true,
+		SupportsThinking:  true,
+		ContextWindow:     32768,
+		MaxOutputTokens:   4096,
+		ReservedBuffer:    2048,
+	},
 	// --- Small / utility models (used as small_model for compaction and summarization) ---
 	{
 		ID:                "openai/gpt-4.1-mini",

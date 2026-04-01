@@ -105,6 +105,25 @@ func TestLookupNativeProfileClaudeHaiku46(t *testing.T) {
 	}
 }
 
+func TestLookupNativeProfileLiquidLFM(t *testing.T) {
+	profile, ok := LookupNativeProfile("liquid/lfm-2.5-1.2b-thinking:free")
+	if !ok {
+		t.Fatal("expected to find liquid/lfm-2.5-1.2b-thinking:free profile")
+	}
+	if profile.Label != "Liquid LFM 2.5 1.2B Thinking" {
+		t.Fatalf("Label = %q, want %q", profile.Label, "Liquid LFM 2.5 1.2B Thinking")
+	}
+	if profile.ContextWindow != 32768 {
+		t.Fatalf("ContextWindow = %d, want 32768", profile.ContextWindow)
+	}
+	if !profile.SupportsTools {
+		t.Fatal("expected SupportsTools = true")
+	}
+	if !profile.SupportsThinking {
+		t.Fatal("expected SupportsThinking = true")
+	}
+}
+
 func TestValidateNativeModel_RejectsUnknownWithoutOverride(t *testing.T) {
 	err := ValidateNativeModel("meta-llama/unknown", false)
 	if err == nil {

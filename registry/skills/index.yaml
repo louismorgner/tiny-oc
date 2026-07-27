@@ -27,8 +27,8 @@ skills:
     description: Post tweets and replies to X/Twitter using the Twitter API v2
     tags: [twitter, posting, x]
   - name: analyze-x
-    description: Scrape and analyze X/Twitter profiles and tweets for growth strategy
-    tags: [apify, twitter, analytics, x]
+    description: Scrape and analyze X/Twitter posts, profiles, and audiences for growth strategy
+    tags: [apify, twitter, analytics, audience, followers, x]
   - name: yc-thinking
     description: Core YC and Paul Graham frameworks for startup thinking
     tags: [strategy, yc, frameworks, startup]

@@ -1,26 +1,68 @@
 ---
 name: analyze-x
-description: Scrape and analyze X/Twitter profiles and tweets using Apify
+description: Scrape and analyze X/Twitter posts, profiles, and audiences using Apify
 metadata:
-  version: "0.1"
+  version: "0.2"
   requires_integration: "apify, twitter"
 ---
 
 # analyze-x
 
-Scrape X/Twitter accounts and tweets to analyze content strategy, engagement patterns, and growth tactics.
+Scrape X/Twitter posts, profiles, and audiences. Analyze content strategy,
+engagement patterns, and growth tactics.
 
-## Scrape a user's recent tweets
+## Scrape a user's recent posts
 
 ```bash
-toc runtime invoke apify run_actor --actorId "apidojo~tweet-scraper" --input '{"startUrls": [{"url": "https://x.com/<username>"}], "maxTweets": 50}'
+toc runtime invoke apify run_actor --actorId "xquik~x-tweet-scraper" --input '{"mode":"profileTweets","twitterHandles":["<username>"],"maxItems":50,"maxItemsPerTarget":50,"outputVariant":"rich","fieldStyle":"camelCase","outputPreset":"nested"}'
 ```
 
 ## Scrape a specific tweet and its replies
 
 ```bash
-toc runtime invoke apify run_actor --actorId "apidojo~tweet-scraper" --input '{"startUrls": [{"url": "https://x.com/<username>/status/<tweet_id>"}]}'
+toc runtime invoke apify run_actor --actorId "xquik~x-tweet-scraper" --input '{"mode":"replies","tweetUrls":["https://x.com/<username>/status/<tweet_id>"],"maxItems":100,"maxItemsPerTarget":100,"includeOriginalTweet":true,"outputVariant":"rich","fieldStyle":"camelCase","outputPreset":"nested"}'
 ```
+
+## Compare follower audiences
+
+```bash
+toc runtime invoke apify run_actor --actorId "xquik~x-follower-scraper" --input '{"twitterHandles":["<account_one>","<account_two>"],"relation":"followers","maxItems":200,"maxItemsPerTarget":100,"outputMode":"full","includeTargetMetadata":true,"dedupeMode":"merge"}'
+```
+
+## Analyze one account's network
+
+```bash
+toc runtime invoke apify run_actor --actorId "xquik~x-follower-scraper" --input '{"twitterHandles":["<username>"],"relations":["followers","following"],"maxItems":200,"maxItemsPerTarget":100,"outputMode":"compact","includeTargetMetadata":true,"dedupeMode":"none"}'
+```
+
+The follower actor supports `followers`, `following`, `verified_followers`,
+`list_members`, `list_followers`, and `community_members`. Its output modes are
+`compact`, `full`, and `raw`. Use `dedupeMode: "none"` to retain target
+provenance, `"first"` to keep the first match, or `"merge"` for overlap
+analysis.
+
+For both actors, `maxItems` caps the whole run. `maxItemsPerTarget` optionally
+caps each target. Nonpositive per-target values are ignored.
+
+Actor listings:
+[Xquik X Tweet Scraper](https://apify.com/xquik/x-tweet-scraper) and
+[Xquik X Follower Scraper](https://apify.com/xquik/x-follower-scraper).
+
+Xquik is an independent third-party service. Not affiliated with X Corp. "Twitter" and "X" are trademarks of X Corp.
+
+## Existing Tweet Scraper Route
+
+Keep using the existing Apify Actor when that route is already configured:
+
+```bash
+toc runtime invoke apify run_actor --actorId "apidojo~tweet-scraper" --input '{"startUrls":[{"url":"https://x.com/<username>"}],"maxTweets":50}'
+```
+
+```bash
+toc runtime invoke apify run_actor --actorId "apidojo~tweet-scraper" --input '{"startUrls":[{"url":"https://x.com/<username>/status/<tweet_id>"}]}'
+```
+
+Choose an Actor explicitly. Do not replace a working route without user approval.
 
 ## Search recent tweets via API
 
